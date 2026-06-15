@@ -62,6 +62,22 @@ def test_discover_supports_root_path(home: Path, tmp_path: Path) -> None:
     assert rows[0].source_path == "rootskill"
 
 
+def test_discover_supports_bare_root_skill_md(home: Path, tmp_path: Path) -> None:
+    _, bare = _build_repo_with(
+        tmp_path,
+        {
+            "SKILL.md": "# Bare Root Skill\n\nA skill at repo root.\n",
+            "README.md": "x\n",
+        },
+    )
+    repos.add("a", f"file://{bare}")
+    rows = skills.list_skills()
+    assert [r.qualified_name for r in rows] == ["a/a"]
+    assert rows[0].source_path == ""
+    assert rows[0].title == "Bare Root Skill"
+    assert rows[0].description == "A skill at repo root."
+
+
 def test_precedence_skills_dir_wins(home: Path, tmp_path: Path) -> None:
     _, bare = _build_repo_with(
         tmp_path,

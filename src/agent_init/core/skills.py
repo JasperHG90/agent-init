@@ -38,7 +38,16 @@ PRECEDENCE = (
     "",  # root-level <name>/SKILL.md
 )
 
-_SKILL_RE = re.compile(r"^(?P<prefix>(?:skills/|\.claude/skills/)?)(?P<name>[^/]+)/SKILL\.md$")
+# Matches:
+#   skills/<name>/SKILL.md          (rank 0)
+#   .claude/skills/<name>/SKILL.md  (rank 1)
+#   <name>/SKILL.md                 (rank 2)
+#   SKILL.md at repo root           (rank 3)
+_SKILL_RE = re.compile(
+    r"^(?:(?P<prefix>skills/|\.claude/skills/)(?P<name1>[^/]+)/SKILL\.md|"
+    r"(?P<name2>[^/]+)/SKILL\.md|"
+    r"^SKILL\.md)$"
+)
 
 
 class DiscoveredSkill(NamedTuple):
@@ -67,17 +76,19 @@ def discover(repo_alias: str) -> IndexResult:
         match = _SKILL_RE.match(p)
         if not match:
             continue
-        prefix = match.group("prefix")
-        name = match.group("name")
+        prefix = match.group("prefix") or ""
+        name = match.group("name1") or match.group("name2")
         if prefix == "skills/":
             rank = 0
         elif prefix == ".claude/skills/":
             rank = 1
-        elif prefix == "":
+        elif name:
             rank = 2
-        else:  # pragma: no cover — regex restricts prefix
-            continue
-        source_dir = p[: -len("/SKILL.md")]
+        else:
+            rank = 3
+        source_dir = p[: -len("/SKILL.md")] if p != "SKILL.md" else ""
+        if not name:
+            name = repo_alias
         by_name.setdefault(name, []).append(
             (rank, DiscoveredSkill(name=name, source_path=source_dir, skill_md_path=p))
         )
@@ -112,6 +123,7 @@ def index_repo(repo_alias: str) -> IndexResult:
                     repo_alias=repo_alias,
                     skill_name=skill.name,
                     source_path=skill.source_path,
+                    skill_md_path=skill.skill_md_path,
                     title=title,
                     description=description,
                     indexed_at_sha=result.sha,
@@ -188,13 +200,31 @@ def _parse_skill_md(
     if title_idx is not None:
         para: list[str] = []
         for line in lines[title_idx + 1 :]:
-            if line.strip():
-                para.append(line.strip())
-            elif para:
-                break
+            stripped = line.strip()
+            if not stripped:
+                if para:
+                    break
+                continue
+            if stripped.startswith("#") or stripped == "---" or stripped.startswith("|"):
+                continue
+            para.append(stripped)
         if para:
             description = " ".join(para)
     return title, description, prereqs, provides
+
+
+class SkillNotIndexedError(KeyError):
+    """The requested qualified_name doesn't appear in the skill index."""
+
+
+def read_skill_content(qualified_name: str) -> str:
+    """Return the raw SKILL.md bytes for an indexed skill."""
+    with db.session() as session:
+        row = session.get(SkillIndex, qualified_name)
+    if row is None or not row.skill_md_path:
+        raise SkillNotIndexedError(qualified_name)
+    repo_dir = repos.clone_dir(row.repo_alias)
+    return git.get_backend().cat_file(repo_dir, row.indexed_at_sha, row.skill_md_path)
 
 
 def list_skills(repo_alias: str | None = None) -> list[SkillIndex]:

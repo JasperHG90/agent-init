@@ -1,5 +1,7 @@
 <p align="center">
   <img src="assets/logo.png" alt="agent-init logo" width="480">
+  <br>
+  <img src="assets/demo.gif" alt="agent-init TUI demo" width="640">
 </p>
 
 # agent-init
@@ -84,6 +86,7 @@ A registered repo must expose at least one skill at one of these paths (preceden
 1. `skills/<name>/SKILL.md`
 2. `.claude/skills/<name>/SKILL.md`
 3. `<name>/SKILL.md` at repo root
+4. `SKILL.md` at repo root (the repo alias becomes the skill name)
 
 Skills are referenced everywhere as `<repo_alias>/<skill_name>`. Repos with no discoverable skills are rejected on `repo add` (pass `--allow-empty` to override).
 

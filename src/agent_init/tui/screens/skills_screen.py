@@ -8,6 +8,7 @@ from textual.widgets import DataTable, Input, Static
 
 from agent_init.core import git, install, manifest, repos, skills
 from agent_init.tui.modals.skill_install import SkillInstallConfig, SkillInstallModal
+from agent_init.tui.modals.skill_view import SkillViewModal
 
 
 class SkillsScreen(Screen[None]):
@@ -16,6 +17,8 @@ class SkillsScreen(Screen[None]):
         ("b", "app.pop_screen", "Back"),
         ("slash", "focus_search", "Search"),
         ("f", "cycle_repo_filter", "Filter by repo"),
+        ("enter", "view_current", "View"),
+        ("v", "view_current", "View"),
         ("i", "install_current", "Install"),
         ("q", "app.quit", "Quit"),
     ]
@@ -30,7 +33,7 @@ class SkillsScreen(Screen[None]):
         yield DataTable(id="skills-table", cursor_type="row")
         yield Static("", id="status", markup=False)
         yield Static(
-            "[/] Search  [f] Repo filter  [i] Install  [b] Back  [q] Quit",
+            "[/] Search  [f] Repo filter  [enter/v] View  [i] Install  [b] Back  [q] Quit",
             id="hint",
             markup=False,
         )
@@ -101,6 +104,23 @@ class SkillsScreen(Screen[None]):
             return None
         row_key, _ = table.coordinate_to_cell_key(table.cursor_coordinate)
         return str(row_key.value) if row_key and row_key.value is not None else None
+
+    def action_view_current(self) -> None:
+        qn = self._selected()
+        if qn is None:
+            if self.query_one(DataTable).row_count == 0:
+                self.app.notify(
+                    "no skills indexed — add a repo first", severity="warning"
+                )
+            else:
+                self._status("no row selected")
+            return
+        try:
+            content = skills.read_skill_content(qn)
+        except skills.SkillNotIndexedError as exc:
+            self.app.notify(f"view failed: {exc}", severity="error")
+            return
+        self.app.push_screen(SkillViewModal(qn, content))
 
     def action_install_current(self) -> None:
         qn = self._selected()

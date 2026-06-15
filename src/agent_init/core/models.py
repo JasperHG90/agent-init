@@ -30,6 +30,7 @@ class SkillIndex(SQLModel, table=True):
     repo_alias: str = SQLField(index=True)
     skill_name: str = SQLField(index=True)
     source_path: str  # path relative to repo root, e.g. "skills/code-review"
+    skill_md_path: str | None = None  # path of the SKILL.md file relative to repo root
     title: str | None = None
     description: str | None = None
     indexed_at_sha: str

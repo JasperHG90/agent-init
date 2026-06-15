@@ -157,9 +157,10 @@ def resolve_install_version(
     if tag is not None:
         try:
             tag_sha = backend.resolve_ref(repo_dir, tag)
-            tag_paths = backend.ls_tree(repo_dir, tag_sha, source_path)
+            tag_paths = backend.ls_tree(repo_dir, tag_sha, source_path or "")
+            skill_md_path = f"{source_path}/SKILL.md" if source_path else "SKILL.md"
             has_skill = any(
-                p == f"{source_path}/SKILL.md" or p.endswith("/SKILL.md")
+                p == skill_md_path or p.endswith("/SKILL.md")
                 for p in tag_paths
             )
             if not has_skill:

@@ -124,11 +124,13 @@ class RealGitBackend:
         "empty input" error.
         """
         dest_dir.mkdir(parents=True, exist_ok=True)
+        # Empty source_path means the whole repo root is the skill.
+        path_spec = source_path or "."
         try:
             archive_result = subprocess.run(
                 [
                     "git", "-C", str(repo_dir), "archive",
-                    "--format=tar", sha, "--", source_path,
+                    "--format=tar", sha, "--", path_spec,
                 ],
                 check=True,
                 capture_output=True,
@@ -140,11 +142,12 @@ class RealGitBackend:
             raise GitError(f"git archive failed: {stderr}") from exc
 
         try:
+            strip_components = source_path.count("/") + 1 if source_path else 0
             tar_result = subprocess.run(
                 [
                     "tar", "-x",
                     "-C", str(dest_dir),
-                    f"--strip-components={source_path.count('/') + 1}",
+                    f"--strip-components={strip_components}",
                 ],
                 input=archive_result.stdout,
                 check=True,
@@ -158,13 +161,14 @@ class RealGitBackend:
         _ = tar_result
 
     def last_touching_sha(self, repo_dir: Path, ref: str, source_path: str) -> str:
+        path_spec = source_path or "SKILL.md"
         out = _run([
             "git", "-C", str(repo_dir),
-            "log", "-1", "--format=%H", ref, "--", source_path,
+            "log", "-1", "--format=%H", ref, "--", path_spec,
         ])
         sha = out.decode().strip()
         if not sha:
-            raise GitError(f"no commits touch {source_path} reachable from {ref}")
+            raise GitError(f"no commits touch {path_spec} reachable from {ref}")
         return sha
 
 

@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 from textual.app import ComposeResult
 from textual.screen import Screen
 from textual.widgets import DataTable, Static
+from textual.worker import WorkerState
 
 from agent_init.core import git, repos
 from agent_init.tui.modals.confirm import ConfirmModal
@@ -74,6 +75,11 @@ class ReposScreen(Screen[None]):
     def _on_add(self, result: RepoAddResult | None) -> None:
         if result is None:
             return
+        self._status(f"adding {result.alias}…")
+        self._adding = result
+        self.run_worker(self._do_add(result), exclusive=True)
+
+    async def _do_add(self, result: RepoAddResult) -> None:
         try:
             repos.add(
                 result.alias,
@@ -88,9 +94,20 @@ class ReposScreen(Screen[None]):
             git.GitError,
         ) as exc:
             self.app.notify(f"add failed: {exc}", severity="error")
+            self._status(f"add failed: {exc}")
             return
         self.app.notify(f"added {result.alias}", title="Repo added")
+        self._status(f"added {result.alias}")
         self._populate()
+
+    def on_worker_state_changed(self, event) -> None:  # type: ignore[no-untyped-def]
+        adding = getattr(self, "_adding", None)
+        if adding is None:
+            return
+        if event.state == WorkerState.RUNNING:
+            self._status(f"adding {adding.alias}…")
+        elif event.state in (WorkerState.SUCCESS, WorkerState.CANCELLED, WorkerState.ERROR):
+            self._adding = None
 
     def action_refresh_current(self) -> None:
         alias = self._selected_alias()

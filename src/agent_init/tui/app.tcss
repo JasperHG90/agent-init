@@ -230,7 +230,9 @@ ModalScreen {
 }
 
 .modal {
-    width: 80%;
+    width: auto;
+    min-width: 70;
+    max-width: 95%;
     height: auto;
     max-height: 90%;
     background: $surface;

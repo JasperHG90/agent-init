@@ -171,9 +171,12 @@ def rename(old: str, new: str) -> RegisteredRepo:
                     repo_alias=new,
                     skill_name=row.skill_name,
                     source_path=row.source_path,
+                    skill_md_path=row.skill_md_path,
                     title=row.title,
                     description=row.description,
                     indexed_at_sha=row.indexed_at_sha,
+                    prereqs=row.prereqs,
+                    provides=row.provides,
                 )
             )
             session.delete(row)
@@ -206,9 +209,12 @@ def rename(old: str, new: str) -> RegisteredRepo:
                                 repo_alias=old,
                                 skill_name=row.skill_name,
                                 source_path=row.source_path,
+                                skill_md_path=row.skill_md_path,
                                 title=row.title,
                                 description=row.description,
                                 indexed_at_sha=row.indexed_at_sha,
+                                prereqs=row.prereqs,
+                                provides=row.provides,
                             )
                         )
                         session.delete(row)

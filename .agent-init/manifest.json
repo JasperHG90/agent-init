@@ -1,0 +1,44 @@
+{
+  "manifest_version": 1,
+  "template": "default",
+  "skills": [
+    {
+      "qualified_name": "anthropic/claude-api",
+      "repo_alias": "anthropic",
+      "repo_url": "https://github.com/anthropics/skills",
+      "source_path": "skills/claude-api",
+      "target_dir": ".claude/skills/claude-api",
+      "current": {
+        "tag": null,
+        "sha": "57546260929473d4e0d1c1bb75297be2fdfa1949",
+        "installed_at": "2026-06-15T15:04:43.999496Z"
+      },
+      "history": [],
+      "content_hash": "a4aea010b6ff9e504a0ff23a1b711d66483beadd1f9aff641451d0d8f25c219a"
+    },
+    {
+      "qualified_name": "anthropic/skill-creator",
+      "repo_alias": "anthropic",
+      "repo_url": "https://github.com/anthropics/skills",
+      "source_path": "skills/skill-creator",
+      "target_dir": ".claude/skills/skill-creator",
+      "current": {
+        "tag": null,
+        "sha": "b9e19e6f44773509fbdd7001d77ff41a49a486c1",
+        "installed_at": "2026-06-15T15:04:59.513936Z"
+      },
+      "history": [],
+      "content_hash": "4557d54c524c67984e4bab23fa436e90196292ae8df4d2093f0ce0e6951bfc1c"
+    }
+  ],
+  "rules": [],
+  "managed_files": [
+    "AGENTS.md",
+    "CLAUDE.md",
+    "GEMINI.md"
+  ],
+  "managed_region_hashes": {
+    "header": "02725b679e8cc3249112cb89a8cc03ac7d709174d8b4b098d533f4b4fef71631",
+    "rules": "3bd387ee22936d058951607514d65d95035c90e0d2c62bc44c3a6e9fe1e38863"
+  }
+}

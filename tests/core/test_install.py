@@ -1,0 +1,195 @@
+from __future__ import annotations
+
+from pathlib import Path
+
+import pytest
+
+from agent_init.core import install, manifest, paths, repos
+from tests.fixtures import git_fixtures
+
+
+def _build_repo(tmp_path: Path, files: dict[str, str]) -> tuple[Path, Path]:
+    working = git_fixtures.make_source_repo(tmp_path / "src", files=files)
+    bare = git_fixtures.make_bare_remote(working, tmp_path / "bare.git")
+    return working, bare
+
+
+def test_install_first_writes_files_and_manifest(
+    home: Path, project_root: Path, tmp_path: Path
+) -> None:
+    _, bare = _build_repo(
+        tmp_path,
+        {
+            "skills/foo/SKILL.md": "# foo\n\nDescribed.\n",
+            "skills/foo/extra.md": "auxiliary\n",
+        },
+    )
+    repos.add("a", f"file://{bare}")
+    install.install(project_root, "a/foo")
+
+    target = project_root / ".claude" / "skills" / "foo"
+    assert (target / "SKILL.md").read_text().startswith("# foo")
+    assert (target / "extra.md").read_text() == "auxiliary\n"
+    m = manifest.load(project_root)
+    assert len(m.skills) == 1
+    assert m.skills[0].qualified_name == "a/foo"
+    assert m.skills[0].source_path == "skills/foo"
+    assert m.skills[0].current.sha
+    assert m.skills[0].history == []
+
+
+def test_install_writes_snapshot(home: Path, project_root: Path, tmp_path: Path) -> None:
+    _, bare = _build_repo(tmp_path, {"skills/foo/SKILL.md": "# foo\n"})
+    repos.add("a", f"file://{bare}")
+    installed = install.install(project_root, "a/foo")
+    snap = paths.snapshots_cache_dir() / "a" / installed.current.sha / "foo"
+    assert (snap / "SKILL.md").exists()
+
+
+def test_install_unknown_skill_errors(home: Path, project_root: Path) -> None:
+    with pytest.raises(install.SkillNotIndexedError):
+        install.install(project_root, "ghost/skill")
+
+
+def test_install_with_tag_records_tag(home: Path, project_root: Path, tmp_path: Path) -> None:
+    working = git_fixtures.make_source_repo(
+        tmp_path / "src",
+        files={"skills/foo/SKILL.md": "# foo\n"},
+    )
+    git_fixtures.add_tag(working, "v1.0.0")
+    bare = git_fixtures.make_bare_remote(working, tmp_path / "bare.git")
+    repos.add("a", f"file://{bare}")
+    installed = install.install(project_root, "a/foo")
+    assert installed.current.tag == "v1.0.0"
+    assert installed.current.identifier().startswith("v1.0.0+")
+
+
+def test_update_when_upstream_unchanged_is_noop(
+    home: Path, project_root: Path, tmp_path: Path
+) -> None:
+    _, bare = _build_repo(tmp_path, {"skills/foo/SKILL.md": "# foo\n"})
+    repos.add("a", f"file://{bare}")
+    install.install(project_root, "a/foo")
+    initial_sha = manifest.load(project_root).skills[0].current.sha
+
+    install.update(project_root, "a/foo")
+    m = manifest.load(project_root)
+    assert m.skills[0].current.sha == initial_sha
+    assert m.skills[0].history == []
+
+
+def test_update_after_upstream_change_pushes_history(
+    home: Path, project_root: Path, tmp_path: Path
+) -> None:
+    working, bare = _build_repo(tmp_path, {"skills/foo/SKILL.md": "# v1\n"})
+    repos.add("a", f"file://{bare}")
+    install.install(project_root, "a/foo")
+    v1_sha = manifest.load(project_root).skills[0].current.sha
+
+    git_fixtures.add_commit(working, {"skills/foo/SKILL.md": "# v2\n"}, "v2")
+    git_fixtures.push_to_bare(working, bare)
+    repos.refresh("a")
+
+    install.update(project_root, "a/foo")
+    m = manifest.load(project_root)
+    assert m.skills[0].current.sha != v1_sha
+    assert m.skills[0].history[0].sha == v1_sha
+    target = project_root / ".claude" / "skills" / "foo"
+    assert (target / "SKILL.md").read_text() == "# v2\n"
+
+
+def test_update_refuses_when_source_path_moved(
+    home: Path, project_root: Path, tmp_path: Path
+) -> None:
+    working, bare = _build_repo(tmp_path, {"skills/foo/SKILL.md": "# v1\n"})
+    repos.add("a", f"file://{bare}")
+    install.install(project_root, "a/foo")
+
+    # Move the skill: delete old, add new at different path. Both still named "foo".
+    (working / "skills" / "foo" / "SKILL.md").unlink()
+    (working / "skills" / "foo").rmdir()
+    git_fixtures.add_commit(
+        working,
+        {".claude/skills/foo/SKILL.md": "# moved\n"},
+        "move foo",
+    )
+    git_fixtures.push_to_bare(working, bare)
+    repos.refresh("a")
+
+    with pytest.raises(install.SkillSourcePathChangedError):
+        install.update(project_root, "a/foo")
+
+
+def test_delete_removes_target_and_manifest_entry(
+    home: Path, project_root: Path, tmp_path: Path
+) -> None:
+    _, bare = _build_repo(tmp_path, {"skills/foo/SKILL.md": "# foo\n"})
+    repos.add("a", f"file://{bare}")
+    install.install(project_root, "a/foo")
+    target = project_root / ".claude" / "skills" / "foo"
+    assert target.exists()
+
+    install.delete(project_root, "a/foo")
+    assert not target.exists()
+    m = manifest.load(project_root)
+    assert m.skills == []
+
+
+def test_delete_unknown_errors(home: Path, project_root: Path) -> None:
+    with pytest.raises(install.SkillNotInstalledError):
+        install.delete(project_root, "ghost/skill")
+
+
+def test_rollback_restores_previous_version(
+    home: Path, project_root: Path, tmp_path: Path
+) -> None:
+    working, bare = _build_repo(tmp_path, {"skills/foo/SKILL.md": "# v1\n"})
+    repos.add("a", f"file://{bare}")
+    install.install(project_root, "a/foo")
+    v1_sha = manifest.load(project_root).skills[0].current.sha
+
+    git_fixtures.add_commit(working, {"skills/foo/SKILL.md": "# v2\n"}, "v2")
+    git_fixtures.push_to_bare(working, bare)
+    repos.refresh("a")
+    install.update(project_root, "a/foo")
+
+    rolled = install.rollback(project_root, "a/foo")
+    assert rolled.current.sha == v1_sha
+    target = project_root / ".claude" / "skills" / "foo"
+    assert (target / "SKILL.md").read_text() == "# v1\n"
+
+
+def test_rollback_without_history_errors(
+    home: Path, project_root: Path, tmp_path: Path
+) -> None:
+    _, bare = _build_repo(tmp_path, {"skills/foo/SKILL.md": "# foo\n"})
+    repos.add("a", f"file://{bare}")
+    install.install(project_root, "a/foo")
+    with pytest.raises(install.NoHistoryToRollbackError):
+        install.rollback(project_root, "a/foo")
+
+
+def test_rollback_works_from_local_snapshot_even_if_upstream_lost(
+    home: Path, project_root: Path, tmp_path: Path
+) -> None:
+    """The whole point of the local snapshot: rollback should not require git."""
+    working, bare = _build_repo(tmp_path, {"skills/foo/SKILL.md": "# v1\n"})
+    repos.add("a", f"file://{bare}")
+    install.install(project_root, "a/foo")
+    v1_sha = manifest.load(project_root).skills[0].current.sha
+
+    git_fixtures.add_commit(working, {"skills/foo/SKILL.md": "# v2\n"}, "v2")
+    git_fixtures.push_to_bare(working, bare)
+    repos.refresh("a")
+    install.update(project_root, "a/foo")
+
+    # Wipe the cached clone and the upstream bare repo — only the snapshot remains.
+    import shutil
+
+    shutil.rmtree(repos.clone_dir("a"))
+    shutil.rmtree(bare)
+
+    rolled = install.rollback(project_root, "a/foo")
+    assert rolled.current.sha == v1_sha
+    target = project_root / ".claude" / "skills" / "foo"
+    assert (target / "SKILL.md").read_text() == "# v1\n"

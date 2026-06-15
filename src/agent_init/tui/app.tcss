@@ -1,0 +1,303 @@
+/* Brutalist-minimal theme — terminal-native, high-contrast, no SaaS blue.
+ * Per the bencium-innovative-ux-designer skill: commit fully, no half measures.
+ * Per theme-factory: cohesive palette with character.
+ *
+ * Palette (Ember on Ink):
+ *   ink     #050505  background
+ *   onyx    #0c0c0c  surface
+ *   slate   #161616  panels
+ *   rule    #2a2620  borders, dividers
+ *   amber   #ffb000  primary accent
+ *   ember   #ff6b1a  secondary accent / destructive
+ *   bone    #e8e2d5  primary text
+ *   ash     #7d7869  muted text
+ *   moss    #6fbf73  success / clean state
+ *   coal    #1a1814  selected row
+ */
+
+$background: #050505;
+$surface: #0c0c0c;
+$primary: #ffb000;
+$secondary: #ff6b1a;
+$accent: #ffb000;
+$warning: #ff6b1a;
+$error: #d94f1a;
+$success: #6fbf73;
+$text: #e8e2d5;
+$text-muted: #7d7869;
+$rule-color: #2a2620;
+$coal: #1a1814;
+$ember: #ff6b1a;
+$bone: #e8e2d5;
+
+Screen {
+    background: $background;
+    color: $text;
+}
+
+#title {
+    dock: top;
+    background: $background;
+    color: $primary;
+    text-style: bold;
+    text-align: left;
+    padding: 1 2;
+    border-bottom: thick $primary;
+}
+
+#banner-box {
+    dock: top;
+    height: auto;
+    background: $background;
+    border-bottom: heavy $primary;
+    padding: 1 2 1 2;
+}
+
+#banner {
+    background: $background;
+    color: $primary;
+    text-style: bold;
+    height: 2;
+}
+
+#banner-sub {
+    background: $background;
+    color: $text-muted;
+    text-style: italic;
+    height: 1;
+    padding-top: 0;
+}
+
+#hint {
+    dock: bottom;
+    background: $background;
+    color: $text-muted;
+    padding: 0 2;
+    border-top: heavy $rule-color;
+}
+
+#status {
+    dock: bottom;
+    background: $background;
+    color: $primary;
+    padding: 0 2;
+    text-style: italic;
+}
+
+.menu {
+    width: 100%;
+    margin: 2 4;
+    padding: 1 0;
+}
+
+.menu-item {
+    padding: 0 4;
+    color: $text;
+}
+
+.config-heading {
+    background: $background;
+    color: $primary;
+    padding: 1 2 0 2;
+    text-style: bold;
+}
+
+.config-paths {
+    color: $text-muted;
+    padding: 0 2;
+}
+
+.config-hint {
+    color: $text-muted;
+    padding: 1 2;
+    text-style: italic;
+}
+
+TabbedContent {
+    background: $background;
+}
+
+TabbedContent Tabs {
+    background: $background;
+}
+
+TabPane {
+    padding: 0;
+}
+
+#global-pane, #project-pane {
+    padding: 1 0;
+}
+
+DataTable {
+    height: 1fr;
+    margin: 0 0;
+    background: $background;
+}
+
+DataTable > .datatable--header {
+    background: $background;
+    color: $primary;
+    text-style: bold;
+}
+
+DataTable > .datatable--cursor {
+    background: $coal;
+    color: $primary;
+    text-style: bold;
+}
+
+DataTable > .datatable--hover {
+    background: $coal;
+}
+
+#search-bar {
+    dock: top;
+    height: 3;
+    margin: 0;
+    background: $surface;
+    border: heavy $rule-color;
+}
+
+Input {
+    background: $surface;
+    color: $text;
+    border: heavy $rule-color;
+}
+
+Input:focus {
+    border: heavy $primary;
+}
+
+TextArea {
+    background: $surface;
+    color: $text;
+    border: heavy $rule-color;
+}
+
+TextArea:focus {
+    border: heavy $primary;
+}
+
+Checkbox {
+    background: $background;
+    color: $text;
+    padding: 0 0;
+}
+
+Checkbox > .toggle--button {
+    background: $rule-color;
+    color: $primary;
+}
+
+Button {
+    background: $surface;
+    color: $text;
+    border: heavy $rule-color;
+    min-width: 12;
+    padding: 0 2;
+    text-style: bold;
+}
+
+Button:hover {
+    background: $coal;
+    color: $primary;
+}
+
+Button:focus {
+    border: heavy $primary;
+}
+
+Button.-primary {
+    background: $primary;
+    color: $background;
+    border: heavy $primary;
+}
+
+Button.-primary:hover {
+    background: $ember;
+}
+
+Button.-error {
+    background: $error;
+    color: $bone;
+    border: heavy $error;
+}
+
+ModalScreen {
+    align: center middle;
+    background: $background 70%;
+}
+
+.modal {
+    width: 80%;
+    height: auto;
+    max-height: 90%;
+    background: $surface;
+    border: thick $primary;
+    padding: 1 2;
+}
+
+.modal-title {
+    color: $primary;
+    text-style: bold;
+    padding-bottom: 1;
+    border-bottom: heavy $primary;
+}
+
+.modal-body {
+    padding: 1 0;
+    color: $text;
+}
+
+.modal-buttons {
+    height: 3;
+    padding-top: 1;
+    align-horizontal: right;
+}
+
+.modal-buttons Button {
+    margin-left: 2;
+}
+
+.rule-body {
+    height: 12;
+}
+
+.modal-error {
+    color: $error;
+    padding: 0 0;
+    height: auto;
+    min-height: 1;
+}
+
+#palette-box {
+    width: 80%;
+    height: 22;
+    background: $surface;
+    border: thick $primary;
+    padding: 1 2;
+}
+
+#palette-list {
+    height: 1fr;
+    background: $surface;
+}
+
+Toast {
+    background: $surface;
+    color: $text;
+    border: heavy $primary;
+}
+
+Toast.-information {
+    border: heavy $primary;
+}
+
+Toast.-warning {
+    border: heavy $warning;
+}
+
+Toast.-error {
+    border: heavy $error;
+}

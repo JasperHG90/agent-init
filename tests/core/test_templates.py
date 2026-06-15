@@ -1,0 +1,52 @@
+from __future__ import annotations
+
+from pathlib import Path
+
+import pytest
+
+from agent_init.core import templates
+from agent_init.core.rules import Rule
+
+
+def test_resolve_builtin_default(home: Path) -> None:
+    t = templates.resolve(templates.BUILTIN_DEFAULT)
+    assert t.name == templates.BUILTIN_DEFAULT
+    assert "agent-init" in t.body
+
+
+def test_resolve_unknown_raises(home: Path) -> None:
+    with pytest.raises(templates.TemplateNotFoundError):
+        templates.resolve("does-not-exist")
+
+
+def test_list_includes_builtin(home: Path) -> None:
+    names = [t.name for t in templates.list_templates()]
+    assert templates.BUILTIN_DEFAULT in names
+
+
+def test_render_with_rules(home: Path) -> None:
+    rules = [
+        Rule(name="be-concise", body="Be concise.", description="brevity", is_default=True),
+    ]
+    out = templates.render(templates.BUILTIN_DEFAULT, {"rules": rules})
+    assert "Be concise." in out
+    assert "be-concise" in out
+
+
+def test_render_with_no_rules_shows_empty_state(home: Path) -> None:
+    out = templates.render(templates.BUILTIN_DEFAULT, {"rules": []})
+    assert "No rules applied" in out
+
+
+def test_register_user_template(home: Path, tmp_path: Path) -> None:
+    custom = tmp_path / "custom.md.j2"
+    custom.write_text("# Custom\n\n<!-- BEGIN agent-init: header -->\nhi\n<!-- END agent-init: header -->\n")
+    templates.register_user_template("custom", custom, description="my template")
+    resolved = templates.resolve("custom")
+    assert resolved.name == "custom"
+    assert "Custom" in resolved.body
+
+
+def test_register_user_template_missing_file_raises(home: Path, tmp_path: Path) -> None:
+    with pytest.raises(FileNotFoundError):
+        templates.register_user_template("ghost", tmp_path / "nope.md.j2")

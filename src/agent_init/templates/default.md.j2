@@ -1,0 +1,31 @@
+# AGENTS.md
+
+<!-- BEGIN agent-init: header -->
+This file provides guidance to coding agents (Claude Code, Gemini CLI, opencode, etc.) when working in this repository. It is partially managed by [agent-init](https://github.com/jasperginn/agent_init). Content inside `<!-- BEGIN agent-init: ... -->` / `<!-- END agent-init: ... -->` markers is regenerated; content outside markers is preserved across regenerations.
+<!-- END agent-init: header -->
+
+## Project overview
+
+<!-- Add your project's overview here. This section is not managed by agent-init. -->
+
+## Behavioral guidelines
+
+<!-- BEGIN agent-init: rules -->
+{%- if rules %}
+{%- for rule in rules %}
+
+### {{ rule.name }}
+{% if rule.description %}
+*{{ rule.description }}*
+{% endif %}
+{{ rule.body }}
+{%- endfor %}
+{%- else %}
+
+_No rules applied. Add rules with `agent-init rule add` and apply them with `agent-init rule apply`._
+{%- endif %}
+<!-- END agent-init: rules -->
+
+## Project conventions
+
+<!-- Add code-style notes, testing expectations, deploy steps, etc. Not managed. -->

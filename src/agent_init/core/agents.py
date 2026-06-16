@@ -36,7 +36,7 @@ def split_csv(value: str) -> list[str]:
 
 
 _AGENT_RE = re.compile(
-    r"^(?:(?P<prefix>agents/|\.claude/agents/)(?P<name>[^/]+)/AGENT\.md)$"
+    r"^(?:(?P<prefix>agents/|\.claude/agents/)(?P<name>[^/]+)(?:/AGENT\.md|\.md))$"
 )
 
 
@@ -70,7 +70,12 @@ def discover(repo_alias: str) -> IndexResult:
         if not validation.is_valid_agent_name(name):
             continue
         rank = 0 if prefix == "agents/" else 1
-        source_dir = p[: -len("/AGENT.md")]
+        # Flat file: agents/<name>.md  -> source_path is the file itself.
+        # Nested dir: agents/<name>/AGENT.md -> source_path is the directory.
+        if p.endswith(f"/{name}.md") and not p.endswith(f"/{name}/AGENT.md"):
+            source_dir = p
+        else:
+            source_dir = p[: -len("/AGENT.md")]
         by_name.setdefault(name, []).append(
             (rank, DiscoveredAgent(name=name, source_path=source_dir, agent_md_path=p))
         )
@@ -197,13 +202,10 @@ def read_agent_content(qualified_name: str) -> str:
         row = session.get(AgentIndex, qualified_name)
     if row is None:
         raise AgentNotIndexedError(qualified_name)
-    agent_md_path = row.agent_md_path
-    if not agent_md_path and row.source_path:
-        agent_md_path = f"{row.source_path}/AGENT.md"
-    if not agent_md_path:
+    if not row.agent_md_path:
         raise AgentNotIndexedError(qualified_name)
     repo_dir = repos.clone_dir(row.repo_alias)
-    return git.get_backend().cat_file(repo_dir, row.indexed_at_sha, agent_md_path)
+    return git.get_backend().cat_file(repo_dir, row.indexed_at_sha, row.agent_md_path)
 
 
 def list_agents(repo_alias: str | None = None) -> list[AgentIndex]:

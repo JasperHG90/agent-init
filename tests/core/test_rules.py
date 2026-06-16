@@ -68,5 +68,5 @@ def test_apply_to_project_copies_body(home: Path, project_root: Path) -> None:
     rules.add("test", "Test first.")
     applied = rules.apply_to_project(project_root, ["style", "test"])
     assert [r.name for r in applied] == ["style", "test"]
-    assert (project_root / ".agent-init" / "rules" / "style.md").read_text() == "Be terse."
-    assert (project_root / ".agent-init" / "rules" / "test.md").read_text() == "Test first."
+    assert (project_root / ".claude" / "rules" / "style.md").read_text() == "Be terse."
+    assert (project_root / ".claude" / "rules" / "test.md").read_text() == "Test first."

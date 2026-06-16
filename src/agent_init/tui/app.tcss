@@ -103,6 +103,13 @@ Screen {
     text-style: italic;
 }
 
+.config-help {
+    color: $text-muted;
+    padding: 1 2;
+    border-top: thick $rule-color;
+    margin-top: 1;
+}
+
 TabbedContent {
     background: $background;
 }

@@ -14,6 +14,16 @@ from agent_init.tui.modals.confirm import ConfirmModal
 from agent_init.tui.modals.repo_add import RepoAddModal, RepoAddResult
 
 
+def kind_tag(kinds: set[str]) -> str:
+    if "skill" in kinds and "agent" in kinds:
+        return "skills + agents"
+    if "skill" in kinds:
+        return "skills"
+    if "agent" in kinds:
+        return "agents"
+    return "—"
+
+
 class ReposScreen(Screen[None]):
     BINDINGS = [
         ("escape", "app.pop_screen", "Back"),
@@ -36,7 +46,7 @@ class ReposScreen(Screen[None]):
 
     def on_mount(self) -> None:
         table = self.query_one(DataTable)
-        table.add_columns("alias", "url", "head", "last fetched")
+        table.add_columns("alias", "url", "head", "last fetched", "contains")
         self._populate()
         table.focus()
 
@@ -59,7 +69,8 @@ class ReposScreen(Screen[None]):
                 if fetched.tzinfo is None:
                     fetched = fetched.replace(tzinfo=UTC)
                 when = _humanize((now - fetched).total_seconds())
-            table.add_row(r.alias, r.url, sha, when, key=r.alias)
+            tag = kind_tag(repos.artifact_kinds(r.alias))
+            table.add_row(r.alias, r.url, sha, when, tag, key=r.alias)
         self._status(f"{len(rows)} repo(s)")
 
     def _selected_alias(self) -> str | None:

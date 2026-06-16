@@ -17,6 +17,7 @@ import stamina
 from cachetools import TTLCache
 from pydantic import BaseModel, ConfigDict, Field
 
+from agent_init.core import layout_profiles
 from agent_init.core.hashing import hash_text
 from agent_init.core.models import McpClaudeEntry, McpServerVersion
 
@@ -273,12 +274,17 @@ def make_mcp_server_version(server: McpServer, entry: McpClaudeEntry | None = No
     )
 
 
+def _mcp_json_path(project_root: Path) -> Path:
+    profile = layout_profiles.resolve_active(project_root)
+    return project_root / profile.mcp_json
+
+
 def read_mcp_json(project_root: Path) -> dict:
     """Read `.mcp.json` preserving unmanaged servers and top-level keys.
 
     Returns at least `{"mcpServers": {}}`.
     """
-    path = project_root / ".mcp.json"
+    path = _mcp_json_path(project_root)
     if not path.exists():
         return {"mcpServers": {}}
     try:
@@ -294,7 +300,8 @@ def read_mcp_json(project_root: Path) -> dict:
 
 def write_mcp_json(project_root: Path, data: dict) -> Path:
     """Write `.mcp.json` with stable formatting."""
-    path = project_root / ".mcp.json"
+    path = _mcp_json_path(project_root)
+    path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     return path
 

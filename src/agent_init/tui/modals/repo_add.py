@@ -33,14 +33,14 @@ class RepoAddModal(ModalScreen[RepoAddResult | None]):
 
     def compose(self) -> ComposeResult:
         yield Vertical(
-            Static("Add skill repository", classes="modal-title", markup=False),
+            Static("Add skill / agent repository", classes="modal-title", markup=False),
             Static("Alias (lowercase, [a-z0-9_-]):", markup=False),
             Input(placeholder="anthropic", id="alias"),
             Static("Git URL (https / ssh / file://):", markup=False),
             Input(placeholder="https://github.com/anthropics/skills", id="url"),
             Static("Default ref (branch or tag):", markup=False),
             Input(value="HEAD", id="default-ref"),
-            Checkbox("Allow registering even if no skills found", id="allow-empty"),
+            Checkbox("Allow registering even if no skills or agents found", id="allow-empty"),
             Static("", id="error", markup=False, classes="modal-error"),
             Horizontal(
                 Button("Add", id="add", variant="primary"),

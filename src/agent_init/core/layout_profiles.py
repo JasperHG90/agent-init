@@ -67,10 +67,11 @@ class LayoutProfile(BaseModel):
     scope: LayoutProfileScope = LayoutProfileScope.PROJECT
     agent_dialect: str | None = None
 
-    rules_dir: str = ".agent-init/rules"
+    rules_dir: str = ".claude/rules"
     skills_dir: str = ".claude/skills"
     agents_dir: str = ".claude/agents"
     agents_md: str = "AGENTS.md"
+    mcp_json: str = ".mcp.json"
     mirrors: list[str] = Field(default_factory=list)
 
     @field_validator("name")
@@ -82,7 +83,7 @@ class LayoutProfile(BaseModel):
             )
         return value
 
-    @field_validator("rules_dir", "skills_dir", "agents_dir", "agents_md")
+    @field_validator("rules_dir", "skills_dir", "agents_dir", "agents_md", "mcp_json")
     @classmethod
     def _validate_relative_path(cls, value: str) -> str:
         if not value:
@@ -132,10 +133,11 @@ def _builtin(
         description=description,
         scope=LayoutProfileScope.PROJECT,
         agent_dialect=name,
-        rules_dir=".agent-init/rules",
+        rules_dir=".claude/rules",
         skills_dir=skills_dir,
         agents_dir=agents_dir,
         agents_md="AGENTS.md",
+        mcp_json=".mcp.json",
         mirrors=mirrors,
     )
 
@@ -164,10 +166,11 @@ LEGACY_PROFILE = LayoutProfile(
     description="Original agent-init layout with no default mirrors.",
     scope=LayoutProfileScope.PROJECT,
     agent_dialect=None,
-    rules_dir=".agent-init/rules",
+    rules_dir=".claude/rules",
     skills_dir=".claude/skills",
     agents_dir=".claude/agents",
     agents_md="AGENTS.md",
+    mcp_json=".mcp.json",
     mirrors=[],
 )
 
@@ -226,6 +229,7 @@ def render_toml(profile: LayoutProfile, *, read_only_copy: bool = False) -> str:
     lines.append(f'skills_dir = "{profile.skills_dir}"')
     lines.append(f'agents_dir = "{profile.agents_dir}"')
     lines.append(f'agents_md = "{profile.agents_md}"')
+    lines.append(f'mcp_json = "{profile.mcp_json}"')
     lines.append(f"mirrors = {_render_string_list(profile.mirrors)}")
     lines.append("")
     return "\n".join(lines)

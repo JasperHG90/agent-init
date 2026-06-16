@@ -122,6 +122,17 @@ def list_repos() -> list[RegisteredRepo]:
     return rows
 
 
+def artifact_kinds(alias: str) -> set[str]:
+    """Return {"skill"} / {"agent"} / {"skill", "agent"} / set() for a repo."""
+    kinds: set[str] = set()
+    with db.session() as session:
+        if session.exec(select(SkillIndex).where(SkillIndex.repo_alias == alias).limit(1)).first():
+            kinds.add("skill")
+        if session.exec(select(AgentIndex).where(AgentIndex.repo_alias == alias).limit(1)).first():
+            kinds.add("agent")
+    return kinds
+
+
 def get(alias: str) -> RegisteredRepo:
     with db.session() as session:
         row = session.get(RegisteredRepo, alias)

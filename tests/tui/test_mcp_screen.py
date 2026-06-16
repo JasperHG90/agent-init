@@ -76,7 +76,7 @@ async def test_mcp_screen_defaults_and_enter_search(home: Path, monkeypatch: pyt
 
 @pytest.mark.asyncio
 async def test_mcp_screen_install_binding_opens_modal(home: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    from textual.widgets import DataTable
+    from textual.widgets import DataTable, Input
 
     monkeypatch.setattr(
         mcp_registry,
@@ -100,3 +100,10 @@ async def test_mcp_screen_install_binding_opens_modal(home: Path, monkeypatch: p
 
         # Install modal should be on top of the screen stack.
         assert app.screen.__class__.__name__ == "McpInstallModal"
+
+        # Focus should be on the alias input; ESC should dismiss the modal.
+        alias = app.screen.query_one("#alias", Input)
+        assert app.focused is alias
+        await pilot.press("escape")
+        await pilot.pause()
+        assert app.screen.__class__.__name__ == "McpScreen"

@@ -105,6 +105,11 @@ class InitModal(ModalScreen[InitConfig | None]):
     def action_cancel(self) -> None:
         self.dismiss(None)
 
+    def on_key(self, event) -> None:
+        if event.key == "escape":
+            event.stop()
+            self.action_cancel()
+
     def _error(self, msg: str, focus_id: str) -> None:
         self.query_one("#error", Static).update(msg)
         self.query_one(f"#{focus_id}", Input).focus()

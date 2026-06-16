@@ -1,5 +1,12 @@
 {
   "mcpServers": {
+    "new": {
+      "args": [],
+      "env": {},
+      "headers": {},
+      "type": "http",
+      "url": "https://example.com/mcp"
+    },
     "playwright-mcp": {
       "args": [
         "-y",

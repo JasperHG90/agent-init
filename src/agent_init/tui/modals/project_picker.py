@@ -62,3 +62,8 @@ class ProjectPickerModal(ModalScreen[ProjectPick | None]):
 
     def action_cancel(self) -> None:
         self.dismiss(None)
+
+    def on_key(self, event) -> None:
+        if event.key == "escape":
+            event.stop()
+            self.action_cancel()

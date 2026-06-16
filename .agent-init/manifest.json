@@ -136,7 +136,7 @@
       "current": {
         "definition_hash": "3350512cdb6b562248ead5902acf572e29285d89246c98be70129f1f46f70688",
         "registry_version": "0.0.76",
-        "installed_at": "2026-06-16T13:02:23.062658Z",
+        "installed_at": "2026-06-16T20:00:33.943425Z",
         "entry": {
           "type": "stdio",
           "command": "npx",
@@ -146,6 +146,98 @@
           ],
           "env": {},
           "url": null,
+          "headers": {}
+        }
+      },
+      "history": [
+        {
+          "definition_hash": "3350512cdb6b562248ead5902acf572e29285d89246c98be70129f1f46f70688",
+          "registry_version": "0.0.76",
+          "installed_at": "2026-06-16T19:30:38.771294Z",
+          "entry": {
+            "type": "stdio",
+            "command": "npx",
+            "args": [
+              "-y",
+              "@playwright/mcp"
+            ],
+            "env": {},
+            "url": null,
+            "headers": {}
+          }
+        },
+        {
+          "definition_hash": "3350512cdb6b562248ead5902acf572e29285d89246c98be70129f1f46f70688",
+          "registry_version": "0.0.76",
+          "installed_at": "2026-06-16T19:29:56.821339Z",
+          "entry": {
+            "type": "stdio",
+            "command": "npx",
+            "args": [
+              "-y",
+              "@playwright/mcp"
+            ],
+            "env": {},
+            "url": null,
+            "headers": {}
+          }
+        },
+        {
+          "definition_hash": "3350512cdb6b562248ead5902acf572e29285d89246c98be70129f1f46f70688",
+          "registry_version": "0.0.76",
+          "installed_at": "2026-06-16T19:21:15.117500Z",
+          "entry": {
+            "type": "stdio",
+            "command": "npx",
+            "args": [
+              "-y",
+              "@playwright/mcp"
+            ],
+            "env": {},
+            "url": null,
+            "headers": {}
+          }
+        },
+        {
+          "definition_hash": "3350512cdb6b562248ead5902acf572e29285d89246c98be70129f1f46f70688",
+          "registry_version": "0.0.76",
+          "installed_at": "2026-06-16T13:02:23.062658Z",
+          "entry": {
+            "type": "stdio",
+            "command": "npx",
+            "args": [
+              "-y",
+              "@playwright/mcp"
+            ],
+            "env": {},
+            "url": null,
+            "headers": {}
+          }
+        }
+      ]
+    },
+    {
+      "alias": "new",
+      "registry_name": "new",
+      "entry": {
+        "type": "http",
+        "command": null,
+        "args": [],
+        "env": {},
+        "url": "https://example.com/mcp",
+        "headers": {}
+      },
+      "entry_hash": "300e9b9f00243004a09d3204cc91e5eab864e10184c03d380ba52db89f06a4cf",
+      "current": {
+        "definition_hash": "c01f869bc843063bcf299d4755afacae3bedd215b9124e23c74487d3eda8937c",
+        "registry_version": "1.0.0",
+        "installed_at": "2026-06-16T19:49:34.852710Z",
+        "entry": {
+          "type": "http",
+          "command": null,
+          "args": [],
+          "env": {},
+          "url": "https://example.com/mcp",
           "headers": {}
         }
       },

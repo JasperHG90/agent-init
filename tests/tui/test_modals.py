@@ -3,6 +3,9 @@
 Without these the original suite missed a `BadIdentifier: 'mirror-CLAUDE.md'` —
 filenames contain dots and Textual ids can't. Each test here drives the key
 that pops a modal and asserts the modal's class is on top of the screen stack.
+
+ESC-cancel tests verify that hitting Escape while an input is focused dismisses
+the install/initialize/add modals and returns to the previous screen.
 """
 
 from __future__ import annotations
@@ -15,7 +18,9 @@ from textual.widgets import Input
 from agent_init.core import repos, rules
 from agent_init.tui.app import AgentInitApp
 from agent_init.tui.modals.confirm import ConfirmModal
+from agent_init.tui.modals.agent_install import AgentInstallModal
 from agent_init.tui.modals.init_modal import InitModal
+from agent_init.tui.modals.project_picker import ProjectPickerModal
 from agent_init.tui.modals.repo_add import RepoAddModal
 from agent_init.tui.modals.rule_add import RuleAddModal
 from agent_init.tui.modals.skill_install import SkillInstallModal
@@ -300,3 +305,78 @@ async def test_install_modal_buttons_remain_visible(
         center_x = btn_region.x + btn_region.width // 2
         center_y = btn_region.y + btn_region.height // 2
         assert modal_container.region.contains(center_x, center_y)
+
+
+@pytest.mark.asyncio
+async def test_init_modal_esc_dismisses(home: Path) -> None:
+    """ESC must dismiss the Initialize modal even with the project input focused."""
+    app = AgentInitApp()
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app.push_screen(InitModal())
+        await pilot.pause()
+        assert isinstance(app.screen, InitModal)
+        assert isinstance(app.focused, Input)
+        await pilot.press("escape")
+        await pilot.pause()
+        assert not isinstance(app.screen, InitModal)
+
+
+@pytest.mark.asyncio
+async def test_repo_add_modal_esc_dismisses(home: Path) -> None:
+    """ESC must dismiss the Add repo modal even with the alias input focused."""
+    app = AgentInitApp()
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app.push_screen(RepoAddModal())
+        await pilot.pause()
+        assert isinstance(app.screen, RepoAddModal)
+        assert isinstance(app.focused, Input)
+        await pilot.press("escape")
+        await pilot.pause()
+        assert not isinstance(app.screen, RepoAddModal)
+
+
+@pytest.mark.asyncio
+async def test_skill_install_modal_esc_dismisses(home: Path) -> None:
+    """ESC must dismiss the skill install modal even with the project input focused."""
+    app = AgentInitApp()
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app.push_screen(SkillInstallModal("anth/foo"))
+        await pilot.pause()
+        assert isinstance(app.screen, SkillInstallModal)
+        assert isinstance(app.focused, Input)
+        await pilot.press("escape")
+        await pilot.pause()
+        assert not isinstance(app.screen, SkillInstallModal)
+
+
+@pytest.mark.asyncio
+async def test_agent_install_modal_esc_dismisses(home: Path) -> None:
+    """ESC must dismiss the agent install modal even with the project input focused."""
+    app = AgentInitApp()
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app.push_screen(AgentInstallModal("anth/bar"))
+        await pilot.pause()
+        assert isinstance(app.screen, AgentInstallModal)
+        assert isinstance(app.focused, Input)
+        await pilot.press("escape")
+        await pilot.pause()
+        assert not isinstance(app.screen, AgentInstallModal)
+
+
+@pytest.mark.asyncio
+async def test_project_picker_modal_esc_dismisses(home: Path) -> None:
+    """ESC must dismiss the project picker modal even with the project input focused."""
+    app = AgentInitApp()
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app.push_screen(ProjectPickerModal("Pick project"))
+        await pilot.pause()
+        assert isinstance(app.screen, ProjectPickerModal)
+        assert isinstance(app.focused, Input)
+        await pilot.press("escape")
+        await pilot.pause()
+        assert not isinstance(app.screen, ProjectPickerModal)

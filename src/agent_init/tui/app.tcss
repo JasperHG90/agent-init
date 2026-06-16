@@ -211,20 +211,21 @@ Button.-style-default {
     border: solid $rule-color;
     min-width: 12;
     width: auto;
-    height: auto;
-    min-height: 3;
-    max-height: 3;
+    height: 3;
     padding: 0 2;
     content-align: center middle;
     text-style: bold;
-    border-top: solid $rule-color;
-    border-bottom: solid $rule-color;
 }
 
 Button > .label,
-Button.-style-default > .label,
-Button.-style-flat > .label {
+Button:ansi.-style-flat > .label,
+Button:ansi.-style-default > .label,
+Button.-style-flat > .label,
+Button.-style-default > .label {
+    width: 1fr;
+    height: 1fr;
     content-align: center middle;
+    padding: 0 0;
 }
 
 Button:hover,
@@ -247,18 +248,21 @@ Button.-style-default.-primary,
 Button.-style-flat.-primary {
     background: $primary;
     color: $background;
-    border: solid $primary;
-    border-top: solid $primary;
-    border-bottom: solid $primary;
+    border: none !important;
+    border-top: none !important;
+    border-bottom: none !important;
+    text-style: bold;
+    tint: transparent;
+    text-opacity: 1;
 }
 
 Button.-primary:hover,
 Button.-style-default.-primary:hover,
 Button.-style-flat.-primary:hover {
     background: $ember;
-    border: solid $ember;
-    border-top: solid $ember;
-    border-bottom: solid $ember;
+    border: none !important;
+    border-top: none !important;
+    border-bottom: none !important;
 }
 
 Button.-error,

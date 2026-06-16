@@ -27,6 +27,29 @@ from agent_init.core.models import AgentIndex, RegisteredRepo, RuleIndex, SkillI
 
 _ALIAS_RE = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
 
+# Substrings git emits when it cannot authenticate to a remote. Used to turn
+# low-level git errors into actionable messages for consultants juggling
+# multiple gh accounts / GitHub Enterprise hosts.
+_AUTH_HINTS = (
+    "authentication failed",
+    "could not read username",
+    "could not read password",
+    "repository not found",
+    "remote: invalid username or password",
+    "remote: permission denied",
+    "remote: access denied",
+    "http basic: access denied",
+    "denied to",
+    "403",
+    "401",
+    "terminal prompts disabled",
+)
+
+
+def _looks_like_auth_failure(stderr: str) -> bool:
+    text = stderr.lower()
+    return any(hint in text for hint in _AUTH_HINTS)
+
 
 class RepoAliasError(ValueError):
     pass
@@ -59,6 +82,38 @@ def clone_dir(alias: str) -> Path:
     return paths.repos_cache_dir() / alias
 
 
+def _auth_help(alias: str, url: str, original: str) -> str:
+    host = _host_from_url(url)
+    enterprise_hint = f" (GH_HOST={host})" if host and ".github.com" not in host and host != "github.com" else ""
+    return (
+        f"{alias}: failed to access {url}: {original}\n"
+        f"The remote rejected the request, probably because the active git/gh credentials "
+        f"don't have access.\n"
+        f"Check:  gh auth status{enterprise_hint}\n"
+        f"Switch:   gh auth switch{enterprise_hint}\n"
+        f"If git isn't using gh yet, run:  gh auth setup-git{enterprise_hint}"
+    )
+
+
+def _host_from_url(url: str) -> str | None:
+    """Extract a hostname from https or ssh git URLs."""
+    if url.startswith("https://") or url.startswith("http://"):
+        # https://host/path
+        rest = url.split("://", 1)[1]
+        return rest.split("/", 1)[0].split(":", 1)[0] or None
+    if url.startswith("git@") and ":" in url:
+        # git@host:path
+        return url.split(":", 1)[0].split("@", 1)[-1] or None
+    return None
+
+
+def _wrap_git_error(alias: str, url: str, exc: git.GitError) -> git.GitError:
+    stderr = str(exc)
+    if _looks_like_auth_failure(stderr):
+        return git.GitError(_auth_help(alias, url, stderr))
+    return exc
+
+
 def add(
     alias: str,
     url: str,
@@ -79,7 +134,10 @@ def add(
         if existing is not None:
             raise RepoExistsError(alias)
     dest = clone_dir(alias)
-    git.get_backend().clone_bare(url, dest)
+    try:
+        git.get_backend().clone_bare(url, dest)
+    except git.GitError as exc:
+        raise _wrap_git_error(alias, url, exc) from exc
     try:
         head_sha = git.get_backend().resolve_ref(dest, default_ref)
     except git.GitError:
@@ -117,9 +175,10 @@ def add(
     ):
         remove(alias)
         raise RepoHasNoArtifactsError(
-            f"{alias}: no SKILL.md found under skills/, .claude/skills/, or repo root, "
-            f"no AGENT.md found under agents/ or .claude/agents/, "
-            f"and no rule .md found under rules/ or .claude/rules/"
+            f"{alias}: no SKILL.md found under skills/**/, .claude/skills/**/, "
+            f"or repo root; no AGENT.md found under agents/**/ or "
+            f".claude/agents/**/; and no rule .md found under rules/**/ or "
+            f".claude/rules/**/"
         )
     return repo
 
@@ -311,7 +370,10 @@ def refresh(alias: str) -> RegisteredRepo:
     row = get(alias)
     previous_sha = row.last_sha
     repo_dir = clone_dir(alias)
-    git.get_backend().fetch(repo_dir)
+    try:
+        git.get_backend().fetch(repo_dir)
+    except git.GitError as exc:
+        raise _wrap_git_error(alias, row.url, exc) from exc
 
     ref_missing = False
     try:

@@ -4,8 +4,59 @@ from pathlib import Path
 
 import pytest
 
-from agent_init.core import repo_rules, repos
+from agent_init.core import git, repo_rules, repos
 from tests.fixtures import git_fixtures
+
+
+class _AuthFailingBackend:
+    """Fake git backend that always fails with an auth-related error."""
+
+    def clone_bare(self, url: str, dest: Path) -> None:
+        _ = dest
+        raise git.GitError(f"fatal: Authentication failed for '{url}'")
+
+    def fetch(self, repo_dir: Path) -> None:
+        _ = repo_dir
+        raise git.GitError("remote: Invalid username or password")
+
+    def resolve_ref(self, repo_dir: Path, ref: str) -> str:
+        _ = (repo_dir, ref)
+        raise git.GitError("ref not found")
+
+    def list_tags(self, repo_dir: Path) -> list:
+        _ = repo_dir
+        return []
+
+    def latest_tag(self, repo_dir: Path, ref: str) -> None:
+        _ = (repo_dir, ref)
+        return None
+
+    def ls_tree(self, repo_dir: Path, sha: str, path: str = "") -> list:
+        _ = (repo_dir, sha, path)
+        return []
+
+    def cat_file(self, repo_dir: Path, sha: str, path: str) -> str:
+        _ = (repo_dir, sha, path)
+        raise git.GitError("not found")
+
+    def archive(
+        self, repo_dir: Path, sha: str, source_path: str, dest_dir: Path
+    ) -> None:
+        _ = (repo_dir, sha, source_path, dest_dir)
+        raise git.GitError("archive failed")
+
+    def last_touching_sha(self, repo_dir: Path, ref: str, source_path: str) -> str:
+        _ = (repo_dir, ref, source_path)
+        raise git.GitError("not found")
+
+
+@pytest.fixture
+def fake_backend(monkeypatch: pytest.MonkeyPatch):
+    original = git.get_backend()
+    backend = _AuthFailingBackend()
+    git.set_backend(backend)
+    yield backend
+    git.set_backend(original)
 
 
 def test_add_clones_and_registers(home: Path, bare_remote: tuple[Path, Path]) -> None:
@@ -104,6 +155,27 @@ def test_add_indexes_rules(home: Path, tmp_path: Path) -> None:
     assert rows[0].title == "Style"
 
 
+def test_add_indexes_nested_rules(home: Path, tmp_path: Path) -> None:
+    """Rules may be grouped under sub-categories: rules/<category>/<name>.md."""
+    _, bare = _build_repo_with(
+        tmp_path,
+        {
+            "rules/style/team-style.md": "Team style.\n",
+            "rules/conduct/be-direct.md": "Be direct.\n",
+            ".claude/rules/ops/runbook.md": "Runbook.\n",
+            "README.md": "x\n",
+        },
+    )
+    repos.add("team", f"file://{bare}")
+    rows = repo_rules.list_rules("team")
+    by_name = {row.rule_name: row.rule_md_path for row in rows}
+    assert by_name == {
+        "team-style": "rules/style/team-style.md",
+        "be-direct": "rules/conduct/be-direct.md",
+        "runbook": ".claude/rules/ops/runbook.md",
+    }
+
+
 def test_add_indexes_rules_alongside_skills(home: Path, tmp_path: Path) -> None:
     _, bare = _build_repo_with(
         tmp_path,
@@ -155,3 +227,79 @@ def test_remove_deletes_rule_index(home: Path, tmp_path: Path) -> None:
     assert repo_rules.list_rules("r")
     repos.remove("r")
     assert repo_rules.list_rules("r") == []
+
+
+def test_add_auth_failure_has_helpful_message(home: Path, fake_backend) -> None:
+    with pytest.raises(git.GitError) as excinfo:
+        repos.add("client", "https://github.client.example/client/repo.git")
+    msg = str(excinfo.value)
+    assert "client: failed to access https://github.client.example/client/repo.git" in msg
+    assert "gh auth status (GH_HOST=github.client.example)" in msg
+    assert "gh auth switch (GH_HOST=github.client.example)" in msg
+    assert "gh auth setup-git (GH_HOST=github.client.example)" in msg
+
+
+def test_refresh_auth_failure_has_helpful_message(
+    home: Path, bare_remote: tuple[Path, Path]
+) -> None:
+    _, bare = bare_remote
+    repos.add("client", f"file://{bare}")
+
+    class _FetchFailingBackend:
+        def clone_bare(self, url: str, dest: Path) -> None:
+            _ = (url, dest)
+
+        def fetch(self, repo_dir: Path) -> None:
+            _ = repo_dir
+            raise git.GitError("remote: Invalid username or password")
+
+        def resolve_ref(self, repo_dir: Path, ref: str) -> str:
+            _ = (repo_dir, ref)
+            return "a" * 40
+
+        def list_tags(self, repo_dir: Path) -> list:
+            _ = repo_dir
+            return []
+
+        def latest_tag(self, repo_dir: Path, ref: str) -> None:
+            _ = (repo_dir, ref)
+            return None
+
+        def ls_tree(self, repo_dir: Path, sha: str, path: str = "") -> list:
+            _ = (repo_dir, sha, path)
+            return []
+
+        def cat_file(self, repo_dir: Path, sha: str, path: str) -> str:
+            _ = (repo_dir, sha, path)
+            raise git.GitError("not found")
+
+        def archive(
+            self, repo_dir: Path, sha: str, source_path: str, dest_dir: Path
+        ) -> None:
+            _ = (repo_dir, sha, source_path, dest_dir)
+            raise git.GitError("archive failed")
+
+        def last_touching_sha(
+            self, repo_dir: Path, ref: str, source_path: str
+        ) -> str:
+            _ = (repo_dir, ref, source_path)
+            raise git.GitError("not found")
+
+    git.set_backend(_FetchFailingBackend())
+    try:
+        # Override the stored URL so refresh sees a GitHub Enterprise-style URL.
+        from agent_init.core import db
+
+        with db.session() as session:
+            repo = session.get(repos.RegisteredRepo, "client")
+            assert repo is not None
+            repo.url = "https://github.client.example/client/repo.git"
+            session.add(repo)
+            session.commit()
+        with pytest.raises(git.GitError) as excinfo:
+            repos.refresh("client")
+        msg = str(excinfo.value)
+        assert "client: failed to access https://github.client.example/client/repo.git" in msg
+        assert "gh auth status (GH_HOST=github.client.example)" in msg
+    finally:
+        git.reset_backend()

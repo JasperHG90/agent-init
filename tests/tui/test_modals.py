@@ -182,8 +182,12 @@ async def test_repo_add_modal_creates_repo(
         await pilot.pause()
         for btn in modal.query(Button):
             if btn.id == "add":
+                btn.focus()
+                await pilot.pause()
                 btn.press()
                 break
+        await pilot.pause()
+        await app.workers.wait_for_complete()
         await pilot.pause()
 
     assert repos.get("demo").alias == "demo"
@@ -255,6 +259,7 @@ async def test_repo_add_modal_submits_on_enter_from_input(
         modal.query_one("#alias", Input).value = "enter-demo"
         modal.query_one("#url", Input).value = f"file://{bare}"
         await pilot.press("enter")
+        await app.workers.wait_for_complete()
         await pilot.pause()
 
     assert repos.get("enter-demo").alias == "enter-demo"

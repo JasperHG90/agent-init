@@ -89,9 +89,12 @@ class ReposScreen(Screen[None]):
             return
         self._status(f"adding {result.alias}…")
         self._adding = result
-        self.run_worker(self._do_add(result), exclusive=True)
+        self.run_worker(self._do_add_thread, exclusive=True, thread=True)
 
-    async def _do_add(self, result: RepoAddResult) -> None:
+    def _do_add_thread(self) -> None:
+        result = self._adding
+        if result is None:
+            return
         try:
             repos.add(
                 result.alias,
@@ -105,34 +108,59 @@ class ReposScreen(Screen[None]):
             repos.RepoHasNoSkillsError,
             git.GitError,
         ) as exc:
-            self.app.notify(f"add failed: {exc}", severity="error")
-            self._status(f"add failed: {exc}")
+            self.app.call_from_thread(
+                self.app.notify, f"add failed: {exc}", severity="error"
+            )
+            self.app.call_from_thread(self._status, f"add failed: {exc}")
             return
-        self.app.notify(f"added {result.alias}", title="Repo added")
-        self._status(f"added {result.alias}")
-        self._populate()
+        self.app.call_from_thread(
+            self.app.notify, f"added {result.alias}", title="Repo added"
+        )
+        self.app.call_from_thread(self._status, f"added {result.alias}")
+        self.app.call_from_thread(self._populate)
 
     def on_worker_state_changed(self, event) -> None:  # type: ignore[no-untyped-def]
         adding = getattr(self, "_adding", None)
-        if adding is None:
-            return
-        if event.state == WorkerState.RUNNING:
-            self._status(f"adding {adding.alias}…")
-        elif event.state in (WorkerState.SUCCESS, WorkerState.CANCELLED, WorkerState.ERROR):
-            self._adding = None
+        if adding is not None:
+            if event.state == WorkerState.RUNNING:
+                self._status(f"adding {adding.alias}…")
+            elif event.state in (WorkerState.SUCCESS, WorkerState.CANCELLED, WorkerState.ERROR):
+                self._adding = None
+        refreshing = getattr(self, "_refreshing", None)
+        if refreshing is not None:
+            if event.state == WorkerState.RUNNING:
+                self._status(f"refreshing {refreshing}…")
+            elif event.state in (WorkerState.SUCCESS, WorkerState.CANCELLED, WorkerState.ERROR):
+                self._refreshing = None
 
     def action_refresh_current(self) -> None:
         alias = self._selected_alias()
         if alias is None:
             self._notify_or_status("no row selected")
             return
+        self._status(f"refreshing {alias}…")
+        self._refreshing = alias
+        self.run_worker(self._do_refresh_thread, exclusive=True, thread=True)
+
+    def _do_refresh_thread(self) -> None:
+        alias = getattr(self, "_refreshing", None)
+        if alias is None:
+            return
         try:
             repo = repos.refresh(alias)
         except (repos.RepoNotFoundError, repos.RefDisappearedError, git.GitError) as exc:
-            self.app.notify(f"refresh failed: {exc}", severity="error")
+            self.app.call_from_thread(
+                self.app.notify, f"refresh failed: {exc}", severity="error"
+            )
+            self.app.call_from_thread(self._status, f"refresh failed: {exc}")
             return
-        self._status(f"refreshed {alias}: HEAD={(repo.last_sha or '?')[:12]}")
-        self._populate()
+        self.app.call_from_thread(
+            self.app.notify, f"refreshed {alias}", title="Repo refreshed"
+        )
+        self.app.call_from_thread(
+            self._status, f"refreshed {alias}: HEAD={(repo.last_sha or '?')[:12]}"
+        )
+        self.app.call_from_thread(self._populate)
 
     def action_remove_current(self) -> None:
         alias = self._selected_alias()

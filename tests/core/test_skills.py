@@ -216,6 +216,21 @@ def test_allow_empty_registers_anyway(home: Path, tmp_path: Path) -> None:
     assert skills.list_skills("ok") == []
 
 
+def test_discover_rejects_invalid_skill_names(home: Path, tmp_path: Path) -> None:
+    _, bare = _build_repo_with(
+        tmp_path,
+        {
+            "skills/.hidden/SKILL.md": "# Hidden\n",
+            "skills/foo-bar/SKILL.md": "# Valid\n",
+            "README.md": "x\n",
+        },
+    )
+    repos.add("a", f"file://{bare}")
+    rows = skills.list_skills()
+    # `.hidden` is invalid (starts with `.`), so only the valid skill is indexed.
+    assert [r.qualified_name for r in rows] == ["a/foo-bar"]
+
+
 def test_search_matches_qualified_name(home: Path, tmp_path: Path) -> None:
     _, bare = _build_repo_with(
         tmp_path,

@@ -303,6 +303,20 @@ def rename(old: str, new: str) -> RegisteredRepo:
                 )
             )
             session.delete(row)
+        for row in list(session.exec(select(RuleIndex).where(RuleIndex.repo_alias == old)).all()):  # type: ignore[arg-type]
+            new_qn = f"{new}/{row.rule_name}"
+            session.add(
+                RuleIndex(
+                    qualified_name=new_qn,
+                    repo_alias=new,
+                    rule_name=row.rule_name,
+                    rule_md_path=row.rule_md_path,
+                    title=row.title,
+                    description=row.description,
+                    indexed_at_sha=row.indexed_at_sha,
+                )
+            )
+            session.delete(row)
         session.commit()
 
     old_dir = clone_dir(old)
@@ -354,6 +368,19 @@ def rename(old: str, new: str) -> RegisteredRepo:
                                 indexed_at_sha=row.indexed_at_sha,
                                 tools=row.tools,
                                 model=row.model,
+                            )
+                        )
+                        session.delete(row)
+                    for row in list(session.exec(select(RuleIndex).where(RuleIndex.repo_alias == new)).all()):  # type: ignore[arg-type]
+                        session.add(
+                            RuleIndex(
+                                qualified_name=f"{old}/{row.rule_name}",
+                                repo_alias=old,
+                                rule_name=row.rule_name,
+                                rule_md_path=row.rule_md_path,
+                                title=row.title,
+                                description=row.description,
+                                indexed_at_sha=row.indexed_at_sha,
                             )
                         )
                         session.delete(row)

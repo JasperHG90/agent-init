@@ -245,13 +245,14 @@ def rollback(project_root: Path, alias: str) -> InstalledMcpServer:
     if not installed.history:
         raise McpNoHistoryToRollbackError(alias)
 
-    target_version = installed.history.pop(0)
+    target_version = installed.history[0]
     target_entry = target_version.entry
     if target_entry is None:
         raise McpNoHistoryToRollbackError(
             f"no recorded entry for previous version of {alias}"
         )
 
+    installed.history.pop(0)
     mcp_registry.merge_mcp_server(project_root, alias, target_entry)
     installed.history.insert(0, installed.current)
     installed.current = target_version

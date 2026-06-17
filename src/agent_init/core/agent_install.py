@@ -34,6 +34,10 @@ class AgentNoHistoryToRollbackError(RuntimeError):
     pass
 
 
+class AgentManifestPathEscapeError(ValueError):
+    """A manifest-stored target_path resolves outside the project root."""
+
+
 class AgentNameMismatchWarning:
     """Frontmatter `name` differs from the directory-derived target name."""
 
@@ -84,11 +88,21 @@ def _target_path(project_root: Path, agent_name: str) -> Path:
     return safe
 
 
+def _resolve_target_path(project_root: Path, target_path: str) -> Path:
+    """Validate a manifest-originated target_path and return its absolute path."""
+    safe = paths.safe_project_path(project_root, target_path)
+    if safe is None:
+        raise AgentManifestPathEscapeError(
+            f"manifest target_path escapes project root: {target_path!r}"
+        )
+    return safe
+
+
 def _check_local_edits(project_root: Path, installed: InstalledAgent, *, force: bool) -> None:
     if force or installed.content_hash is None:
         return
-    target = paths.safe_project_path(project_root, installed.target_path)
-    if target is None or not target.exists():
+    target = _resolve_target_path(project_root, installed.target_path)
+    if not target.exists():
         return
     current = hashing.hash_text(target.read_text(encoding="utf-8"))
     if current != installed.content_hash:
@@ -186,7 +200,7 @@ def update(
 
     _check_local_edits(project_root, existing, force=force)
     content = agents.read_agent_content(qualified_name)
-    target = project_root / existing.target_path
+    target = _resolve_target_path(project_root, existing.target_path)
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(content, encoding="utf-8")
     existing.push_history(new_version)
@@ -245,7 +259,7 @@ def delete(project_root: Path, qualified_name: str) -> None:
     existing = _find_installed(m, qualified_name)
     if existing is None:
         raise AgentNotInstalledError(qualified_name)
-    target = project_root / existing.target_path
+    target = _resolve_target_path(project_root, existing.target_path)
     if target.exists():
         target.unlink()
     m.agents = [a for a in m.agents if a.qualified_name != qualified_name]
@@ -270,7 +284,7 @@ def rollback(project_root: Path, qualified_name: str, *, force: bool = False) ->
         artifact_path = f"{existing.source_path}/AGENT.md"
     content = agents.git.get_backend().cat_file(repo_dir, target_version.sha, artifact_path)
 
-    target = project_root / existing.target_path
+    target = _resolve_target_path(project_root, existing.target_path)
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(content, encoding="utf-8")
     existing.push_history(

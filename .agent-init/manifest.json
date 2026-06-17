@@ -244,7 +244,9 @@
       "history": []
     }
   ],
-  "rules": [],
+  "rules": [
+    "rule-one"
+  ],
   "managed_files": [
     "AGENTS.md",
     "CLAUDE.md",
@@ -252,7 +254,7 @@
   ],
   "managed_region_hashes": {
     "header": "02725b679e8cc3249112cb89a8cc03ac7d709174d8b4b098d533f4b4fef71631",
-    "rules": "3bd387ee22936d058951607514d65d95035c90e0d2c62bc44c3a6e9fe1e38863"
+    "rules": "b67e0513f1cc80e2aa52b559a7fc4bb9dd556e2864848233b66bef44a501f5f3"
   },
   "agent_dialect": null,
   "layout_profile": "claude"

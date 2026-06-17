@@ -7,7 +7,7 @@ from pathlib import Path
 from textual.app import ComposeResult
 from textual.screen import Screen
 from textual.widgets import DataTable, Input, Static
-from textual.worker import get_current_worker
+from textual.worker import WorkerState, get_current_worker
 
 from agent_init.core import default_mcp_servers, manifest, mcp_registry, validation
 from agent_init.core import mcp_install as install_mod
@@ -99,7 +99,7 @@ class McpScreen(Screen[None]):
         if worker.is_cancelled:
             return []
         out: list[mcp_registry.McpSearchResult] = []
-        for name, server, fetched_at, valid_until in mcp_registry.list_cached_servers():
+        for _name, server, fetched_at, valid_until in mcp_registry.list_cached_servers():
             out.append(
                 mcp_registry.McpSearchResult(
                     server=server,
@@ -307,6 +307,15 @@ class McpScreen(Screen[None]):
                 severity="error",
             )
             return
+        self._status(f"installing {server.name} as {cfg.alias}…")
+        self._installing = (server, cfg)
+        self.run_worker(self._do_install_thread, exclusive=True, thread=True)
+
+    def _do_install_thread(self) -> None:
+        installing = getattr(self, "_installing", None)
+        if installing is None:
+            return
+        server, cfg = installing
         try:
             install_mod.install(
                 cfg.project_root,
@@ -324,12 +333,26 @@ class McpScreen(Screen[None]):
             mcp_registry.McpMappingError,
             mcp_registry.McpRegistryError,
         ) as exc:
-            self.app.notify(f"install failed: {exc}", severity="error")
+            self.app.call_from_thread(
+                self.app.notify, f"install failed: {exc}", severity="error"
+            )
+            self.app.call_from_thread(self._status, f"install failed: {exc}")
             return
-        self.app.notify(
+        self.app.call_from_thread(
+            self.app.notify,
             f"installed MCP server {server.name} as {cfg.alias}",
             title="MCP server installed",
         )
+        self.app.call_from_thread(self._status, f"installed {server.name} as {cfg.alias}")
+
+    def on_worker_state_changed(self, event) -> None:  # type: ignore[no-untyped-def]
+        installing = getattr(self, "_installing", None)
+        if installing is not None:
+            if event.state == WorkerState.RUNNING:
+                server, cfg = installing
+                self._status(f"installing {server.name} as {cfg.alias}…")
+            elif event.state in (WorkerState.SUCCESS, WorkerState.CANCELLED, WorkerState.ERROR):
+                self._installing = None
 
     def _status(self, msg: str) -> None:
         self.query_one("#status", Static).update(msg)

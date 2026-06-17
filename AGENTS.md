@@ -70,5 +70,7 @@ This file provides guidance to coding agents (Claude Code, Gemini CLI, opencode,
 
 <!-- BEGIN agent-init: rules -->
 
-_No rules applied. Add rules with `agent-init rule add` and apply them with `agent-init rule apply`._
+### rule-one
+
+First rule
 <!-- END agent-init: rules -->

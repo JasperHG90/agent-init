@@ -277,6 +277,10 @@ def project_profile_dir(project_root: Path) -> Path:
 
 
 def project_profile_path(project_root: Path, name: str) -> Path:
+    if not _NAME_RE.fullmatch(name):
+        raise LayoutProfileNameError(
+            f"profile name {name!r} invalid: must match {_NAME_RE.pattern}"
+        )
     return project_profile_dir(project_root) / f"{name}.toml"
 
 
@@ -443,6 +447,10 @@ def save_global_profile(project_root: Path, profile: LayoutProfile) -> Path:
 
 def delete_project_profile(project_root: Path, name: str) -> bool:
     """Delete a project profile from the repo."""
+    if not _NAME_RE.fullmatch(name):
+        raise LayoutProfileNameError(
+            f"profile name {name!r} invalid: must match {_NAME_RE.pattern}"
+        )
     path = project_profile_path(project_root, name)
     if not path.exists():
         return False
@@ -452,6 +460,10 @@ def delete_project_profile(project_root: Path, name: str) -> bool:
 
 def delete_global_profile(project_root: Path, name: str) -> bool:
     """Delete a global profile: remove DB cache and repo read-only copy."""
+    if not _NAME_RE.fullmatch(name):
+        raise LayoutProfileNameError(
+            f"profile name {name!r} invalid: must match {_NAME_RE.pattern}"
+        )
     deleted_db = _delete_db_profile(name)
     deleted_repo = delete_project_profile(project_root, name)
     return deleted_db or deleted_repo
@@ -476,6 +488,10 @@ def get_global_default() -> str | None:
 
 
 def set_global_default(name: str | None) -> None:
+    if name is not None and not _NAME_RE.fullmatch(name):
+        raise LayoutProfileNameError(
+            f"profile name {name!r} invalid: must match {_NAME_RE.pattern}"
+        )
     with db.session() as session:
         if name is None:
             row = session.get(GlobalSetting, _DEFAULT_LAYOUT_PROFILE_KEY)

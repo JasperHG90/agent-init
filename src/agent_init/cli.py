@@ -14,6 +14,7 @@ import typer
 from agent_init import __version__
 from agent_init.core import agent_install as agent_install_mod
 from agent_init.core import agents as agents_mod
+from agent_init.core import agents_md as agents_md_mod
 from agent_init.core import doctor as doctor_mod
 from agent_init.core import format as format_mod
 from agent_init.core import git
@@ -86,6 +87,7 @@ _FRIENDLY_ERRORS: tuple[type[Exception], ...] = (
     rule_repos_mod.RuleRepoExistsError,
     rule_repos_mod.RuleRepoNotFoundError,
     git.GitError,
+    agents_md_mod.RegionError,
 )
 
 
@@ -156,9 +158,14 @@ def main(
     output_format: str = typer.Option(
         format_mod.OutputFormat.TABLE,
         "--format",
-        help="Output format for list commands: table or json.",
+        help="Output format for list commands: table, json, or compact.",
         callback=_format_callback,
         is_eager=True,
+    ),
+    compact_output: bool = typer.Option(
+        False,
+        "--compact",
+        help="Output list commands as compact NDJSON (one JSON object per line).",
     ),
 ) -> None:
     """agent-init: scaffold and manage agent-engineering projects.
@@ -169,6 +176,9 @@ def main(
     if json_output:
         ctx.obj = ctx.obj or {}
         ctx.obj["format"] = format_mod.OutputFormat.JSON
+    if compact_output:
+        ctx.obj = ctx.obj or {}
+        ctx.obj["format"] = format_mod.OutputFormat.COMPACT
     if ctx.invoked_subcommand is None:
         import sys
 
@@ -326,7 +336,13 @@ def root_list(ctx: typer.Context) -> None:
     """List configured project roots."""
     entries = roots_mod.list_roots()
     rows = [{"path": str(r)} for r in entries]
-    format_mod.render(rows, _get_format(ctx), title="roots configured", columns=["path"])
+    format_mod.render(
+        rows,
+        _get_format(ctx),
+        title="roots configured",
+        columns=["path"],
+        compact_columns=["path"],
+    )
 
 
 @root_app.command("remove")
@@ -369,6 +385,7 @@ def rule_repo_list(ctx: typer.Context) -> None:
             "default_ref": "default_ref",
             "head": "last_sha",
         },
+        compact_columns=["alias", "url", "default_ref"],
     )
 
 
@@ -426,6 +443,7 @@ def profile_list(ctx: typer.Context) -> None:
         _get_format(ctx),
         title="profiles saved",
         columns=["name", "template", "mirrors", "skills", "agents", "mcp", "rules"],
+        compact_columns=["name", "template", "skills", "agents", "mcp", "rules"],
     )
 
 
@@ -504,6 +522,7 @@ def mcp_list_cmd(
             "registry_name": "registry_name",
             "version": "current.registry_version",
         },
+        compact_columns=["alias", "registry_name", "version"],
     )
 
 
@@ -610,6 +629,11 @@ def init_cmd(
     rule: list[str] = typer.Option(
         [], "--rule", "-r", help="Additional rule name to apply (repeatable)."
     ),
+    rule_file: list[str] = typer.Option(
+        [],
+        "--rule-file",
+        help="Seed a rule from FILE. Format name=path or just path (stem becomes name). Repeatable.",
+    ),
     force: bool = typer.Option(
         False, "--force", "-f", help="Overwrite existing AGENTS.md / mirrors."
     ),
@@ -621,12 +645,27 @@ def init_cmd(
     ),
 ) -> None:
     """Initialize or refresh agent-init scaffolding in PROJECT."""
+    extra_rule_files: dict[str, Path] = {}
+    for rf in rule_file:
+        if "=" in rf:
+            name, _, path_str = rf.partition("=")
+        else:
+            path_str = rf
+            name = Path(path_str).stem
+        if not name:
+            raise typer.BadParameter(f"rule-file {rf!r} has no name")
+        path = Path(path_str).expanduser()
+        if not path.is_file():
+            raise typer.BadParameter(f"rule-file not found: {path}")
+        extra_rule_files[name] = path
+
     options = init_mod.InitOptions(
         project_root=_here(project),
         template=template,
         mirrors=tuple(mirror),
         seed_default_rules=not no_default_rules,
         extra_rules=list(rule),
+        extra_rule_files=extra_rule_files,
         force=force,
         dry_run=diff,
         layout_profile=layout_profile,
@@ -710,6 +749,7 @@ def rule_list(ctx: typer.Context) -> None:
         _get_format(ctx),
         title="rules registered",
         columns=["name", "default", "source", "description"],
+        compact_columns=["name", "default", "source", "description"],
     )
 
 
@@ -808,6 +848,7 @@ def repo_list(ctx: typer.Context) -> None:
             "head": "last_sha",
             "last_fetched": "last_fetched_at",
         },
+        compact_columns=["alias", "url", "default_ref"],
     )
 
 
@@ -849,6 +890,7 @@ def skill_list(
         _get_format(ctx),
         title="skills indexed",
         columns=["qualified_name", "repo_alias", "title", "description"],
+        compact_columns=["qualified_name", "title", "description"],
     )
 
 
@@ -865,6 +907,7 @@ def skill_search(
         _get_format(ctx),
         title=f"skills matching {query!r}",
         columns=["qualified_name", "repo_alias", "title", "description"],
+        compact_columns=["qualified_name", "title", "description"],
     )
 
 
@@ -978,6 +1021,7 @@ def agent_list(
         _get_format(ctx),
         title="agents indexed",
         columns=["qualified_name", "repo_alias", "title", "description"],
+        compact_columns=["qualified_name", "title", "description"],
     )
 
 
@@ -994,6 +1038,7 @@ def agent_search(
         _get_format(ctx),
         title=f"agents matching {query!r}",
         columns=["qualified_name", "repo_alias", "title", "description"],
+        compact_columns=["qualified_name", "title", "description"],
     )
 
 

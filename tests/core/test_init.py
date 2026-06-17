@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from agent_init.core import init as init_mod
 from agent_init.core import manifest, rules
 
@@ -82,3 +84,34 @@ def test_init_with_no_default_rules(home: Path, project_root: Path) -> None:
     assert result.applied_rules == []
     m = manifest.load(project_root)
     assert m.rules == []
+
+
+def test_init_seeds_rule_from_file(home: Path, project_root: Path) -> None:
+    rule_file = home / "my-rule.md"
+    rule_file.write_text("# My rule\n\nAlways add tests.\n")
+    result = init_mod.run(
+        init_mod.InitOptions(
+            project_root=project_root,
+            extra_rule_files={"my-rule": rule_file},
+        )
+    )
+    assert "my-rule" in result.applied_rules
+    assert "Always add tests." in result.agents_md_path.read_text()
+    # Rule is stored in the global library so re-init works without --rule-file.
+    m = manifest.load(project_root)
+    assert "my-rule" in m.rules
+    assert rules.get("my-rule").body == "# My rule\n\nAlways add tests.\n"
+
+
+def test_init_rejects_invalid_rule_file_name(home: Path, project_root: Path) -> None:
+    rule_file = home / "bad rule.md"
+    rule_file.write_text("# Bad\n")
+    with pytest.raises(rules.RuleNameError):
+        init_mod.run(
+            init_mod.InitOptions(
+                project_root=project_root,
+                extra_rule_files={"bad rule": rule_file},
+            )
+        )
+
+

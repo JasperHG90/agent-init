@@ -34,6 +34,10 @@ from agent_init.core.install import _SNAPSHOT_SENTINEL
 from agent_init.core.models import RegisteredRepo, RuleEntry
 
 
+class DoctorPathEscapeError(ValueError):
+    """A manifest-stored path resolves outside the project root."""
+
+
 @dataclass
 class Finding:
     severity: str  # "info" | "warning" | "error"
@@ -52,6 +56,14 @@ class DoctorReport:
 
     def by_severity(self, sev: str) -> list[Finding]:
         return [f for f in self.findings if f.severity == sev]
+
+
+def _safe_project_path(root: Path, rel: str) -> Path | None:
+    """Wrapper that catches unexpected resolution failures."""
+    try:
+        return paths.safe_project_path(root, rel)
+    except (ValueError, OSError):
+        return None
 
 
 def audit(
@@ -91,7 +103,16 @@ def _audit_project(root: Path, report: DoctorReport) -> None:
 
     # Region drift in AGENTS.md and mirrors.
     for managed in m.managed_files:
-        target = root / managed
+        target = _safe_project_path(root, managed)
+        if target is None:
+            report.findings.append(
+                Finding(
+                    "error",
+                    root,
+                    f"{managed}: manifest path escapes project root",
+                )
+            )
+            continue
         if not target.exists():
             report.findings.append(
                 Finding(
@@ -123,7 +144,16 @@ def _audit_project(root: Path, report: DoctorReport) -> None:
 
     # Skill drift.
     for skill in m.skills:
-        target = root / skill.target_dir
+        target = _safe_project_path(root, skill.target_dir)
+        if target is None:
+            report.findings.append(
+                Finding(
+                    "error",
+                    root,
+                    f"{skill.qualified_name}: target {skill.target_dir} escapes project root",
+                )
+            )
+            continue
         if not target.exists():
             report.findings.append(
                 Finding("error", root, f"{skill.qualified_name}: target {skill.target_dir} missing")
@@ -146,7 +176,16 @@ def _audit_project(root: Path, report: DoctorReport) -> None:
 
     # Agent drift.
     for agent in m.agents:
-        target = root / agent.target_path
+        target = _safe_project_path(root, agent.target_path)
+        if target is None:
+            report.findings.append(
+                Finding(
+                    "error",
+                    root,
+                    f"{agent.qualified_name}: target {agent.target_path} escapes project root",
+                )
+            )
+            continue
         if not target.exists():
             report.findings.append(
                 Finding("error", root, f"{agent.qualified_name}: target {agent.target_path} missing")

@@ -17,8 +17,8 @@ from textual.widgets import Input
 
 from agent_init.core import repos, rules
 from agent_init.tui.app import AgentInitApp
-from agent_init.tui.modals.confirm import ConfirmModal
 from agent_init.tui.modals.agent_install import AgentInstallModal
+from agent_init.tui.modals.confirm import ConfirmModal
 from agent_init.tui.modals.init_modal import InitModal
 from agent_init.tui.modals.project_picker import ProjectPickerModal
 from agent_init.tui.modals.repo_add import RepoAddModal

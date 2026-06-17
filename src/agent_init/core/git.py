@@ -11,6 +11,7 @@ local fixture bare repo).
 
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 from collections.abc import Iterable
@@ -21,6 +22,12 @@ from typing import Protocol
 
 class GitError(RuntimeError):
     pass
+
+
+# Disable interactive credential prompts so a misconfigured remote can't hang
+# the CLI/TUI indefinitely. Also set a generous hard ceiling on all git ops.
+_GIT_ENV = {**os.environ, "GIT_TERMINAL_PROMPT": "0", "GIT_ASKPASS": "false"}
+_GIT_TIMEOUT_SECONDS = 300
 
 
 @dataclass(frozen=True)
@@ -41,7 +48,7 @@ class GitBackend(Protocol):
     def last_touching_sha(self, repo_dir: Path, ref: str, source_path: str) -> str: ...
 
 
-def _run(args: Iterable[str], *, cwd: Path | None = None, input_bytes: bytes | None = None) -> bytes:
+def _run(args: Iterable[str], *, cwd: Path | None = None, input_bytes: bytes | None = None, timeout: int | None = None) -> bytes:
     try:
         result = subprocess.run(
             list(args),
@@ -49,12 +56,16 @@ def _run(args: Iterable[str], *, cwd: Path | None = None, input_bytes: bytes | N
             input=input_bytes,
             check=True,
             capture_output=True,
+            env=_GIT_ENV,
+            timeout=timeout or _GIT_TIMEOUT_SECONDS,
         )
     except FileNotFoundError as exc:
         raise GitError("`git` executable not found on PATH") from exc
     except subprocess.CalledProcessError as exc:
         stderr = exc.stderr.decode(errors="replace").strip()
         raise GitError(f"git {' '.join(args)} failed: {stderr}") from exc
+    except subprocess.TimeoutExpired as exc:
+        raise GitError(f"git {' '.join(args)} timed out after {exc.timeout}s") from exc
     return result.stdout
 
 
@@ -69,12 +80,15 @@ class RealGitBackend:
         if dest.exists():
             raise GitError(f"clone dest already exists: {dest}")
         dest.parent.mkdir(parents=True, exist_ok=True)
-        _run(["git", "clone", "--mirror", "--quiet", url, str(dest)])
+        # `--` ensures a URL/ref starting with `-` is not parsed as a git option.
+        _run(["git", "clone", "--mirror", "--quiet", "--", url, str(dest)])
 
     def fetch(self, repo_dir: Path) -> None:
         _run(["git", "-C", str(repo_dir), "fetch", "--quiet", "--tags", "--prune", "origin"])
 
     def resolve_ref(self, repo_dir: Path, ref: str) -> str:
+        if ref.startswith("-"):
+            raise GitError(f"ref must not start with '-': {ref!r}")
         out = _run(["git", "-C", str(repo_dir), "rev-parse", ref])
         return out.decode().strip()
 
@@ -93,6 +107,8 @@ class RealGitBackend:
         return tags
 
     def latest_tag(self, repo_dir: Path, ref: str) -> str | None:
+        if ref.startswith("-"):
+            raise GitError(f"ref must not start with '-': {ref!r}")
         try:
             out = _run([
                 "git", "-C", str(repo_dir),
@@ -148,6 +164,9 @@ class RealGitBackend:
                     "tar", "-x",
                     "-C", str(dest_dir),
                     f"--strip-components={strip_components}",
+                    "--no-same-owner",
+                    "--no-same-permissions",
+                    "--no-acls",
                 ],
                 input=archive_result.stdout,
                 check=True,
@@ -161,6 +180,8 @@ class RealGitBackend:
         _ = tar_result
 
     def last_touching_sha(self, repo_dir: Path, ref: str, source_path: str) -> str:
+        if ref.startswith("-"):
+            raise GitError(f"ref must not start with '-': {ref!r}")
         path_spec = source_path or "SKILL.md"
         out = _run([
             "git", "-C", str(repo_dir),

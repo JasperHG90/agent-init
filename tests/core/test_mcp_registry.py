@@ -115,14 +115,13 @@ def test_map_stdio_uvx() -> None:
     assert entry.args == ["mcp-weather"]
 
 
-def test_map_unknown_registry_defaults_to_npx() -> None:
+def test_map_unknown_registry_is_rejected() -> None:
     raw = _stdio_server()
     raw["packages"][0]["registryType"] = "docker"
     raw["packages"][0]["runtimeHint"] = None
     server = mcp_registry.McpServer.model_validate(raw)
-    entry = mcp_registry.map_to_claude_entry(server)
-    assert entry.command == "npx"
-    assert entry.args == ["-y", "@modelcontextprotocol/server-filesystem"]
+    with pytest.raises(mcp_registry.McpMappingError):
+        mcp_registry.map_to_claude_entry(server)
 
 
 def test_preferred_transport_respected() -> None:

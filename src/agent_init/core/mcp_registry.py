@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import threading
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import cast
@@ -33,6 +34,7 @@ _SEARCH_TTL_SECONDS = 60
 _SEARCH_CACHE = TTLCache(maxsize=128, ttl=_SEARCH_TTL_SECONDS)
 _DEFAULT_CACHE_MAXSIZE = 64
 _DEFAULT_CACHE = LRUCache(maxsize=_DEFAULT_CACHE_MAXSIZE)
+_CACHE_LOCK = threading.Lock()
 _DB_CACHE_TTL_DAYS = 7
 _TIMEOUT_SECONDS = 15
 
@@ -125,7 +127,8 @@ def search_registry(query: str, cursor: str | None = None) -> tuple[list[McpSear
     Returns `(results, next_cursor)`. Results are cached in memory for 60s.
     """
     cache_key = (query.strip().lower(), cursor)
-    cached = _SEARCH_CACHE.get(cache_key)
+    with _CACHE_LOCK:
+        cached = _SEARCH_CACHE.get(cache_key)
     if cached is not None:
         return cast(tuple[list[McpSearchResult], str | None], cached)
 
@@ -144,7 +147,8 @@ def search_registry(query: str, cursor: str | None = None) -> tuple[list[McpSear
     metadata = payload.get("metadata", {})
     next_cursor = metadata.get("nextCursor")
     out = (results, next_cursor)
-    _SEARCH_CACHE[cache_key] = out
+    with _CACHE_LOCK:
+        _SEARCH_CACHE[cache_key] = out
     return out
 
 
@@ -174,7 +178,8 @@ def _server_from_json(text: str) -> McpServer:
 
 def _get_cached_default(name: str) -> McpServer | None:
     key = _default_cache_key(name)
-    cached = _DEFAULT_CACHE.get(key)
+    with _CACHE_LOCK:
+        cached = _DEFAULT_CACHE.get(key)
     if cached is not None:
         return cached
 
@@ -185,7 +190,8 @@ def _get_cached_default(name: str) -> McpServer | None:
             cutoff = datetime.now(UTC) - timedelta(days=_DB_CACHE_TTL_DAYS)
             if row.fetched_at.replace(tzinfo=UTC) >= cutoff:
                 server = _server_from_json(row.definition_json)
-                _DEFAULT_CACHE[key] = server
+                with _CACHE_LOCK:
+                    _DEFAULT_CACHE[key] = server
                 return server
     except Exception as exc:
         logger.debug("failed to read default MCP cache for %r: %s", name, exc)
@@ -194,7 +200,8 @@ def _get_cached_default(name: str) -> McpServer | None:
 
 def _set_cached_default(name: str, server: McpServer) -> None:
     key = _default_cache_key(name)
-    _DEFAULT_CACHE[key] = server
+    with _CACHE_LOCK:
+        _DEFAULT_CACHE[key] = server
     try:
         definition_json = json.dumps(server.model_dump(by_alias=True), sort_keys=True)
         with db.session() as session:
@@ -297,9 +304,10 @@ def list_cached_servers() -> list[tuple[str, McpServer, datetime, datetime]]:
     # Merge any in-memory-only entries (e.g. from a recent install in this
     # process that may not have flushed to DB yet), preserving LRU order.
     memory_names = {name for name, _, _, _ in rows}
-    for name in _DEFAULT_CACHE:
-        if name not in memory_names:
-            rows.append((name, _DEFAULT_CACHE[name], now, now + timedelta(days=_DB_CACHE_TTL_DAYS)))
+    with _CACHE_LOCK:
+        for name in _DEFAULT_CACHE:
+            if name not in memory_names:
+                rows.append((name, _DEFAULT_CACHE[name], now, now + timedelta(days=_DB_CACHE_TTL_DAYS)))
 
     rows.sort(key=lambda item: item[2], reverse=True)
     return rows
@@ -334,9 +342,10 @@ def _build_stdio_entry(package: McpPackage) -> McpClaudeEntry:
         command = "npx"
         args = ["-y", package.identifier]
     else:
-        # Default to npx for unknown registry types; better than failing.
-        command = "npx"
-        args = ["-y", package.identifier]
+        raise McpMappingError(
+            f"unsupported MCP package type {package.registry_type!r} "
+            f"(runtimeHint {package.runtime_hint!r})"
+        )
 
     env: dict[str, str] = {}
     for var in package.environment_variables:
@@ -424,6 +433,9 @@ def read_mcp_json(project_root: Path) -> dict:
         raise McpRegistryError(f"invalid .mcp.json: {exc}") from exc
     if not isinstance(data, dict):
         raise McpRegistryError(".mcp.json must contain a JSON object")
+    servers = data.get("mcpServers", {})
+    if not isinstance(servers, dict):
+        raise McpRegistryError(".mcp.json mcpServers must be a JSON object")
     data.setdefault("mcpServers", {})
     return data
 

@@ -96,6 +96,7 @@ def save(profile: Profile) -> Path:
 
 
 def load(name: str) -> Profile:
+    _validate_name(name)
     path = _profile_path(name)
     if not path.exists():
         raise ProfileNotFoundError(name)
@@ -108,6 +109,8 @@ def list_profiles() -> list[Profile]:
         return []
     out: list[Profile] = []
     for path in sorted(dir_.glob("*.json")):
+        if not _NAME_RE.fullmatch(path.stem):
+            continue
         try:
             out.append(Profile.model_validate(json.loads(path.read_text())))
         except Exception:  # pragma: no cover — corrupt file
@@ -116,6 +119,7 @@ def list_profiles() -> list[Profile]:
 
 
 def delete(name: str) -> bool:
+    _validate_name(name)
     path = _profile_path(name)
     if not path.exists():
         return False
@@ -127,6 +131,7 @@ def from_project(name: str, project_root: Path) -> Profile:
     """Build a profile by inspecting a project's manifest and disk state."""
     from agent_init.core import manifest
 
+    _validate_name(name)
     m = manifest.load(project_root)
     managed = [
         f for f in m.managed_files if f.lower() != "agents.md"

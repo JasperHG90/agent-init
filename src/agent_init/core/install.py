@@ -58,6 +58,10 @@ class RollbackUnavailableError(RuntimeError):
     """Snapshot is gone AND upstream refetch failed. Loud failure as the plan accepts."""
 
 
+class ManifestPathEscapeError(ValueError):
+    """A manifest-stored target_dir/target_path resolves outside the project root."""
+
+
 @dataclass(frozen=True)
 class InstallPlan:
     qualified_name: str
@@ -190,6 +194,16 @@ def resolve_install_version(
     return SkillVersion(tag=tag, sha=sha, installed_at=datetime.now(UTC))
 
 
+def _resolve_target_dir(project_root: Path, target_dir: str) -> Path:
+    """Validate a manifest-originated target_dir and return its absolute path."""
+    safe = paths.safe_project_path(project_root, target_dir)
+    if safe is None:
+        raise ManifestPathEscapeError(
+            f"manifest target_dir escapes project root: {target_dir!r}"
+        )
+    return safe
+
+
 def _plan(
     project_root: Path,
     qualified_name: str,
@@ -200,7 +214,9 @@ def _plan(
     row = _skill_index_row(qualified_name)
     version = resolve_install_version(row.repo_alias, row.source_path, track=track, pin=pin)
     profile = layout_profiles.resolve_active(project_root)
-    target_dir = project_root / profile.skills_dir / row.skill_name
+    target_dir = _resolve_target_dir(
+        project_root, str(Path(profile.skills_dir) / row.skill_name)
+    )
     return InstallPlan(
         qualified_name=qualified_name,
         repo_alias=row.repo_alias,
@@ -211,14 +227,37 @@ def _plan(
     )
 
 
+def _ensure_symlinks_safe(snap: Path) -> None:
+    """Reject symlinks whose target escapes the snapshot or is absolute."""
+    snap_resolved = snap.resolve()
+    for path in snap.rglob("*"):
+        if not path.is_symlink():
+            continue
+        target = path.readlink()
+        if target.is_absolute():
+            raise LocalEditsError(
+                f"snapshot contains absolute symlink: {path.relative_to(snap)} -> {target}"
+            )
+        resolved = (path.parent / target).resolve()
+        if resolved != snap_resolved and not resolved.is_relative_to(snap_resolved):
+            raise LocalEditsError(
+                f"snapshot contains escaping symlink: {path.relative_to(snap)} -> {target}"
+            )
+
+
 def _deploy(plan: InstallPlan) -> str:
     """Materialise the skill bytes into the project target_dir. Returns the
     content hash of the deployed tree."""
     snap = _ensure_snapshot(plan.repo_alias, plan.version.sha, plan.source_path, plan.skill_name)
+    _ensure_symlinks_safe(snap)
     if plan.target_dir.exists():
         shutil.rmtree(plan.target_dir)
     plan.target_dir.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copytree(snap, plan.target_dir, ignore=shutil.ignore_patterns(_SNAPSHOT_SENTINEL))
+    shutil.copytree(
+        snap, plan.target_dir,
+        symlinks=True,
+        ignore=shutil.ignore_patterns(_SNAPSHOT_SENTINEL),
+    )
     return hashing.hash_tree(plan.target_dir)
 
 
@@ -341,7 +380,7 @@ def _warn_about_prereqs_and_capabilities(project_root: Path, qualified_name: str
 def _check_local_edits(project_root: Path, installed: InstalledSkill, *, force: bool) -> None:
     if force or installed.content_hash is None:
         return
-    target = project_root / installed.target_dir
+    target = _resolve_target_dir(project_root, installed.target_dir)
     if not target.exists():
         return
     current = hashing.hash_tree(target)
@@ -403,7 +442,7 @@ def update(
         repo_alias=existing.repo_alias,
         skill_name=row.skill_name,
         source_path=existing.source_path,
-        target_dir=project_root / existing.target_dir,
+        target_dir=_resolve_target_dir(project_root, existing.target_dir),
         version=new_version,
     )
     content_hash = _deploy(plan)
@@ -491,7 +530,7 @@ def delete(project_root: Path, qualified_name: str) -> None:
     existing = _find_installed(m, qualified_name)
     if existing is None:
         raise SkillNotInstalledError(qualified_name)
-    target = project_root / existing.target_dir
+    target = _resolve_target_dir(project_root, existing.target_dir)
     if target.exists():
         shutil.rmtree(target)
     m.skills = [s for s in m.skills if s.qualified_name != qualified_name]
@@ -516,7 +555,7 @@ def rollback(project_root: Path, qualified_name: str, *, force: bool = False) ->
         repo_alias=existing.repo_alias,
         skill_name=existing.qualified_name.split("/", 1)[1],
         source_path=existing.source_path,
-        target_dir=project_root / existing.target_dir,
+        target_dir=_resolve_target_dir(project_root, existing.target_dir),
         version=target_version,
     )
     content_hash = _deploy(plan)

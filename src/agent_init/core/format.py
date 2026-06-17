@@ -21,6 +21,7 @@ from rich.table import Table
 class OutputFormat:
     TABLE = "table"
     JSON = "json"
+    COMPACT = "compact"
 
 
 def _serialize(value: object) -> Any:
@@ -87,15 +88,24 @@ def render_table(
 
 def _get_attr(row: Any, attr: str) -> str:
     """Resolve an attribute path like `current.identifier` to a string."""
+    return _cell(_resolve_attr_path(row, attr))
+
+
+def _get_attr_raw(row: Any, attr: str) -> Any:
+    """Resolve an attribute path and return the raw value for JSON serialization."""
+    return _resolve_attr_path(row, attr)
+
+
+def _resolve_attr_path(row: Any, attr: str) -> Any:
     value: Any = row
     for part in attr.split("."):
         if value is None:
-            return ""
+            return None
         if isinstance(value, dict):
             value = value.get(part)
         else:
             value = getattr(value, part, None)
-    return _cell(value)
+    return value
 
 
 def _cell(value: Any) -> str:
@@ -115,6 +125,25 @@ def render_json(rows: list[Any]) -> None:
     typer.echo(json.dumps(_serialize(rows), indent=2))
 
 
+def render_compact(
+    rows: list[Any],
+    *,
+    columns: list[str] | None = None,
+    row_extractor: dict[str, str] | None = None,
+    compact_columns: list[str] | None = None,
+) -> None:
+    """Print one compact JSON object per row (NDJSON), omitting the outer list.
+
+    If `compact_columns` is provided, only those keys are emitted; otherwise the
+    full `columns` list is used. Empty input produces no output.
+    """
+    cols = compact_columns or columns or []
+    extractor = row_extractor or {}
+    for row in rows:
+        obj = {col: _serialize(_get_attr_raw(row, extractor.get(col, col))) for col in cols}
+        typer.echo(json.dumps(obj, separators=(",", ":")))
+
+
 def render(
     rows: list[Any],
     format: str,
@@ -122,9 +151,12 @@ def render(
     title: str | None = None,
     columns: list[str] | None = None,
     row_extractor: dict[str, str] | None = None,
+    compact_columns: list[str] | None = None,
 ) -> None:
-    """Render rows as a table or JSON depending on `format`."""
+    """Render rows as a table, JSON, or compact NDJSON depending on `format`."""
     if format == OutputFormat.JSON:
         render_json(rows)
+    elif format == OutputFormat.COMPACT:
+        render_compact(rows, columns=columns, row_extractor=row_extractor, compact_columns=compact_columns)
     else:
         render_table(rows, title=title, columns=columns, row_extractor=row_extractor)

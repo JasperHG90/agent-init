@@ -33,6 +33,7 @@ from sqlmodel import delete, select
 from agent_init.core import db, git, repos
 from agent_init.core.agents import _as_str, _as_str_list, _extract_frontmatter
 from agent_init.core.models import SkillIndex
+from agent_init.core.validation import is_valid_alias
 
 
 def split_csv(value: str) -> list[str]:
@@ -86,17 +87,21 @@ def discover(repo_alias: str) -> IndexResult:
             continue
         prefix = match.group("prefix") or ""
         name = match.group("name1") or match.group("name2")
+        if not name:
+            name = repo_alias
+        # Reject path-traversal names like `..` or names with path separators
+        # before they are ever used in filesystem paths.
+        if not is_valid_alias(name):
+            continue
         if prefix == "skills/":
             prefix_rank = 0
         elif prefix == ".claude/skills/":
             prefix_rank = 1
-        elif name:
+        elif name != repo_alias:
             prefix_rank = 2
         else:
             prefix_rank = 3
         source_dir = p[: -len("/SKILL.md")] if p != "SKILL.md" else ""
-        if not name:
-            name = repo_alias
         depth = p.count("/")
         by_name.setdefault(name, []).append(
             (

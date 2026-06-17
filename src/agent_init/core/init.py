@@ -19,6 +19,7 @@ from agent_init.core import (
     rule_compose,
     rules,
     templates,
+    validation,
 )
 from agent_init.core.models import Manifest
 from agent_init.core.validation import MirrorNameError, is_valid_mirror_name
@@ -60,6 +61,7 @@ class InitOptions:
     dry_run: bool = False
     # Name of a layout profile to use; overrides manifest.layout_profile.
     layout_profile: str | None = None
+    extra_rule_files: dict[str, Path] = field(default_factory=dict)
 
 
 @dataclass
@@ -145,6 +147,15 @@ def run(options: InitOptions) -> InitResult:
         effective_mirrors = requested_mirrors
         effective_symlinks = requested_symlinks
 
+    # Seed rules from explicit files into the global library so re-init works.
+    for name, path in options.extra_rule_files.items():
+        if not validation.is_valid_rule_name(name):
+            raise rules.RuleNameError(
+                f"rule-file name {name!r} invalid: must be lowercase alphanumeric, _, or -"
+            )
+        body = path.read_text(encoding="utf-8")
+        rules.add(name, body, description=None, is_default=False)
+
     # Resolve which rules to apply.
     rule_names: list[str] = []
     if re_init:
@@ -154,6 +165,9 @@ def run(options: InitOptions) -> InitResult:
             if r.name not in rule_names:
                 rule_names.append(r.name)
     for name in options.extra_rules:
+        if name not in rule_names:
+            rule_names.append(name)
+    for name in options.extra_rule_files:
         if name not in rule_names:
             rule_names.append(name)
 
@@ -357,7 +371,13 @@ def _region_hashes(text: str) -> dict[str, str]:
 
 def _detect_region_drift(filename: str, body: str, stored_hashes: dict[str, str]) -> list[str]:
     warnings: list[str] = []
-    for region in agents_md.parse(body):
+    try:
+        regions = agents_md.parse(body)
+    except agents_md.RegionError as exc:
+        raise agents_md.RegionError(
+            f"{filename}: malformed agent-init region markers — {exc}"
+        ) from exc
+    for region in regions:
         prior = stored_hashes.get(region.name)
         if prior is None:
             continue

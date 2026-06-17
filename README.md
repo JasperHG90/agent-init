@@ -4,17 +4,17 @@
 
 # agent-init
 
-The TUI-first project scaffolder for AI assistants: agent instructions, skills, sub-agents, MCP servers, and rules — all version-pinned and tracked in your repo.
+A lightweight package manager for your AI-assistant tooling: skills, sub-agents, MCP servers, and rules — version-pinned and tracked in your repo.
 
 ## Why this exists
 
 Every AI coding assistant works better with the right context: project conventions, reusable rules, and curated tools. Today that context is scattered across copy-pasted prompts, hand-edited `CLAUDE.md` files, and git submodules nobody wants to maintain.
 
-`agent-init` turns that into a reproducible workflow. It writes a focused `AGENTS.md` from a built-in template, keeps custom rules in a reusable library, and installs versioned skills, agents, and MCP servers from any git repo or registry. Everything is recorded in your project so the setup survives a fresh clone.
+`agent-init` turns that into a reproducible workflow. It keeps a library of reusable rules, installs versioned skills, agents, and MCP servers from any git repo or registry, and scaffolds the agent instruction file your IDE expects. Everything is recorded in your project so the setup survives a fresh clone.
 
 ## Features
 
-- **Generate Karpathy-style agent instructions** — `init` writes `AGENTS.md` from a minimal, opinionated template. Custom guidance lives in reusable rules, not in the agent file.
+- **Generate Karpathy-style `AGENTS.md`** — `init` writes a minimal, opinionated agent instruction file. Project-specific guidance lives in reusable rules, not in `AGENTS.md`.
 - **Install skills, agents, and rules from any repo** — register a git URL, browse the index, and install with per-artifact version pinning.
 - **Install MCP servers from the community registry** — search the public MCP registry and add servers to `.mcp.json` without hand-editing JSON.
 - **A manifest that tells you what you installed** — `.agent-init/manifest.json` is committed to your repo and tracks every skill, agent, MCP server, and rule.
@@ -156,7 +156,7 @@ The global SQLite DB is a **cache**. The project's `manifest.json` is the **sour
 
 ### Agent instructions
 
-`init` writes `AGENTS.md` from a built-in, minimal template. Mirrors like `CLAUDE.md` or `GEMINI.md` are symlinks so a single source of truth stays in `AGENTS.md`. Custom guidance goes into the rules library, not the agent file, so the agent instructions stay clean and the rules stay reusable across projects.
+`init` scaffolds `AGENTS.md` with Karpathy's agent instructions. It is intentionally minimal: project-specific guidance goes into the rules library, not into `AGENTS.md`. Mirrors like `CLAUDE.md` or `GEMINI.md` are symlinks so a single source of truth stays in `AGENTS.md` and the rules stay reusable across projects.
 
 ### Skill and agent discovery
 

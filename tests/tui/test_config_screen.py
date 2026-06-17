@@ -6,10 +6,10 @@ from pathlib import Path
 
 import pytest
 
-from atm.core import init as init_mod
-from atm.core import layout_profiles, manifest
-from atm.tui.app import AtmApp
-from atm.tui.screens.config_screen import ConfigScreen
+from aim.core import declarations, layout_profiles
+from aim.core import init as init_mod
+from aim.tui.app import AimApp
+from aim.tui.screens.config_screen import ConfigScreen
 
 
 @pytest.mark.asyncio
@@ -20,7 +20,7 @@ async def test_project_tab_shows_current_manifest(home: Path, project_root: Path
             agent_dialect="claude",
         )
     )
-    app = AtmApp()
+    app = AimApp()
     async with app.run_test() as pilot:
         await pilot.pause()
         app.push_screen(ConfigScreen(project_root))
@@ -39,7 +39,7 @@ async def test_project_tab_shows_current_manifest(home: Path, project_root: Path
 
 @pytest.mark.asyncio
 async def test_project_save_writes_manifest(home: Path, project_root: Path) -> None:
-    app = AtmApp()
+    app = AimApp()
     async with app.run_test() as pilot:
         await pilot.pause()
         app.push_screen(ConfigScreen(project_root))
@@ -53,8 +53,10 @@ async def test_project_save_writes_manifest(home: Path, project_root: Path) -> N
         await pilot.pause()
         await pilot.pause()
 
-    m = manifest.load(project_root)
+    decl = declarations.load(project_root)
     profile = layout_profiles.resolve_active(project_root)
     for mirror in profile.mirrors:
-        assert mirror in m.managed_files
-        assert (project_root / mirror).exists()
+        assert mirror in decl.mirrors
+    # init now writes aim.yml only; the lockfile is produced by `aim lock`.
+    lock_path = project_root / "aim.lock"
+    assert not lock_path.exists()

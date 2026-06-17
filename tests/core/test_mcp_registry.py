@@ -7,7 +7,7 @@ import pytest
 import respx
 from httpx import Response
 
-from atm.core import mcp_registry
+from aim.core import mcp_registry
 
 
 def _payload(servers: list[dict], next_cursor: str | None = None) -> dict:

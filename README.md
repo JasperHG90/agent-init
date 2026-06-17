@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/logo.png" alt="atm logo" width="320">
+  <img src="assets/logo.png" alt="aim logo" width="320">
 </p>
 
 A lightweight package manager for your AI-assistant tooling: skills, sub-agents, MCP servers, and rules — version-pinned and tracked in your repo.
@@ -8,26 +8,26 @@ A lightweight package manager for your AI-assistant tooling: skills, sub-agents,
 
 Every AI coding assistant works better with the right context: project conventions, reusable rules, and curated tools. Today that context is scattered across copy-pasted prompts, hand-edited `CLAUDE.md` files, and git submodules nobody wants to maintain.
 
-`atm` turns that into a reproducible workflow. It keeps a library of reusable rules, installs versioned skills, agents, and MCP servers from any git repo or registry, and scaffolds the agent instruction file your IDE expects. Everything is recorded in your project so the setup survives a fresh clone.
+`aim` turns that into a reproducible workflow. It keeps a library of reusable rules, installs versioned skills, agents, and MCP servers from any git repo or registry, and scaffolds the agent instruction file your IDE expects. Everything is recorded in your project so the setup survives a fresh clone.
 
 ## Features
 
 - **Generate Karpathy-style `AGENTS.md`** — `init` writes a minimal, opinionated agent instruction file. Project-specific guidance lives in reusable rules, not in `AGENTS.md`.
 - **Install skills, agents, and rules from any repo** — register a git URL, browse the index, and install with per-artifact version pinning.
 - **Install MCP servers from the community registry** — search the public MCP registry and add servers to `.mcp.json` without hand-editing JSON.
-- **A manifest that tells you what you installed** — `.atm/manifest.json` is committed to your repo and tracks every skill, agent, MCP server, and rule.
+- **A manifest that tells you what you installed** — `aim.lock` is committed to your repo and tracks every skill, agent, MCP server, and rule.
 - **Skills that let your agent manage itself** — bundled `repo-add` and `agent-installer` skills let your assistant add sources and install skills/agents/rules straight from a project chat.
 - **Hackable profiles** — layout profiles control where skills, rules, and agent files land (e.g. `.claude/`, `.gemini/`, or your own paths).
 - **Project templates for common stacks** — save a combo of skills, agents, MCP servers, and rules as a reusable template and bootstrap new projects in seconds.
 
 ## Screenshots
 
-The TUI is the default interface; every screenshot below is what you see after running `atm`. The skills and agents shown are from repositories that were already registered in the author's workspace — `atm` does not ship with a built-in catalog.
+The TUI is the default interface; every screenshot below is what you see after running `aim`. The skills and agents shown are from repositories that were already registered in the author's workspace — `aim` does not ship with a built-in catalog.
 
 ### Main menu
 
 <p align="center">
-  <img src="assets/main.png" alt="atm main menu with keyboard shortcuts for init, repos, skills, agents, MCP, rules, templates, project, config, and profiles" width="720">
+  <img src="assets/main.png" alt="aim main menu with keyboard shortcuts for init, repos, skills, agents, MCP, rules, templates, project, config, and profiles" width="720">
 </p>
 
 ### Browse and install skills
@@ -74,10 +74,10 @@ The TUI is the default interface; every screenshot below is what you see after r
 
 ## Quick start
 
-The default way to use `atm` is the TUI. Run it with no arguments:
+The default way to use `aim` is the TUI. Run it with no arguments:
 
 ```sh
-atm
+aim
 ```
 
 From the main menu you can initialize a project, add repos, search skills/agents/MCP, manage rules, and apply templates — all without leaving the keyboard.
@@ -86,32 +86,32 @@ For scripting or CI, the same actions are available as CLI commands:
 
 ```sh
 # 1. Add a reusable rule and make it a default.
-atm rule add be-concise --body "Be concise." --default
+aim rule add be-concise --body "Be concise." --default
 
 # 2. Scaffold a project: writes AGENTS.md, mirrors, and seeds default rules.
-atm init path/to/project
+aim init path/to/project
 
 # 3. Register skill/agent/rule source repositories from any git URL.
-atm repo add anthropic https://github.com/anthropics/skills
-atm repo add 0xforai https://github.com/0xforai/agents
+aim repo add anthropic https://github.com/anthropics/skills
+aim repo add 0xforai https://github.com/0xforai/agents
 
 # 4. Search and install skills, agents, or rules.
-atm skill search review
-atm skill install anthropic/code-review
-atm agent search angular
-atm agent install 0xforai/angular-expert
+aim skill search review
+aim skill install anthropic/code-review
+aim agent search angular
+aim agent install 0xforai/angular-expert
 
 # 5. Search and install an MCP server from the registry.
-atm mcp search fetch
-atm mcp install fetch
+aim mcp search fetch
+aim mcp install fetch
 
 # 6. Update or roll back safely later.
-atm skill update anthropic/code-review
-atm skill rollback anthropic/code-review
+aim skill update anthropic/code-review
+aim skill rollback anthropic/code-review
 
 # 7. Save a reusable project template.
-atm profile save my-stack path/to/project
-atm init --template my-stack path/to/new-project
+aim profile save my-stack path/to/project
+aim init --template my-stack path/to/new-project
 ```
 
 ## Installation
@@ -121,27 +121,27 @@ Requires Python >= 3.12. macOS and Linux are supported; Windows is not supported
 Run without installing:
 
 ```sh
-uvx --from git+https://github.com/JasperHG90/agent-tooling-manager.git atm
+uvx --from git+https://github.com/JasperHG90/agent-integrations-manager.git aim
 ```
 
 Install permanently as a `uv` tool:
 
 ```sh
-uv tool install git+https://github.com/JasperHG90/agent-tooling-manager.git
+uv tool install git+https://github.com/JasperHG90/agent-integrations-manager.git
 ```
 
 For local development:
 
 ```sh
-git clone https://github.com/JasperHG90/agent-tooling-manager.git
-cd agent-tooling-manager
+git clone https://github.com/JasperHG90/agent-integrations-manager.git
+cd agent-integrations-manager
 uv sync
-uv run atm --version
+uv run aim --version
 ```
 
 ## How it works
 
-Per-project state lives at `.atm/manifest.json` and is committed to your repo. It pins installed skills, agents, and MCP servers to `(tag, sha, registry_version)` tuples and stores the last 10 versions in `history`, so rollback works even if the upstream repo or registry entry is temporarily unavailable.
+Per-project state lives in `aim.lock` (resolved state) and `aim.yml` (user-editable declarations), both committed to your repo. The lock pins installed skills, agents, and MCP servers to `(tag, sha, registry_version)` tuples and stores the last 10 versions in `history`, so rollback works even if the upstream repo or registry entry is temporarily unavailable.
 
 Global, machine-local state lives under [platformdirs](https://platformdirs.readthedocs.io/):
 
@@ -183,7 +183,7 @@ A template captures a combination of profile, default rules, skills, agents, and
 
 - `repo add` rolls back cleanly on indexing failure: no orphan registrations.
 - `git archive | tar` extraction surfaces git's stderr first; `tar` errors are never misattributed.
-- Snapshots write a `.atm.complete` sentinel; partial extractions are re-run on next access.
+- Snapshots write a `.aim.complete` sentinel; partial extractions are re-run on next access.
 - `update` refuses to overwrite hand-edits to the deployed target (compared via `content_hash`); use `--force` to override.
 - `init` warns when it overwrites in-region content that was edited by hand since the last write.
 - `repo rename` rewrites the SQLite registry and skill index atomically; if the on-disk clone move fails, the DB rename is rolled back.
@@ -194,7 +194,7 @@ A template captures a combination of profile, default rules, skills, agents, and
 ```sh
 uv run pytest          # full suite — 100+ tests, including TUI Pilot + snapshot tests
 uv run ruff check .    # lint
-uv run atm      # launch the TUI
+uv run aim      # launch the TUI
 
 pytest tests/tui --snapshot-update  # only after intentional visual changes
 ```

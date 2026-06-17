@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from atm.core import repos, skills
+from aim.core import repos, skills
 from tests.fixtures import git_fixtures
 
 

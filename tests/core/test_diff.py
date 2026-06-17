@@ -4,35 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from atm.core import init as init_mod
-from atm.core import install, manifest, repos
+from aim.core import install, manifest, repos
 from tests.fixtures import git_fixtures
-
-
-def test_init_dry_run_does_not_write(home: Path, project_root: Path) -> None:
-    result = init_mod.run(init_mod.InitOptions(project_root=project_root, dry_run=True))
-    assert result.dry_run is True
-    assert result.pending_changes  # at least AGENTS.md
-    assert not (project_root / "AGENTS.md").exists()
-    # No manifest either.
-    import pytest
-
-    with pytest.raises(manifest.ManifestNotFoundError):
-        manifest.load(project_root)
-
-
-def test_init_dry_run_reflects_mirror_addition(home: Path, project_root: Path) -> None:
-    init_mod.run(init_mod.InitOptions(project_root=project_root))  # commit baseline
-    result = init_mod.run(
-        init_mod.InitOptions(
-            project_root=project_root,
-            mirrors=("CLAUDE.md",),
-            dry_run=True,
-        )
-    )
-    paths = {str(c.path) for c in result.pending_changes}
-    assert any("CLAUDE.md" in p for p in paths)
-    assert not (project_root / "CLAUDE.md").exists()
 
 
 def test_skill_update_dry_run(home: Path, project_root: Path, tmp_path: Path) -> None:

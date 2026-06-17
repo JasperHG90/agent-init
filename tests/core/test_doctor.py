@@ -1,10 +1,19 @@
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 
-from atm.core import doctor, install, repos, roots, rules
-from atm.core import init as init_mod
+from aim.core import doctor, install, repos, roots, rules
+from aim.core import init as init_mod
+from aim.core import sync as sync_mod
+from aim.core.lock import LockOptions
+from aim.core.lock import run as lock_run
 from tests.fixtures import git_fixtures
+
+
+def _run_lock_and_sync(project_root: Path) -> None:
+    asyncio.run(lock_run(LockOptions(project_root=project_root)))
+    asyncio.run(sync_mod.run(sync_mod.SyncOptions(project_root=project_root)))
 
 
 def _bare_with_skill(tmp_path: Path) -> Path:
@@ -44,6 +53,7 @@ def test_doctor_detects_skill_drift(home: Path, project_root: Path, tmp_path: Pa
 
 def test_doctor_detects_region_drift(home: Path, project_root: Path) -> None:
     init_mod.run(init_mod.InitOptions(project_root=project_root))
+    _run_lock_and_sync(project_root)
     # Edit inside the rules region marker.
     agents = project_root / "AGENTS.md"
     text = agents.read_text()
@@ -85,16 +95,16 @@ def test_doctor_orphan_rule(home: Path) -> None:
 
 
 def test_doctor_warns_on_partial_snapshot(home: Path, project_root: Path, tmp_path: Path) -> None:
-    from atm.core import paths
+    from aim.core import paths
 
     bare = _bare_with_skill(tmp_path)
     repos.add("anth", f"file://{bare}")
     installed = install.install(project_root, "anth/foo")
     snap = paths.snapshots_cache_dir() / "anth" / installed.current.sha / "foo"
-    (snap / ".atm.complete").unlink()
+    (snap / ".aim.complete").unlink()
 
     report = doctor.audit()
-    assert any("missing .atm.complete" in f.message for f in report.by_severity("warning"))
+    assert any("missing .aim.complete" in f.message for f in report.by_severity("warning"))
 
 
 def test_roots_round_trip(home: Path, tmp_path: Path) -> None:

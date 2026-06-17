@@ -6,18 +6,18 @@ from pathlib import Path
 
 import pytest
 
-from atm.core import layout_profiles, manifest
-from atm.tui.app import AtmApp
-from atm.tui.modals.layout_profile_picker_modal import (
+from aim.core import layout_profiles, manifest
+from aim.tui.app import AimApp
+from aim.tui.modals.layout_profile_picker_modal import (
     LayoutProfilePickerModal,
 )
-from atm.tui.screens.main_screen import MainScreen
+from aim.tui.screens.main_screen import MainScreen
 
 
 @pytest.mark.asyncio
 async def test_picker_opens_without_global_default(home: Path, project_root: Path) -> None:
     layout_profiles.set_global_default(None)
-    app = AtmApp(project_root=project_root)
+    app = AimApp(project_root=project_root)
     async with app.run_test() as pilot:
         await pilot.pause()
         assert isinstance(app.screen, LayoutProfilePickerModal)
@@ -26,7 +26,7 @@ async def test_picker_opens_without_global_default(home: Path, project_root: Pat
 @pytest.mark.asyncio
 async def test_picker_selects_profile(home: Path, project_root: Path) -> None:
     layout_profiles.set_global_default(None)
-    app = AtmApp(project_root=project_root)
+    app = AimApp(project_root=project_root)
     async with app.run_test() as pilot:
         await pilot.pause()
         assert isinstance(app.screen, LayoutProfilePickerModal)

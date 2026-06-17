@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 
 import pytest
 
-from atm.core import init as init_mod
-from atm.core import rule_compose, rules
+from aim.core import init as init_mod
+from aim.core import rule_compose, rules
+from aim.core import sync as sync_mod
+from aim.core.lock import LockOptions
+from aim.core.lock import run as lock_run
 
 
 def test_no_front_matter_is_default_order() -> None:
@@ -56,6 +60,8 @@ def test_init_includes_transitively_extended_rules(home: Path, project_root: Pat
         is_default=True,
     )
     init_mod.run(init_mod.InitOptions(project_root=project_root))
+    asyncio.run(lock_run(LockOptions(project_root=project_root)))
+    asyncio.run(sync_mod.run(sync_mod.SyncOptions(project_root=project_root)))
     text = (project_root / "AGENTS.md").read_text()
     assert "Parent body." in text
     assert "Child body." in text

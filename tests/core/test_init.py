@@ -4,80 +4,80 @@ from pathlib import Path
 
 import pytest
 
-from atm.core import init as init_mod
-from atm.core import manifest, rules
+from aim.core import declarations as declarations_mod
+from aim.core import init as init_mod
+from aim.core import rules
 
 
-def test_first_init_creates_agents_md_and_manifest(home: Path, project_root: Path) -> None:
+def test_first_init_creates_atm_yml(home: Path, project_root: Path) -> None:
     rules.add("focus", "Focus on simplicity.", is_default=True)
     result = init_mod.run(init_mod.InitOptions(project_root=project_root))
     assert result.re_init is False
-    assert result.agents_md_path.exists()
-    contents = result.agents_md_path.read_text()
-    assert "Focus on simplicity." in contents
-    assert "BEGIN atm: header" in contents
-    assert "BEGIN atm: rules" in contents
-    m = manifest.load(project_root)
-    assert m.rules == ["focus"]
-    assert "AGENTS.md" in m.managed_files
+    assert result.declarations_path.exists()
+    decl = declarations_mod.load(project_root)
+    assert decl.rules == ["focus"]
+    assert decl.template == "default"
+    assert "AGENTS.md" not in result.declarations_path.read_text()
 
 
 def test_first_init_no_mirrors_by_default(home: Path, project_root: Path) -> None:
-    """Default is opt-in: no CLAUDE.md / GEMINI.md unless requested."""
-    result = init_mod.run(init_mod.InitOptions(project_root=project_root))
-    assert result.mirror_paths == []
+    """Default is opt-in: no mirror declarations unless requested."""
+    init_mod.run(init_mod.InitOptions(project_root=project_root))
+    decl = declarations_mod.load(project_root)
+    assert decl.mirrors == []
     assert not (project_root / "CLAUDE.md").exists()
     assert not (project_root / "GEMINI.md").exists()
 
 
-def test_first_init_writes_only_selected_mirrors(home: Path, project_root: Path) -> None:
-    result = init_mod.run(init_mod.InitOptions(project_root=project_root, mirrors=("CLAUDE.md",)))
-    mirror_names = {p.name for p in result.mirror_paths}
-    assert mirror_names == {"CLAUDE.md"}
-    assert not (project_root / "GEMINI.md").exists()
-    agents_text = result.agents_md_path.read_text()
-    assert (project_root / "CLAUDE.md").read_text() == agents_text
+def test_first_init_records_only_selected_mirrors(home: Path, project_root: Path) -> None:
+    init_mod.run(init_mod.InitOptions(project_root=project_root, mirrors=("CLAUDE.md",)))
+    decl = declarations_mod.load(project_root)
+    assert decl.mirrors == ["CLAUDE.md"]
+    assert decl.symlinks == []
 
 
-def test_re_init_preserves_user_content_outside_regions(home: Path, project_root: Path) -> None:
-    init_mod.run(init_mod.InitOptions(project_root=project_root))
-    agents_path = project_root / "AGENTS.md"
-    text = agents_path.read_text() + "\n## Hand-added section\n\nUser content.\n"
-    agents_path.write_text(text)
-
-    rules.add("new-rule", "Be exact.", is_default=True)
-    init_mod.run(init_mod.InitOptions(project_root=project_root))
-
-    updated = agents_path.read_text()
-    assert "## Hand-added section" in updated
-    assert "User content." in updated
-    assert "Be exact." in updated
+def test_first_init_records_symlinks(home: Path, project_root: Path) -> None:
+    init_mod.run(
+        init_mod.InitOptions(project_root=project_root, symlinks=("CLAUDE.md", "GEMINI.md"))
+    )
+    decl = declarations_mod.load(project_root)
+    assert decl.symlinks == ["CLAUDE.md", "GEMINI.md"]
 
 
-def test_re_init_updates_managed_region(home: Path, project_root: Path) -> None:
+def test_re_init_preserves_existing_declarations(home: Path, project_root: Path) -> None:
+    init_mod.run(init_mod.InitOptions(project_root=project_root, mirrors=("CLAUDE.md",)))
+    init_mod.run(init_mod.InitOptions(project_root=project_root, mirrors=("GEMINI.md",)))
+    decl = declarations_mod.load(project_root)
+    assert "CLAUDE.md" in decl.mirrors
+    assert "GEMINI.md" in decl.mirrors
+
+
+def test_re_init_clear_mirrors_replaces_them(home: Path, project_root: Path) -> None:
+    init_mod.run(init_mod.InitOptions(project_root=project_root, mirrors=("CLAUDE.md", "GEMINI.md")))
+    init_mod.run(init_mod.InitOptions(project_root=project_root, mirrors=("OPENCODE.md",), clear_mirrors=True))
+    decl = declarations_mod.load(project_root)
+    assert decl.mirrors == ["OPENCODE.md"]
+
+
+def test_re_init_updates_rules_in_declarations(home: Path, project_root: Path) -> None:
     rules.add("first", "First rule.", is_default=True)
     init_mod.run(init_mod.InitOptions(project_root=project_root))
-    assert "First rule." in (project_root / "AGENTS.md").read_text()
+    decl = declarations_mod.load(project_root)
+    assert decl.rules == ["first"]
 
     rules.add("second", "Second rule.", is_default=True)
     init_mod.run(init_mod.InitOptions(project_root=project_root))
-    text = (project_root / "AGENTS.md").read_text()
-    assert "First rule." in text
-    assert "Second rule." in text
-
-
-def test_init_with_no_mirror(home: Path, project_root: Path) -> None:
-    result = init_mod.run(init_mod.InitOptions(project_root=project_root, mirrors=tuple()))
-    assert result.mirror_paths == []
-    assert not (project_root / "CLAUDE.md").exists()
+    decl = declarations_mod.load(project_root)
+    assert "first" in decl.rules
+    assert "second" in decl.rules
 
 
 def test_init_with_no_default_rules(home: Path, project_root: Path) -> None:
     rules.add("would-be-default", "body", is_default=True)
     result = init_mod.run(init_mod.InitOptions(project_root=project_root, seed_default_rules=False))
     assert result.applied_rules == []
-    m = manifest.load(project_root)
-    assert m.rules == []
+    decl = declarations_mod.load(project_root)
+    assert decl.rules == []
 
 
 def test_init_seeds_rule_from_file(home: Path, project_root: Path) -> None:
@@ -90,10 +90,8 @@ def test_init_seeds_rule_from_file(home: Path, project_root: Path) -> None:
         )
     )
     assert "my-rule" in result.applied_rules
-    assert "Always add tests." in result.agents_md_path.read_text()
-    # Rule is stored in the global library so re-init works without --rule-file.
-    m = manifest.load(project_root)
-    assert "my-rule" in m.rules
+    decl = declarations_mod.load(project_root)
+    assert "my-rule" in decl.rules
     assert rules.get("my-rule").body == "# My rule\n\nAlways add tests.\n"
 
 
@@ -107,3 +105,27 @@ def test_init_rejects_invalid_rule_file_name(home: Path, project_root: Path) -> 
                 extra_rule_files={"bad rule": rule_file},
             )
         )
+
+
+def test_init_records_layout_profile(home: Path, project_root: Path) -> None:
+    from aim.core import layout_profiles
+
+    layout_profiles.save_project_profile(
+        project_root,
+        layout_profiles.LayoutProfile(
+            name="custom",
+            skills_dir=".aim/skills",
+            rules_dir=".aim/rules",
+            agents_dir=".aim/agents",
+            mcp_json=".mcp.json",
+        ),
+    )
+    init_mod.run(init_mod.InitOptions(project_root=project_root, layout_profile="custom"))
+    decl = declarations_mod.load(project_root)
+    assert decl.layout_profile == "custom"
+
+
+def test_init_records_agent_dialect(home: Path, project_root: Path) -> None:
+    init_mod.run(init_mod.InitOptions(project_root=project_root, agent_dialect="claude"))
+    decl = declarations_mod.load(project_root)
+    assert decl.agent_dialect == "claude"

@@ -5,17 +5,17 @@ from pathlib import Path
 import pytest
 from textual.widgets import DataTable, Input, Static
 
-from atm.core import init, profiles, rules
-from atm.tui.app import AtmApp
-from atm.tui.modals.template_edit import TemplateEditModal
-from atm.tui.modals.template_save import TemplateSaveModal
-from atm.tui.screens.project_templates_screen import ProjectTemplatesScreen
-from atm.tui.widgets import ToggleRow
+from aim.core import init, profiles, rules
+from aim.tui.app import AimApp
+from aim.tui.modals.template_edit import TemplateEditModal
+from aim.tui.modals.template_save import TemplateSaveModal
+from aim.tui.screens.project_templates_screen import ProjectTemplatesScreen
+from aim.tui.widgets import ToggleRow
 
 
 @pytest.mark.asyncio
 async def test_templates_screen_empty_when_no_templates(home: Path, project_root: Path) -> None:
-    app = AtmApp(project_root=project_root)
+    app = AimApp(project_root=project_root)
     async with app.run_test() as pilot:
         await pilot.pause()
         app.push_screen(ProjectTemplatesScreen(project_root))
@@ -27,7 +27,7 @@ async def test_templates_screen_empty_when_no_templates(home: Path, project_root
 @pytest.mark.asyncio
 async def test_templates_screen_saves_current_project(home: Path, project_root: Path) -> None:
     init.run(init.InitOptions(project_root=project_root))
-    app = AtmApp(project_root=project_root)
+    app = AimApp(project_root=project_root)
     async with app.run_test() as pilot:
         await pilot.pause()
         app.push_screen(ProjectTemplatesScreen(project_root))
@@ -48,7 +48,7 @@ async def test_templates_screen_saves_current_project(home: Path, project_root: 
 async def test_templates_screen_edits_template(home: Path, project_root: Path) -> None:
     init.run(init.InitOptions(project_root=project_root))
     profiles.save(profiles.from_project("old", project_root))
-    app = AtmApp(project_root=project_root)
+    app = AimApp(project_root=project_root)
     async with app.run_test() as pilot:
         await pilot.pause()
         app.push_screen(ProjectTemplatesScreen(project_root))
@@ -77,7 +77,7 @@ async def test_template_edit_checkbox_toggles_uncheck_all(home: Path, project_ro
     )
     profiles.save(profile)
 
-    app = AtmApp(project_root=project_root)
+    app = AimApp(project_root=project_root)
     async with app.run_test(size=(80, 40)) as pilot:
         await pilot.pause()
         app.push_screen(ProjectTemplatesScreen(project_root))
@@ -130,7 +130,7 @@ async def test_template_edit_togglerow_space_toggles(home: Path, project_root: P
     )
     profiles.save(profile)
 
-    app = AtmApp(project_root=project_root)
+    app = AimApp(project_root=project_root)
     async with app.run_test(size=(80, 40)) as pilot:
         await pilot.pause()
         app.push_screen(ProjectTemplatesScreen(project_root))
@@ -162,7 +162,7 @@ async def test_template_edit_togglerow_reaches_by_tab(home: Path, project_root: 
     )
     profiles.save(profile)
 
-    app = AtmApp(project_root=project_root)
+    app = AimApp(project_root=project_root)
     async with app.run_test(size=(80, 40)) as pilot:
         await pilot.pause()
         app.push_screen(ProjectTemplatesScreen(project_root))

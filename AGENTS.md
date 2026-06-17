@@ -64,13 +64,13 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 
 **These guidelines are working if:** fewer unnecessary changes in diffs, fewer rewrites due to overcomplication, and clarifying questions come before implementation rather than after mistakes.
 
-<!-- BEGIN atm: header -->
-This file provides guidance to coding agents (Claude Code, Gemini CLI, opencode, etc.) when working in this repository. It is partially managed by [atm](https://github.com/JasperHG90/agent-tooling-manager). Content inside `<!-- BEGIN atm: ... -->` / `<!-- END atm: ... -->` markers is regenerated; content outside markers is preserved across regenerations.
-<!-- END atm: header -->
+<!-- BEGIN aim: header -->
+This file provides guidance to coding agents (Claude Code, Gemini CLI, opencode, etc.) when working in this repository. It is partially managed by [aim](https://github.com/JasperHG90/agent-integrations-manager). Content inside `<!-- BEGIN aim: ... -->` / `<!-- END aim: ... -->` markers is regenerated; content outside markers is preserved across regenerations.
+<!-- END aim: header -->
 
-<!-- BEGIN atm: rules -->
+<!-- BEGIN aim: rules -->
 
 ### rule-one
 
 First rule
-<!-- END atm: rules -->
+<!-- END aim: rules -->

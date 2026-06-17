@@ -5,14 +5,18 @@ Each test is named after the finding it addresses (see the review thread).
 
 from __future__ import annotations
 
+import asyncio
 import shutil
 from pathlib import Path
 
 import pytest
 
-from atm.core import init as init_mod
-from atm.core import install, manifest, paths, repos, rules
-from atm.core.install import _SNAPSHOT_SENTINEL
+from aim.core import init as init_mod
+from aim.core import install, manifest, paths, repos, rules
+from aim.core import sync as sync_mod
+from aim.core.install import _SNAPSHOT_SENTINEL
+from aim.core.lock import LockOptions
+from aim.core.lock import run as lock_run
 from tests.fixtures import git_fixtures
 
 
@@ -94,17 +98,19 @@ def test_update_with_force_overrides_local_edits(
 # ---------- #3: in-region drift warning on re-init ----------
 
 
-def test_init_warns_on_in_region_drift(home: Path, project_root: Path) -> None:
+def test_sync_warns_on_in_region_drift(home: Path, project_root: Path) -> None:
     rules.add("focus", "Focus.", is_default=True)
     init_mod.run(init_mod.InitOptions(project_root=project_root))
+    asyncio.run(lock_run(LockOptions(project_root=project_root)))
+    asyncio.run(sync_mod.run(sync_mod.SyncOptions(project_root=project_root)))
     agents = project_root / "AGENTS.md"
 
     text = agents.read_text()
     edited = text.replace("Focus.", "Focus. (edited inside marker)")
     agents.write_text(edited)
 
-    result = init_mod.run(init_mod.InitOptions(project_root=project_root))
-    assert any("rules" in w and "edited" in w for w in result.region_drift_warnings)
+    result = asyncio.run(sync_mod.run(sync_mod.SyncOptions(project_root=project_root)))
+    assert any("rules" in w and "edited" in w for w in result.drift_warnings)
 
 
 # ---------- #5: snapshot sentinel survives partial extraction ----------
@@ -139,7 +145,7 @@ def test_partial_snapshot_is_re_extracted(home: Path, project_root: Path, tmp_pa
 
 
 def test_archive_bad_sha_surfaces_git_error(home: Path, tmp_path: Path) -> None:
-    from atm.core import git as git_mod
+    from aim.core import git as git_mod
 
     working = git_fixtures.make_source_repo(
         tmp_path / "src", files={"skills/foo/SKILL.md": "# foo\n"}
@@ -160,7 +166,7 @@ def test_repos_add_rolls_back_on_indexing_failure(
 ) -> None:
     _, bare = _build_repo(tmp_path, {"skills/foo/SKILL.md": "# foo\n"})
 
-    from atm.core import skills as skills_mod
+    from aim.core import skills as skills_mod
 
     def boom(_alias: str) -> None:
         raise RuntimeError("simulated indexing failure")

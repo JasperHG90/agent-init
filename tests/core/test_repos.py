@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from atm.core import git, repo_rules, repos
+from aim.core import git, repo_rules, repos
 from tests.fixtures import git_fixtures
 
 
@@ -280,7 +280,7 @@ def test_refresh_auth_failure_has_helpful_message(
     git.set_backend(_FetchFailingBackend())
     try:
         # Override the stored URL so refresh sees a GitHub Enterprise-style URL.
-        from atm.core import db
+        from aim.core import db
 
         with db.session() as session:
             repo = session.get(repos.RegisteredRepo, "client")

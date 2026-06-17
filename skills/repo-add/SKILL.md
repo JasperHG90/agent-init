@@ -2,34 +2,34 @@
 name: repo-add
 description: |
   Use when the user asks to register or add a skill source repository,
-  rule-library overlay, or agent source repository for atm.
-  Handles `atm repo add` and `atm rule-repo add`.
+  rule-library overlay, or agent source repository for aim.
+  Handles `aim repo add` and `aim rule-repo add`.
 ---
 
 # Repo Add
 
-A skill for registering source repositories with atm.
+A skill for registering source repositories with aim.
 
 ## When to use
 
 Use this skill whenever the user wants to:
 
-- Add a skill/agent/rule source repo to atm
+- Add a skill/agent/rule source repo to aim
 - Register a git URL so skills, agents, or rules become installable
 - Refresh or remove a registered repo
 
 ## Workflow
 
-1. **Ensure `atm` is installed.** Before running any command, check whether `atm` is available:
+1. **Ensure `aim` is installed.** Before running any command, check whether `aim` is available:
 
-   - Try `command -v atm` or `atm --version`.
+   - Try `command -v aim` or `aim --version`.
    - If the command succeeds, continue with the workflow.
-   - If the command is not found, tell the user: "`atm` is not installed. Install it with `uv tool install`? Defaults to the latest version; say a version number if you want a specific one."
+   - If the command is not found, tell the user: "`aim` is not installed. Install it with `uv tool install`? Defaults to the latest version; say a version number if you want a specific one."
    - If the user agrees, run:
-     - Latest: `uv tool install git+https://github.com/JasperHG90/agent-tooling-manager.git`
-     - Specific version: `uv tool install git+https://github.com/JasperHG90/agent-tooling-manager.git@<version>`
-   - After installing, verify with `atm --version` before continuing.
-   - If the user declines, stop and explain that this skill requires `atm`.
+     - Latest: `uv tool install git+https://github.com/JasperHG90/agent-integrations-manager.git`
+     - Specific version: `uv tool install git+https://github.com/JasperHG90/agent-integrations-manager.git@<version>`
+   - After installing, verify with `aim --version` before continuing.
+   - If the user declines, stop and explain that this skill requires `aim`.
 
 2. **Gather inputs with `AskUserQuestion`.** If the alias, URL, or ref are not already clear from context, ask using `AskUserQuestion`. The tool requires `header`, `question`, `type`, and `options` fields; each option must be an object with `label`, `value`, and `description`. For text inputs, supply example options as quick-select suggestions.
 
@@ -71,24 +71,24 @@ Use this skill whenever the user wants to:
 
    If `AskUserQuestion` is unavailable, ask in plain text and confirm the values before running the command.
 
-3. **Prefer `atm repo add`.** This indexes skills, agents, and rules in one operation:
+3. **Prefer `aim repo add`.** This indexes skills, agents, and rules in one operation:
 
    ```bash
-   atm repo add <alias> <url> [--ref <branch-or-tag>]
+   aim repo add <alias> <url> [--ref <branch-or-tag>]
    ```
 
 4. **If that fails and the user explicitly mentioned rules,** fall back to the rule-library overlay command:
 
    ```bash
-   atm rule-repo add <alias> <url> [--ref <branch-or-tag>]
+   aim rule-repo add <alias> <url> [--ref <branch-or-tag>]
    ```
 
 5. **After adding, show what became available.** Run one or more of:
 
    ```bash
-   atm skill list --compact
-   atm agent list --compact
-   atm rule list --compact
+   aim skill list --compact
+   aim agent list --compact
+   aim rule list --compact
    ```
 
 6. **Echo the exact command used** and the short SHA/head if the CLI returned it.

@@ -1,7 +1,7 @@
 # Editor extensions — design notes
 
 This file describes how a Zed / VS Code / JetBrains extension would talk to
-`atm`. The extensions themselves are not built here (they live in
+`aim`. The extensions themselves are not built here (they live in
 their own repos, in different languages). This is the contract.
 
 ## Status surface
@@ -10,7 +10,7 @@ A status-bar item showing project health: outdated skills, drifted regions,
 missing prereqs.
 
 ```sh
-atm doctor --json
+aim doctor --json
 ```
 
 (Not yet implemented — see "JSON output" below.) Returns:
@@ -36,13 +36,13 @@ sensibly (0 = success, 1 = drift / failure).
 
 | Command                                     | What it does                                     |
 | ------------------------------------------- | ------------------------------------------------ |
-| `atm init <project>`                 | Scaffold AGENTS.md + chosen mirrors             |
-| `atm init <project> --diff`          | Preview what init would change (unified diff)   |
-| `atm skill list --json`              | (not yet) List indexed skills as JSON           |
-| `atm skill update <qn>`              | Update one skill                                |
-| `atm skill update-many --all --outdated` | Bulk update                                 |
-| `atm check`                          | Pre-commit-friendly drift check                 |
-| `atm doctor`                         | Full audit across configured roots              |
+| `aim init <project>`                 | Scaffold AGENTS.md + chosen mirrors             |
+| `aim init <project> --diff`          | Preview what init would change (unified diff)   |
+| `aim skill list --json`              | (not yet) List indexed skills as JSON           |
+| `aim skill update <qn>`              | Update one skill                                |
+| `aim skill update-many --all --outdated` | Bulk update                                 |
+| `aim check`                          | Pre-commit-friendly drift check                 |
+| `aim doctor`                         | Full audit across configured roots              |
 
 ## MCP integration
 
@@ -52,8 +52,8 @@ register the local MCP server directly. Add to the editor's MCP config:
 ```json
 {
   "mcpServers": {
-    "atm": {
-      "command": "atm",
+    "aim": {
+      "command": "aim",
       "args": ["mcp", "serve"],
       "transport": "stdio"
     }
@@ -67,10 +67,10 @@ The server exposes:
 
 ## Open work for these extensions
 
-- Add `--json` flag to `atm doctor`, `skill list`, `repo list`,
+- Add `--json` flag to `aim doctor`, `skill list`, `repo list`,
   `rule list`, `profile list`. Today they print human-readable lines —
   adding `--json` is a small change per command.
-- Define a stable CLI version (`atm --version`) so extensions can
+- Define a stable CLI version (`aim --version`) so extensions can
   gate on minimum supported versions.
 - Publish a JSON Schema for `manifest.json` so extensions can validate
   before reading.

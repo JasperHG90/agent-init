@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from atm.core import git
+from aim.core import git
 from tests.fixtures import git_fixtures
 
 

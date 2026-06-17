@@ -9,8 +9,8 @@ from pathlib import Path
 
 import pytest
 
-from atm.core import mcp_registry
-from atm.tui.app import AtmApp
+from aim.core import mcp_registry
+from aim.tui.app import AimApp
 
 
 def _server(name: str, version: str) -> mcp_registry.McpServer:
@@ -47,7 +47,7 @@ async def test_mcp_screen_defaults_and_enter_search(
     monkeypatch.setattr(mcp_registry, "find_server", _find_server)
     monkeypatch.setattr(mcp_registry, "search_registry", _search_registry)
 
-    app = AtmApp(project_root=home)
+    app = AimApp(project_root=home)
     async with app.run_test() as pilot:
         await pilot.pause()
         await app.workers.wait_for_complete()
@@ -88,7 +88,7 @@ async def test_mcp_screen_install_binding_opens_modal(
         lambda name, exact_name=None: _server("playwright-mcp", "1.0.0"),
     )
 
-    app = AtmApp(project_root=home)
+    app = AimApp(project_root=home)
     async with app.run_test() as pilot:
         await pilot.pause()
         await app.workers.wait_for_complete()

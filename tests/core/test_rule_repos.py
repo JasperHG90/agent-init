@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from atm.core import rule_repos, rules
+from aim.core import rule_repos, rules
 from tests.fixtures import git_fixtures
 
 

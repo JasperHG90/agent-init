@@ -7,15 +7,15 @@ from pathlib import Path
 import pytest
 from textual.widgets import DataTable, Input
 
-from atm.core import layout_profiles, manifest
-from atm.tui.app import AtmApp
-from atm.tui.modals.layout_profile_modal import LayoutProfileModal
-from atm.tui.screens.layout_profiles_screen import LayoutProfilesScreen
+from aim.core import layout_profiles, manifest
+from aim.tui.app import AimApp
+from aim.tui.modals.layout_profile_modal import LayoutProfileModal
+from aim.tui.screens.layout_profiles_screen import LayoutProfilesScreen
 
 
 @pytest.mark.asyncio
 async def test_layout_profiles_screen_lists_builtins(home: Path) -> None:
-    app = AtmApp()
+    app = AimApp()
     async with app.run_test() as pilot:
         await pilot.pause()
         await pilot.press("l")
@@ -29,7 +29,7 @@ async def test_layout_profiles_screen_lists_builtins(home: Path) -> None:
 
 @pytest.mark.asyncio
 async def test_layout_profiles_screen_adds_project_profile(home: Path, project_root: Path) -> None:
-    app = AtmApp(project_root=project_root)
+    app = AimApp(project_root=project_root)
     async with app.run_test() as pilot:
         await pilot.pause()
         await pilot.press("l")
@@ -63,7 +63,7 @@ async def test_layout_profiles_screen_sets_active(home: Path, project_root: Path
         project_root,
         layout_profiles.LayoutProfile(name="custom", skills_dir=".custom/skills"),
     )
-    app = AtmApp(project_root=project_root)
+    app = AimApp(project_root=project_root)
     async with app.run_test() as pilot:
         await pilot.pause()
         await pilot.press("l")

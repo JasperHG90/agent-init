@@ -9,8 +9,8 @@ import sys
 import tempfile
 from pathlib import Path
 
-from atm.core import repos, rules
-from atm.tui.app import AtmApp
+from aim.core import repos, rules
+from aim.tui.app import AimApp
 
 
 def _run_git(args: list[str], cwd: Path) -> None:
@@ -94,10 +94,10 @@ def _make_gif(png_paths: list[Path], gif_path: Path, *, delay_ms: int = 1500) ->
 
 
 async def capture_screenshots(output_dir: Path) -> list[Path]:
-    import atm.core.db as db
-    import atm.core.paths as paths
+    import aim.core.db as db
+    import aim.core.paths as paths
 
-    home = Path(tempfile.mkdtemp(prefix="atm-capture-"))
+    home = Path(tempfile.mkdtemp(prefix="aim-capture-"))
     original_cwd = Path.cwd()
     os.chdir(home)
     # Sandbox global state so we don't conflict with a real user database.
@@ -116,7 +116,7 @@ async def capture_screenshots(output_dir: Path) -> list[Path]:
         )
         rules.add("be-concise", "Be concise.", description="brevity", is_default=True)
 
-        app = AtmApp()
+        app = AimApp()
         screenshots: list[Path] = []
 
         async with app.run_test() as pilot:

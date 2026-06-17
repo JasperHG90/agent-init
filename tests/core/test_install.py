@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from atm.core import install, manifest, paths, repos
+from aim.core import install, manifest, paths, repos
 from tests.fixtures import git_fixtures
 
 

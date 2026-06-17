@@ -7,7 +7,7 @@ import pytest
 import respx
 from httpx import Response
 
-from atm.core import init, mcp_install, mcp_registry
+from aim.core import init, mcp_install, mcp_registry
 
 
 def _http_payload(name: str, version: str = "1.0.0") -> dict:

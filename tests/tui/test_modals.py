@@ -15,16 +15,16 @@ from pathlib import Path
 import pytest
 from textual.widgets import Input
 
-from atm.core import repos, rules
-from atm.tui.app import AtmApp
-from atm.tui.modals.agent_install import AgentInstallModal
-from atm.tui.modals.confirm import ConfirmModal
-from atm.tui.modals.init_modal import InitModal
-from atm.tui.modals.project_picker import ProjectPickerModal
-from atm.tui.modals.repo_add import RepoAddModal
-from atm.tui.modals.rule_add import RuleAddModal
-from atm.tui.modals.skill_install import SkillInstallModal
-from atm.tui.widgets import ToggleRow
+from aim.core import repos, rules
+from aim.tui.app import AimApp
+from aim.tui.modals.agent_install import AgentInstallModal
+from aim.tui.modals.confirm import ConfirmModal
+from aim.tui.modals.init_modal import InitModal
+from aim.tui.modals.project_picker import ProjectPickerModal
+from aim.tui.modals.repo_add import RepoAddModal
+from aim.tui.modals.rule_add import RuleAddModal
+from aim.tui.modals.skill_install import SkillInstallModal
+from aim.tui.widgets import ToggleRow
 from tests.fixtures import git_fixtures
 
 
@@ -41,7 +41,7 @@ def _bare_with_skills(tmp_path: Path) -> Path:
 
 @pytest.mark.asyncio
 async def test_main_screen_opens_init_modal(home: Path) -> None:
-    app = AtmApp()
+    app = AimApp()
     async with app.run_test() as pilot:
         await pilot.pause()
         await pilot.press("i")
@@ -51,7 +51,7 @@ async def test_main_screen_opens_init_modal(home: Path) -> None:
 
 @pytest.mark.asyncio
 async def test_repos_screen_opens_add_modal(home: Path) -> None:
-    app = AtmApp()
+    app = AimApp()
     async with app.run_test() as pilot:
         await pilot.pause()
         await pilot.press("r")
@@ -65,7 +65,7 @@ async def test_repos_screen_opens_add_modal(home: Path) -> None:
 async def test_repos_screen_remove_opens_confirm(home: Path, tmp_path: Path) -> None:
     bare = _bare_with_skills(tmp_path)
     repos.add("anth", f"file://{bare}")
-    app = AtmApp()
+    app = AimApp()
     async with app.run_test() as pilot:
         await pilot.pause()
         await pilot.press("r")
@@ -77,7 +77,7 @@ async def test_repos_screen_remove_opens_confirm(home: Path, tmp_path: Path) -> 
 
 @pytest.mark.asyncio
 async def test_rules_screen_opens_add_modal(home: Path) -> None:
-    app = AtmApp()
+    app = AimApp()
     async with app.run_test() as pilot:
         await pilot.pause()
         await pilot.press("u")
@@ -90,7 +90,7 @@ async def test_rules_screen_opens_add_modal(home: Path) -> None:
 @pytest.mark.asyncio
 async def test_rules_screen_edit_opens_modal(home: Path) -> None:
     rules.add("existing", "body", is_default=True)
-    app = AtmApp()
+    app = AimApp()
     async with app.run_test() as pilot:
         await pilot.pause()
         await pilot.press("u")
@@ -103,7 +103,7 @@ async def test_rules_screen_edit_opens_modal(home: Path) -> None:
 @pytest.mark.asyncio
 async def test_rules_screen_delete_opens_confirm(home: Path) -> None:
     rules.add("doomed", "body")
-    app = AtmApp()
+    app = AimApp()
     async with app.run_test() as pilot:
         await pilot.pause()
         await pilot.press("u")
@@ -117,7 +117,7 @@ async def test_rules_screen_delete_opens_confirm(home: Path) -> None:
 async def test_skills_screen_install_opens_modal(home: Path, tmp_path: Path) -> None:
     bare = _bare_with_skills(tmp_path)
     repos.add("anth", f"file://{bare}")
-    app = AtmApp()
+    app = AimApp()
     async with app.run_test() as pilot:
         await pilot.pause()
         await pilot.press("s")
@@ -131,7 +131,7 @@ async def test_skills_screen_install_opens_modal(home: Path, tmp_path: Path) -> 
 async def test_init_modal_submits_with_selected_mirrors(home: Path, project_root: Path) -> None:
     """End-to-end: open init modal, tick a mirror checkbox, submit, verify file."""
     rules.add("focus", "Focus.", is_default=True)
-    app = AtmApp()
+    app = AimApp()
     async with app.run_test() as pilot:
         await pilot.pause()
         await pilot.press("i")
@@ -154,15 +154,20 @@ async def test_init_modal_submits_with_selected_mirrors(home: Path, project_root
         await pilot.pause()
         await pilot.pause()
 
-    assert (project_root / "AGENTS.md").exists()
-    assert (project_root / "CLAUDE.md").exists()
-    assert not (project_root / "GEMINI.md").exists()
+    # init now writes the aim.yml declarations file only.
+    decl_path = project_root / "aim.yml"
+    assert decl_path.exists()
+    from aim.core import declarations
+
+    decl = declarations.load(project_root)
+    assert "CLAUDE.md" in decl.mirrors
+    assert "GEMINI.md" not in decl.mirrors
 
 
 @pytest.mark.asyncio
 async def test_repo_add_modal_creates_repo(home: Path, tmp_path: Path) -> None:
     bare = _bare_with_skills(tmp_path)
-    app = AtmApp()
+    app = AimApp()
     async with app.run_test() as pilot:
         await pilot.pause()
         await pilot.press("r")
@@ -191,7 +196,7 @@ async def test_repo_add_modal_creates_repo(home: Path, tmp_path: Path) -> None:
 
 @pytest.mark.asyncio
 async def test_rule_add_modal_creates_rule(home: Path) -> None:
-    app = AtmApp()
+    app = AimApp()
     async with app.run_test() as pilot:
         await pilot.pause()
         await pilot.press("u")
@@ -221,7 +226,7 @@ async def test_rule_add_modal_creates_rule(home: Path) -> None:
 async def test_init_modal_submits_on_enter_from_input(home: Path, project_root: Path) -> None:
     """Pressing Enter inside a focused Input must submit the modal."""
     rules.add("enter-rule", "Rule.", is_default=True)
-    app = AtmApp()
+    app = AimApp()
     async with app.run_test(size=(80, 40)) as pilot:
         await pilot.pause()
         await pilot.press("i")
@@ -232,14 +237,14 @@ async def test_init_modal_submits_on_enter_from_input(home: Path, project_root: 
         await pilot.press("enter")
         await pilot.pause()
 
-    assert (project_root / "AGENTS.md").exists()
+    assert (project_root / "aim.yml").exists()
 
 
 @pytest.mark.asyncio
 async def test_repo_add_modal_submits_on_enter_from_input(home: Path, tmp_path: Path) -> None:
     """Pressing Enter inside a focused Input must submit the repo add modal."""
     bare = _bare_with_skills(tmp_path)
-    app = AtmApp()
+    app = AimApp()
     async with app.run_test(size=(80, 40)) as pilot:
         await pilot.pause()
         await pilot.press("r")
@@ -261,7 +266,7 @@ async def test_repo_add_modal_submits_on_enter_from_input(home: Path, tmp_path: 
 async def test_init_modal_submits_on_enter_from_checkbox(home: Path, project_root: Path) -> None:
     """Pressing Enter with a checkbox focused must still submit the modal."""
     rules.add("checkbox-enter-rule", "Rule.", is_default=True)
-    app = AtmApp()
+    app = AimApp()
     async with app.run_test(size=(80, 40)) as pilot:
         await pilot.pause()
         await pilot.press("i")
@@ -275,7 +280,7 @@ async def test_init_modal_submits_on_enter_from_checkbox(home: Path, project_roo
         await pilot.press("enter")
         await pilot.pause()
 
-    assert (project_root / "AGENTS.md").exists()
+    assert (project_root / "aim.yml").exists()
 
 
 @pytest.mark.asyncio
@@ -284,7 +289,7 @@ async def test_install_modal_buttons_remain_visible(home: Path, project_root: Pa
     from textual.containers import Vertical
     from textual.widgets import Button
 
-    app = AtmApp()
+    app = AimApp()
     async with app.run_test(size=(80, 40)) as pilot:
         await pilot.pause()
         await pilot.press("i")
@@ -303,7 +308,7 @@ async def test_install_modal_buttons_remain_visible(home: Path, project_root: Pa
 @pytest.mark.asyncio
 async def test_init_modal_esc_dismisses(home: Path) -> None:
     """ESC must dismiss the Initialize modal even with the project input focused."""
-    app = AtmApp()
+    app = AimApp()
     async with app.run_test() as pilot:
         await pilot.pause()
         app.push_screen(InitModal())
@@ -318,7 +323,7 @@ async def test_init_modal_esc_dismisses(home: Path) -> None:
 @pytest.mark.asyncio
 async def test_repo_add_modal_esc_dismisses(home: Path) -> None:
     """ESC must dismiss the Add repo modal even with the alias input focused."""
-    app = AtmApp()
+    app = AimApp()
     async with app.run_test() as pilot:
         await pilot.pause()
         app.push_screen(RepoAddModal())
@@ -333,7 +338,7 @@ async def test_repo_add_modal_esc_dismisses(home: Path) -> None:
 @pytest.mark.asyncio
 async def test_skill_install_modal_esc_dismisses(home: Path) -> None:
     """ESC must dismiss the skill install modal even with the project input focused."""
-    app = AtmApp()
+    app = AimApp()
     async with app.run_test() as pilot:
         await pilot.pause()
         app.push_screen(SkillInstallModal("anth/foo"))
@@ -348,7 +353,7 @@ async def test_skill_install_modal_esc_dismisses(home: Path) -> None:
 @pytest.mark.asyncio
 async def test_agent_install_modal_esc_dismisses(home: Path) -> None:
     """ESC must dismiss the agent install modal even with the project input focused."""
-    app = AtmApp()
+    app = AimApp()
     async with app.run_test() as pilot:
         await pilot.pause()
         app.push_screen(AgentInstallModal("anth/bar"))
@@ -363,7 +368,7 @@ async def test_agent_install_modal_esc_dismisses(home: Path) -> None:
 @pytest.mark.asyncio
 async def test_project_picker_modal_esc_dismisses(home: Path) -> None:
     """ESC must dismiss the project picker modal even with the project input focused."""
-    app = AtmApp()
+    app = AimApp()
     async with app.run_test() as pilot:
         await pilot.pause()
         app.push_screen(ProjectPickerModal("Pick project"))

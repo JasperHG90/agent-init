@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from atm.core import layout_profiles, manifest, paths
+from aim.core import layout_profiles, manifest, paths
 
 
 @pytest.fixture

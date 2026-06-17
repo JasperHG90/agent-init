@@ -1,7 +1,7 @@
 [project]
-name = "atm"
+name = "aim"
 version = "0.1.0"
-description = "Agent Tooling Manager: scaffold and manage agent-engineering projects (AGENTS.md, reusable skills, rules, MCP servers, sub-agents)."
+description = "Agent Integrations Manager: scaffold and manage agent-engineering projects (AGENTS.md, reusable skills, rules, MCP servers, sub-agents)."
 authors = [
     { name = "Jasper Ginn", email = "jasperginn@gmail.com" }
 ]
@@ -17,11 +17,12 @@ dependencies = [
     "rich>=13.0.0",
     "stamina>=24.3.0",
     "textual==8.2.7",
+    "tomli-w>=1.2.0",
     "typer>=0.26.7",
 ]
 
 [project.scripts]
-atm = "atm.cli:app"
+aim = "aim.cli:app"
 
 [build-system]
 requires = ["uv_build>=0.10.8,<0.11.0"]
@@ -45,7 +46,7 @@ select = ["E", "F", "I", "W", "B", "UP", "RUF"]
 ignore = ["E501", "B008"]  # B008: Typer/Click require call-in-default for parameter metadata
 
 [tool.ruff.lint.per-file-ignores]
-"src/atm/tui/**" = ["RUF012"]  # Textual BINDINGS = [...] is the framework idiom
+"src/aim/tui/**" = ["RUF012"]  # Textual BINDINGS = [...] is the framework idiom
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -6,9 +6,9 @@ from pathlib import Path
 
 import pytest
 
-from atm.core import manifest as manifest_mod
-from atm.core.manifest_migrate import ManifestVersionError, migrate
-from atm.core.models import (
+from aim.core import manifest as manifest_mod
+from aim.core.manifest_migrate import ManifestVersionError, migrate
+from aim.core.models import (
     CURRENT_MANIFEST_VERSION,
     HISTORY_CAP,
     InstalledSkill,

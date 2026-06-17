@@ -13,14 +13,14 @@ from pathlib import Path
 
 import pytest
 
-from atm.core import repos, rules
-from atm.tui.app import AtmApp
+from aim.core import repos, rules
+from aim.tui.app import AimApp
 from tests.fixtures import git_fixtures
 
 
 @pytest.mark.asyncio
 async def test_main_screen_navigates_to_repos_and_back(home: Path) -> None:
-    app = AtmApp()
+    app = AimApp()
     async with app.run_test() as pilot:
         await pilot.pause()
         assert app.screen.__class__.__name__ == "MainScreen"
@@ -34,7 +34,7 @@ async def test_main_screen_navigates_to_repos_and_back(home: Path) -> None:
 
 @pytest.mark.asyncio
 async def test_main_screen_navigates_to_skills(home: Path) -> None:
-    app = AtmApp()
+    app = AimApp()
     async with app.run_test() as pilot:
         await pilot.pause()
         await pilot.press("s")
@@ -50,7 +50,7 @@ async def test_repos_screen_shows_registered_repo(home: Path, tmp_path: Path) ->
     bare = git_fixtures.make_bare_remote(working, tmp_path / "bare.git")
     repos.add("anth", f"file://{bare}")
 
-    app = AtmApp()
+    app = AimApp()
     async with app.run_test() as pilot:
         await pilot.pause()
         await pilot.press("r")
@@ -73,7 +73,7 @@ async def test_skills_screen_search_filters(home: Path, tmp_path: Path) -> None:
     bare = git_fixtures.make_bare_remote(working, tmp_path / "bare.git")
     repos.add("a", f"file://{bare}")
 
-    app = AtmApp()
+    app = AimApp()
     async with app.run_test() as pilot:
         await pilot.pause()
         await pilot.press("s")
@@ -92,7 +92,7 @@ async def test_skills_screen_search_filters(home: Path, tmp_path: Path) -> None:
 async def test_rules_screen_lists_rules(home: Path) -> None:
     rules.add("be-concise", "Be concise.", is_default=True)
     rules.add("test-first", "Test first.")
-    app = AtmApp()
+    app = AimApp()
     async with app.run_test() as pilot:
         await pilot.pause()
         await pilot.press("u")

@@ -7,7 +7,7 @@ import respx
 from httpx import Response
 from pydantic import ValidationError
 
-from atm.core import (
+from aim.core import (
     agent_install,
     install,
     mcp_install,
@@ -16,7 +16,7 @@ from atm.core import (
     repos,
     rules,
 )
-from atm.core import init as init_mod
+from aim.core import init as init_mod
 from tests.fixtures import git_fixtures
 
 
@@ -140,7 +140,7 @@ def test_apply_reproduces_state(home: Path, project_root: Path, tmp_path: Path) 
     target_target = target / ".claude" / "skills" / "foo"
     assert (target_target / "SKILL.md").exists()
     assert (target / "CLAUDE.md").exists()
-    from atm.core import manifest
+    from aim.core import manifest
 
     m = manifest.load(target)
     assert "be-concise" in m.rules

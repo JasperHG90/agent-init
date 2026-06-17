@@ -4,15 +4,15 @@ from pathlib import Path
 
 import pytest
 
-from atm.core import repos, rules
-from atm.tui.app import AtmApp
-from atm.tui.modals.palette import PaletteModal
+from aim.core import repos, rules
+from aim.tui.app import AimApp
+from aim.tui.modals.palette import PaletteModal
 from tests.fixtures import git_fixtures
 
 
 @pytest.mark.asyncio
 async def test_palette_opens(home: Path) -> None:
-    app = AtmApp()
+    app = AimApp()
     async with app.run_test() as pilot:
         await pilot.pause()
         app.action_open_palette()
@@ -29,7 +29,7 @@ async def test_palette_filters_by_substring(home: Path, tmp_path: Path) -> None:
     repos.add("anth", f"file://{bare}")
     rules.add("be-concise", "Be concise.", is_default=True)
 
-    app = AtmApp()
+    app = AimApp()
     async with app.run_test() as pilot:
         await pilot.pause()
         app.action_open_palette()
@@ -48,9 +48,9 @@ async def test_palette_filters_by_substring(home: Path, tmp_path: Path) -> None:
 
 @pytest.mark.asyncio
 async def test_palette_action_routes_to_screen(home: Path) -> None:
-    from atm.tui.screens.repos_screen import ReposScreen
+    from aim.tui.screens.repos_screen import ReposScreen
 
-    app = AtmApp()
+    app = AimApp()
     async with app.run_test() as pilot:
         await pilot.pause()
         app.action_open_palette()

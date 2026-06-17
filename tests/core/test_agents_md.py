@@ -2,21 +2,21 @@ from __future__ import annotations
 
 import pytest
 
-from atm.core import agents_md
+from aim.core import agents_md
 
 
 def test_parse_returns_regions_in_order() -> None:
     text = """# Title
 
-<!-- BEGIN atm: a -->
+<!-- BEGIN aim: a -->
 A body
-<!-- END atm: a -->
+<!-- END aim: a -->
 
 middle
 
-<!-- BEGIN atm: b -->
+<!-- BEGIN aim: b -->
 B body
-<!-- END atm: b -->
+<!-- END aim: b -->
 """
     regions = agents_md.parse(text)
     assert [r.name for r in regions] == ["a", "b"]
@@ -29,7 +29,7 @@ def test_parse_empty_when_no_markers() -> None:
 
 
 def test_parse_raises_on_unbalanced_markers() -> None:
-    text = "<!-- BEGIN atm: a -->\nbody\n"
+    text = "<!-- BEGIN aim: a -->\nbody\n"
     with pytest.raises(agents_md.RegionError):
         agents_md.parse(text)
 
@@ -39,15 +39,15 @@ def test_parse_legacy_agent_init_markers_raise_clear_error() -> None:
     with pytest.raises(agents_md.LegacyMarkerError) as exc_info:
         agents_md.parse(text)
     assert "legacy agent-init markers" in str(exc_info.value)
-    assert "migrate to atm markers" in str(exc_info.value)
+    assert "migrate to aim markers" in str(exc_info.value)
 
 
 def test_merge_replaces_existing_region_preserving_outside() -> None:
     existing = """User preamble.
 
-<!-- BEGIN atm: rules -->
+<!-- BEGIN aim: rules -->
 old rule body
-<!-- END atm: rules -->
+<!-- END aim: rules -->
 
 User postlude.
 """
@@ -62,36 +62,36 @@ def test_merge_appends_missing_region() -> None:
     existing = "Hello.\n"
     out = agents_md.merge(existing, {"new": "fresh content"})
     assert "Hello." in out
-    assert "<!-- BEGIN atm: new -->" in out
+    assert "<!-- BEGIN aim: new -->" in out
     assert "fresh content" in out
 
 
 def test_merge_leaves_unmentioned_regions_alone() -> None:
-    existing = """<!-- BEGIN atm: a -->
+    existing = """<!-- BEGIN aim: a -->
 A
-<!-- END atm: a -->
-<!-- BEGIN atm: b -->
+<!-- END aim: a -->
+<!-- BEGIN aim: b -->
 B
-<!-- END atm: b -->
+<!-- END aim: b -->
 """
     out = agents_md.merge(existing, {"a": "A2"})
     assert "A2" in out
     assert "B" in out  # untouched
-    assert out.count("BEGIN atm: b") == 1
+    assert out.count("BEGIN aim: b") == 1
 
 
 def test_build_from_scratch() -> None:
     out = agents_md.build([("a", "alpha"), ("b", "beta")])
-    assert "BEGIN atm: a" in out
+    assert "BEGIN aim: a" in out
     assert "alpha" in out
-    assert "BEGIN atm: b" in out
+    assert "BEGIN aim: b" in out
     assert "beta" in out
 
 
 def test_merge_idempotent_when_body_unchanged() -> None:
-    existing = """<!-- BEGIN atm: r -->
+    existing = """<!-- BEGIN aim: r -->
 same body
-<!-- END atm: r -->
+<!-- END aim: r -->
 """
     once = agents_md.merge(existing, {"r": "same body"})
     twice = agents_md.merge(once, {"r": "same body"})

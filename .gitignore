@@ -16,4 +16,6 @@ snapshot_report.html
 tests/tui/__snapshots__
 
 .vscode
-.atm/
+.aim/
+aim.yml
+aim.lock

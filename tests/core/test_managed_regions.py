@@ -6,15 +6,15 @@ focuses on the hash dialect and the auto-dispatch by filename.
 
 from __future__ import annotations
 
-from atm.core import managed_regions as mr
+from aim.core import managed_regions as mr
 
 
 def test_hash_dialect_round_trip() -> None:
     body = (
         "# pre-commit config\n\n"
-        "# BEGIN atm: hooks\n"
+        "# BEGIN aim: hooks\n"
         "repos:\n  - repo: ...\n"
-        "# END atm: hooks\n\n"
+        "# END aim: hooks\n\n"
         "# user-added section\n"
     )
     regions = mr.parse(body, mr.HASH_DIALECT)
@@ -27,7 +27,7 @@ def test_hash_dialect_round_trip() -> None:
 
 
 def test_hash_dialect_unbalanced_raises() -> None:
-    bad = "# BEGIN atm: x\nbody\n"
+    bad = "# BEGIN aim: x\nbody\n"
     import pytest
 
     with pytest.raises(mr.RegionError):
@@ -47,14 +47,14 @@ def test_for_filename_picks_hash() -> None:
 
 def test_build_from_scratch_hash() -> None:
     out = mr.build([("a", "x")], mr.HASH_DIALECT)
-    assert "# BEGIN atm: a" in out
+    assert "# BEGIN aim: a" in out
     assert "x" in out
-    assert "# END atm: a" in out
+    assert "# END aim: a" in out
 
 
 def test_html_round_trip_via_module() -> None:
     """Sanity: the HTML dialect through this module matches agents_md."""
-    text = "<!-- BEGIN atm: a -->\nfoo\n<!-- END atm: a -->\n"
+    text = "<!-- BEGIN aim: a -->\nfoo\n<!-- END aim: a -->\n"
     out = mr.merge(text, {"a": "bar"}, mr.HTML_DIALECT)
     assert "bar" in out
     assert "foo" not in out

@@ -15,8 +15,8 @@ from pathlib import Path
 
 import pytest
 
-from atm.core import repos, rules
-from atm.tui.app import AtmApp
+from aim.core import repos, rules
+from aim.tui.app import AimApp
 from tests.fixtures import git_fixtures
 
 
@@ -33,7 +33,7 @@ def _setup_repo_with_skills(tmp_path: Path, files: dict[str, str]) -> None:
 async def test_main_screen_structure(home: Path) -> None:
     from textual.widgets import Static
 
-    app = AtmApp()
+    app = AimApp()
     async with app.run_test() as pilot:
         await pilot.pause()
         banner = app.screen.query_one("#banner", Static)
@@ -42,7 +42,7 @@ async def test_main_screen_structure(home: Path) -> None:
         rendered = str(banner.render())
         assert "█" in rendered
         # Version and profile/path metadata are rendered next to the rocket.
-        from atm import __version__
+        from aim import __version__
 
         assert __version__ in rendered
 
@@ -51,7 +51,7 @@ async def test_main_screen_structure(home: Path) -> None:
 async def test_repos_screen_structure_empty(home: Path) -> None:
     from textual.widgets import DataTable
 
-    app = AtmApp()
+    app = AimApp()
     async with app.run_test() as pilot:
         await pilot.pause()
         await pilot.press("r")
@@ -66,7 +66,7 @@ async def test_repos_screen_structure_one_repo(home: Path, tmp_path: Path) -> No
     from textual.widgets import DataTable
 
     _setup_repo_with_skills(tmp_path, {"skills/foo/SKILL.md": "# foo\n"})
-    app = AtmApp()
+    app = AimApp()
     async with app.run_test() as pilot:
         await pilot.pause()
         await pilot.press("r")
@@ -86,7 +86,7 @@ async def test_skills_screen_structure_two_skills(home: Path, tmp_path: Path) ->
             "skills/format/SKILL.md": "# Format\n\nApply formatting.\n",
         },
     )
-    app = AtmApp()
+    app = AimApp()
     async with app.run_test() as pilot:
         await pilot.pause()
         await pilot.press("s")
@@ -100,7 +100,7 @@ async def test_rules_screen_structure_with_rule(home: Path) -> None:
     from textual.widgets import DataTable
 
     rules.add("be-concise", "Be concise.", description="brevity", is_default=True)
-    app = AtmApp()
+    app = AimApp()
     async with app.run_test() as pilot:
         await pilot.pause()
         await pilot.press("u")
@@ -115,7 +115,7 @@ async def test_rules_screen_structure_with_rule(home: Path) -> None:
 def test_snapshot_main_layout(home: Path, snap_compare) -> None:  # type: ignore[no-untyped-def]
     """One bitmap test per area — catches gross layout regressions. Update
     via `pytest tests/tui --snapshot-update` after intentional UI changes."""
-    assert snap_compare(AtmApp())
+    assert snap_compare(AimApp())
 
 
 def test_snapshot_skills_populated(
@@ -124,4 +124,4 @@ def test_snapshot_skills_populated(
     snap_compare,  # type: ignore[no-untyped-def]
 ) -> None:
     _setup_repo_with_skills(tmp_path, {"skills/review/SKILL.md": "# Review\n\nReview a PR.\n"})
-    assert snap_compare(AtmApp(), press=["s"])
+    assert snap_compare(AimApp(), press=["s"])

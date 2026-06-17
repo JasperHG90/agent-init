@@ -4,21 +4,24 @@ from pathlib import Path
 
 import pytest
 
-from atm.core import init, install, repos, rules
-from atm.tui.app import AtmApp
-from atm.tui.screens.project_screen import ProjectScreen
+from aim.core import init, install, repos, rules
+from aim.core import sync as sync_mod
+from aim.core.lock import LockOptions
+from aim.core.lock import run as lock_run
+from aim.tui.app import AimApp
+from aim.tui.screens.project_screen import ProjectScreen
 from tests.fixtures import git_fixtures
 
 
 @pytest.mark.asyncio
 async def test_project_screen_empty_when_no_manifest(home: Path, project_root: Path) -> None:
-    app = AtmApp()
+    app = AimApp()
     async with app.run_test() as pilot:
         await pilot.pause()
         screen = ProjectScreen(project_root)
         app.push_screen(screen)
         await pilot.pause()
-        assert "no .atm/manifest.json" in screen.last_status
+        assert "no aim.lock" in screen.last_status
 
 
 @pytest.mark.asyncio
@@ -32,7 +35,7 @@ async def test_project_screen_shows_clean_and_edited(
     repos.add("a", f"file://{bare}")
     install.install(project_root, "a/foo")
 
-    app = AtmApp()
+    app = AimApp()
     async with app.run_test() as pilot:
         await pilot.pause()
         app.push_screen(ProjectScreen(project_root))
@@ -48,7 +51,7 @@ async def test_project_screen_shows_clean_and_edited(
 
     # Now edit the file and re-open.
     (project_root / ".claude" / "skills" / "foo" / "SKILL.md").write_text("hand-edit\n")
-    app = AtmApp()
+    app = AimApp()
     async with app.run_test() as pilot:
         await pilot.pause()
         app.push_screen(ProjectScreen(project_root))
@@ -63,8 +66,10 @@ async def test_project_screen_shows_clean_and_edited(
 async def test_project_screen_rules_tab(home: Path, project_root: Path) -> None:
     rules.add("be-concise", "Be concise.", is_default=True)
     init.run(init.InitOptions(project_root=project_root))
+    await lock_run(LockOptions(project_root=project_root))
+    await sync_mod.run(sync_mod.SyncOptions(project_root=project_root))
 
-    app = AtmApp()
+    app = AimApp()
     async with app.run_test() as pilot:
         await pilot.pause()
         app.push_screen(ProjectScreen(project_root))

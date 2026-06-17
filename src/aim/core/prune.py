@@ -81,15 +81,24 @@ def _load_aimignore(project_root: Path) -> list[str]:
 
 
 def _is_excluded(rel: str, patterns: list[str]) -> bool:
-    """Match a project-relative POSIX path against glob patterns.
+    """Match a relative path or MCP alias against glob patterns.
 
     Supports direct globs (`.claude/agents/local_*.md`) and directory
     patterns (`.claude/skills/local/`, `.claude/skills/local`, or
     `.claude/skills/local/*`). Directory patterns protect the directory
     itself and anything inside it.
+
+    MCP aliases can be matched with a `mcp:` prefix, e.g. `mcp:local-*`.
     """
     rel_dir = rel + "/"
     for raw in patterns:
+        # MCP aliases use a dedicated prefix so they don't collide with file paths.
+        if raw.startswith("mcp:"):
+            alias_pattern = raw[4:]
+            if fnmatch.fnmatch(rel, alias_pattern):
+                return True
+            continue
+
         # Direct glob match against the exact relative path.
         if fnmatch.fnmatch(rel, raw.rstrip("/")):
             return True

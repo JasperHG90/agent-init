@@ -20,7 +20,35 @@ Every AI coding assistant works better with the right context: project conventio
 - **Hackable profiles** — layout profiles control where skills, rules, and agent files land (e.g. `.claude/`, `.gemini/`, or your own paths).
 - **Project templates for common stacks** — save a combo of skills, agents, MCP servers, and rules as a reusable template and bootstrap new projects in seconds.
 
+## Installation
+
+Requires Python >= 3.12. macOS and Linux are supported; Windows is not supported in v0.1.
+
+Run without installing:
+
+```sh
+uvx --from git+https://github.com/JasperHG90/agent-integrations-manager.git aim
+```
+
+Install permanently as a `uv` tool:
+
+```sh
+uv tool install git+https://github.com/JasperHG90/agent-integrations-manager.git
+```
+
+For local development:
+
+```sh
+git clone https://github.com/JasperHG90/agent-integrations-manager.git
+cd agent-integrations-manager
+uv sync
+uv run aim --version
+```
+
 ## Screenshots
+
+> **Note:** these screenshots are from an earlier release and no longer match the current TUI. They will be refreshed in an upcoming update.
+
 
 The TUI is the default interface; every screenshot below is what you see after running `aim`. The skills and agents shown are from repositories that were already registered in the author's workspace — `aim` does not ship with a built-in catalog.
 
@@ -112,31 +140,6 @@ aim skill rollback anthropic/code-review
 # 7. Save a reusable project template.
 aim profile save my-stack path/to/project
 aim init --template my-stack path/to/new-project
-```
-
-## Installation
-
-Requires Python >= 3.12. macOS and Linux are supported; Windows is not supported in v0.1.
-
-Run without installing:
-
-```sh
-uvx --from git+https://github.com/JasperHG90/agent-integrations-manager.git aim
-```
-
-Install permanently as a `uv` tool:
-
-```sh
-uv tool install git+https://github.com/JasperHG90/agent-integrations-manager.git
-```
-
-For local development:
-
-```sh
-git clone https://github.com/JasperHG90/agent-integrations-manager.git
-cd agent-integrations-manager
-uv sync
-uv run aim --version
 ```
 
 ## How it works

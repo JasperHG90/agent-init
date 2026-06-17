@@ -85,3 +85,41 @@ def test_prune_removes_unmanaged_mcp_alias(home: Path, project_root: Path) -> No
     assert "orphan" in removed_aliases
     data = mcp_registry.read_mcp_json(project_root)
     assert "orphan" not in data.get("mcpServers", {})
+
+
+def test_prune_aimignore_protects_local_skill(
+    home: Path, project_root: Path, tmp_path: Path
+) -> None:
+    _, bare = _skill_repo(tmp_path)
+    init.run(init.InitOptions(project_root=project_root))
+    repos.add("a", f"file://{bare}")
+    install.install(project_root, "a/foo")
+    _lock(project_root)
+
+    # A local-only skill lives under .claude/skills/local/.
+    local = project_root / ".claude" / "skills" / "local" / "handmade"
+    local.mkdir(parents=True)
+    (local / "SKILL.md").write_text("handmade\n")
+    (project_root / ".aimignore").write_text(".claude/skills/local/*\n")
+
+    result = prune.run(prune.PruneOptions(project_root=project_root))
+    removed_paths = {i.path for i in result.removed if i.action == "removed"}
+    assert ".claude/skills/local" not in removed_paths
+    assert ".claude/skills/local/handmade" not in removed_paths
+    assert local.exists()
+    assert any(i.path == ".claude/skills/local" and i.action == "skipped" for i in result.kept)
+
+
+def test_prune_cli_exclude_option(home: Path, project_root: Path) -> None:
+    rules.add("managed", "Managed rule.", is_default=True)
+    init.run(init.InitOptions(project_root=project_root))
+    _lock(project_root)
+
+    rules_dir = project_root / ".claude" / "rules"
+    rules_dir.mkdir(parents=True)
+    (rules_dir / "unmanaged.md").write_text("unmanaged\n")
+
+    result = prune.run(prune.PruneOptions(project_root=project_root, excludes=[".claude/rules/unmanaged.md"]))
+    removed_paths = {i.path for i in result.removed if i.action == "removed"}
+    assert ".claude/rules/unmanaged.md" not in removed_paths
+    assert (rules_dir / "unmanaged.md").exists()

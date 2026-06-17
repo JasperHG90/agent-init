@@ -794,20 +794,30 @@ def prune_cmd(
     layout_profile: str | None = typer.Option(
         None, "--profile", help="Layout profile to use (overrides manifest)."
     ),
+    exclude: list[str] = typer.Option(
+        [], "--exclude", help="Glob pattern to protect from pruning (can be repeated)."
+    ),
 ) -> None:
-    """Remove skills/agents/rules/MCP servers not listed in aim.lock.toml."""
-    result = prune_mod.run(
-        prune_mod.PruneOptions(
-            project_root=_here(project),
-            dry_run=dry_run,
-            layout_profile=layout_profile,
+    """Remove skills/agents/rules/MCP servers not listed in aim.lock.toml.
+
+    Persistent exclusions can also be stored in an `.aimignore` file at the
+    project root with one glob pattern per line, e.g. `.claude/skills/local/*`.
+    """
+    console = Console()
+    with console.status("Pruning artifacts...", spinner="dots"):
+        result = prune_mod.run(
+            prune_mod.PruneOptions(
+                project_root=_here(project),
+                dry_run=dry_run,
+                layout_profile=layout_profile,
+                excludes=list(exclude),
+            )
         )
-    )
     for item in result.removed:
         prefix = "would remove" if item.action == "would-remove" else item.action
         typer.echo(f"{prefix} {item.kind} {item.path}", err=item.action != "removed")
     for item in result.kept:
-        typer.echo(f"kept {item.kind} {item.path}")
+        typer.echo(f"{item.action} {item.kind} {item.path}")
 
 
 def _print_diffs(changes: list) -> None:  # type: ignore[type-arg]

@@ -2,8 +2,6 @@
   <img src="assets/logo.png" alt="agent-init logo" width="320">
 </p>
 
-# agent-init
-
 A lightweight package manager for your AI-assistant tooling: skills, sub-agents, MCP servers, and rules — version-pinned and tracked in your repo.
 
 ## Why this exists

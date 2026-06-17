@@ -22,10 +22,9 @@ from typing import NamedTuple
 
 from sqlmodel import delete, select
 
-from aim.core import db, git, repos
+from aim.core import db, git, repos, validation
 from aim.core.agents import _as_str, _as_str_list, _extract_frontmatter
 from aim.core.models import SkillIndex
-from aim.core.validation import is_valid_alias
 
 
 def split_csv(value: str) -> list[str]:
@@ -34,6 +33,15 @@ def split_csv(value: str) -> list[str]:
 
 
 _SKILL_RE = re.compile(r"^(?P<path>.*)/SKILL\.md$|^SKILL\.md$")
+
+
+# Canonical paths win at the same depth; arbitrary paths are still discovered.
+def _prefix_rank(path: str) -> int:
+    if path.startswith("skills/") or path == "SKILL.md":
+        return 0
+    if path.startswith(".claude/skills/"):
+        return 1
+    return 2
 
 
 class DiscoveredSkill(NamedTuple):
@@ -56,28 +64,34 @@ def discover(repo_alias: str) -> IndexResult:
     sha = git.get_backend().resolve_ref(repo_dir, repo.default_ref)
     paths = git.get_backend().ls_tree(repo_dir, sha)
 
-    # Group candidates by skill name with precedence-rank ordering. Ties on
-    # prefix are broken by shallower path, then by lexicographic path.
-    by_name: dict[str, list[tuple[tuple[int, str], DiscoveredSkill]]] = {}
+    # Group candidates by skill name. Precedence: shallower path wins; at the
+    # same depth, canonical prefixes (`skills/`, `.claude/skills/`) win over
+    # arbitrary paths. Ties break by lexicographic path.
+    by_name: dict[str, list[tuple[tuple[int, int, str], DiscoveredSkill]]] = {}
     for p in paths:
         match = _SKILL_RE.match(p)
         if not match:
             continue
 
+        if not validation.is_safe_repo_path(p):
+            continue
+
         path = match.group("path") or ""
         if path:
+            if not validation.is_safe_repo_path(path):
+                continue
             name = Path(path).name
             source_dir = path
         else:
             name = repo_alias
             source_dir = ""
 
-        if not is_valid_alias(name):
+        if not validation.is_valid_alias(name):
             continue
         depth = p.count("/")
         by_name.setdefault(name, []).append(
             (
-                (depth, p),
+                (depth, _prefix_rank(p), p),
                 DiscoveredSkill(name=name, source_path=source_dir, skill_md_path=p),
             )
         )
@@ -203,7 +217,7 @@ def read_skill_content(qualified_name: str) -> str:
     # Legacy indexes written before the skill_md_path column may have NULL
     # here even though source_path is present. Reconstruct the expected path.
     if not skill_md_path and row.source_path:
-        skill_md_path = f"{row.source_path}/SKILL.md"
+        skill_md_path = f"{row.source_path}/SKILL.md" if row.source_path else "SKILL.md"
     if not skill_md_path:
         raise SkillNotIndexedError(qualified_name)
     repo_dir = repos.clone_dir(row.repo_alias)

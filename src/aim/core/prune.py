@@ -71,8 +71,12 @@ def _load_aimignore(project_root: Path) -> list[str]:
     ignore_path = project_root / ".aimignore"
     if not ignore_path.is_file():
         return []
+    try:
+        text = ignore_path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return []
     patterns: list[str] = []
-    for line in ignore_path.read_text(encoding="utf-8").splitlines():
+    for line in text.splitlines():
         line = line.strip()
         if not line or line.startswith("#"):
             continue
@@ -222,7 +226,7 @@ def _remove(
     dry_run: bool,
 ) -> None:
     if not _ensure_inside(root, path):
-        result.removed.append(PruneItem(kind, rel, "skipped-unsafe"))
+        result.kept.append(PruneItem(kind, rel, "skipped-unsafe"))
         return
     if dry_run:
         result.removed.append(PruneItem(kind, rel, "would-remove"))
@@ -236,7 +240,7 @@ def _remove(
             path.unlink()
         result.removed.append(PruneItem(kind, rel, "removed"))
     except Exception as exc:
-        result.removed.append(PruneItem(kind, rel, f"error: {exc}"))
+        result.kept.append(PruneItem(kind, rel, f"error: {exc}"))
 
 
 def run(options: PruneOptions) -> PruneResult:

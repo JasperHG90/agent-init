@@ -55,3 +55,18 @@ def is_valid_rule_name(name: str) -> bool:
     characters ending up in `.claude/rules/<name>.md`.
     """
     return bool(_ALIAS_RE.fullmatch(name))
+
+
+def is_safe_repo_path(path: str) -> bool:
+    """Return True if `path` is safe to pass back to git as a pathspec.
+
+    Rejects absolute paths, `..` segments, and the git pathspec-magic prefix
+    `:(`.
+    """
+    if not path:
+        return True
+    if path.startswith(("/", "\\")):
+        return False
+    if ":(" in path:
+        return False
+    return all(part != ".." for part in path.split("/"))

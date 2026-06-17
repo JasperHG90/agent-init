@@ -304,3 +304,28 @@ def test_remove_clears_skill_index(home: Path, bare_remote: tuple[Path, Path]) -
     assert skills.list_skills("anth")
     repos.remove("anth")
     assert skills.list_skills("anth") == []
+
+
+def test_read_skill_content(home: Path, tmp_path: Path) -> None:
+    _, bare = _build_repo_with(
+        tmp_path,
+        {"skills/b/SKILL.md": "---\nname: B\n---\n# B body\n"},
+    )
+    repos.add("a", f"file://{bare}")
+    content = skills.read_skill_content("a/b")
+    assert "# B body" in content
+
+
+def test_read_skill_content_bare_root(home: Path, tmp_path: Path) -> None:
+    _, bare = _build_repo_with(
+        tmp_path,
+        {"SKILL.md": "# Bare Root Skill\n", "README.md": "x\n"},
+    )
+    repos.add("a", f"file://{bare}")
+    content = skills.read_skill_content("a/a")
+    assert "# Bare Root Skill" in content
+
+
+def test_read_skill_content_missing_raises(home: Path, tmp_path: Path) -> None:
+    with pytest.raises(skills.SkillNotIndexedError):
+        skills.read_skill_content("a/missing")

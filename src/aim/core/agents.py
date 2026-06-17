@@ -42,6 +42,15 @@ _AGENT_RE = re.compile(
 )
 
 
+# Canonical paths win at the same depth; arbitrary paths are still discovered.
+def _prefix_rank(path: str) -> int:
+    if path.startswith("agents/") or path == "AGENT.md":
+        return 0
+    if path.startswith(".claude/agents/"):
+        return 1
+    return 2
+
+
 class DiscoveredAgent(NamedTuple):
     name: str
     source_path: str  # path of the agent DIRECTORY relative to repo root
@@ -62,10 +71,16 @@ def discover(repo_alias: str) -> IndexResult:
     sha = git.get_backend().resolve_ref(repo_dir, repo.default_ref)
     paths = git.get_backend().ls_tree(repo_dir, sha)
 
-    by_name: dict[str, list[tuple[tuple[int, str], DiscoveredAgent]]] = {}
+    # Group candidates by agent name. Precedence: shallower path wins; at the
+    # same depth, canonical prefixes (`agents/`, `.claude/agents/`) win over
+    # arbitrary paths. Ties break by lexicographic path.
+    by_name: dict[str, list[tuple[tuple[int, int, str], DiscoveredAgent]]] = {}
     for p in paths:
         match = _AGENT_RE.match(p)
         if not match:
+            continue
+
+        if not validation.is_safe_repo_path(p):
             continue
 
         flat_name = match.group("name_flat")
@@ -87,7 +102,7 @@ def discover(repo_alias: str) -> IndexResult:
         depth = p.count("/")
         by_name.setdefault(name, []).append(
             (
-                (depth, p),
+                (depth, _prefix_rank(p), p),
                 DiscoveredAgent(name=name, source_path=source_dir, agent_md_path=p),
             )
         )

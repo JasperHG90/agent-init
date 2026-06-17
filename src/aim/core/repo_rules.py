@@ -28,7 +28,34 @@ except Exception:  # pragma: no cover - pyyaml is required but be defensive
     yaml = None  # type: ignore[assignment]
 
 
-_RULE_RE = re.compile(r"^(?P<path>.*)/(?P<name>[^/]+)\.md$")
+# Common documentation filenames that happen to have valid rule stems but
+# should not be surfaced as installable rules.
+_RULE_DENYLIST = {
+    "readme",
+    "license",
+    "changelog",
+    "contributing",
+    "authors",
+    "maintainers",
+    "code_of_conduct",
+    "conduct",
+    "privacy",
+    "terms",
+    "support",
+    "funding",
+    "todo",
+}
+
+_RULE_RE = re.compile(r"^(?:(?P<path>.*)/)?(?P<name>[^/]+)\.md$")
+
+
+# Canonical paths win at the same depth; arbitrary paths are still discovered.
+def _prefix_rank(path: str) -> int:
+    if path.startswith("rules/"):
+        return 0
+    if path.startswith(".claude/rules/"):
+        return 1
+    return 2
 
 
 class DiscoveredRule(NamedTuple):
@@ -50,17 +77,26 @@ def discover(repo_alias: str) -> IndexResult:
     sha = git.get_backend().resolve_ref(repo_dir, repo.default_ref)
     paths = git.get_backend().ls_tree(repo_dir, sha)
 
-    by_name: dict[str, list[tuple[tuple[int, str], DiscoveredRule]]] = {}
+    # Group candidates by rule name. Precedence: shallower path wins; at the
+    # same depth, canonical prefixes (`rules/`, `.claude/rules/`) win over
+    # arbitrary paths. Ties break by lexicographic path.
+    by_name: dict[str, list[tuple[tuple[int, int, str], DiscoveredRule]]] = {}
     for p in paths:
         match = _RULE_RE.match(p)
         if not match:
             continue
+
+        if not validation.is_safe_repo_path(p):
+            continue
+
         name = match.group("name")
         if not validation.is_valid_rule_name(name):
             continue
+        if name.lower() in _RULE_DENYLIST:
+            continue
         depth = p.count("/")
         by_name.setdefault(name, []).append(
-            ((depth, p), DiscoveredRule(name=name, rule_md_path=p))
+            ((depth, _prefix_rank(p), p), DiscoveredRule(name=name, rule_md_path=p))
         )
 
     indexed: list[DiscoveredRule] = []

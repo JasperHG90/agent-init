@@ -143,3 +143,22 @@ def test_prune_aimignore_protects_local_mcp_alias(home: Path, project_root: Path
     data = mcp_registry.read_mcp_json(project_root)
     assert "local-db" in data.get("mcpServers", {})
     assert "managed" not in data.get("mcpServers", {})
+
+
+def test_prune_malformed_aimignore_is_skipped(home: Path, project_root: Path, tmp_path: Path) -> None:
+    _, bare = _skill_repo(tmp_path)
+    init.run(init.InitOptions(project_root=project_root))
+    repos.add("a", f"file://{bare}")
+    install.install(project_root, "a/foo")
+    _lock(project_root)
+
+    local = project_root / ".claude" / "skills" / "local" / "handmade"
+    local.mkdir(parents=True)
+    (local / "SKILL.md").write_text("handmade\n")
+    # Binary content trips UnicodeDecodeError.
+    (project_root / ".aimignore").write_bytes(b"\xff\xfe")
+
+    result = prune.run(prune.PruneOptions(project_root=project_root))
+    removed_paths = {i.path for i in result.removed if i.action == "removed"}
+    assert ".claude/skills/local" in removed_paths
+    assert not local.exists()

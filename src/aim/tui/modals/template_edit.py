@@ -25,7 +25,6 @@ class TemplateEditResult:
     name: str
     instruction_template: str
     layout_profile: str | None
-    agent_dialect: str | None
     rules: tuple[str, ...] = ()
     skills: tuple[str, ...] = ()
     agents: tuple[str, ...] = ()
@@ -49,7 +48,6 @@ class TemplateEditModal(ModalScreen[TemplateEditResult | None]):
 
     def compose(self) -> ComposeResult:
         self._rule_names = [r.name for r in rules_mod.list_all()]
-        dialect = self._profile.agent_dialect or ""
 
         rule_toggles = [
             ToggleRow(
@@ -93,8 +91,6 @@ class TemplateEditModal(ModalScreen[TemplateEditResult | None]):
                 Input(value=self._profile.instruction_template, id="instruction-template"),
                 Static("Layout profile:", markup=False),
                 Input(value=self._profile.layout_profile or "", id="layout-profile"),
-                Static("Agent dialect:", markup=False),
-                Input(value=dialect, id="agent-dialect"),
                 Static("Included rules:", markup=False),
                 *rule_toggles,
                 Static("Included skills:", markup=False),
@@ -124,7 +120,7 @@ class TemplateEditModal(ModalScreen[TemplateEditResult | None]):
             self.dismiss(None)
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
-        if event.input.id in ("name", "instruction-template", "layout-profile", "agent-dialect"):
+        if event.input.id in ("name", "instruction-template", "layout-profile"):
             self._submit()
 
     def action_cancel(self) -> None:
@@ -152,7 +148,6 @@ class TemplateEditModal(ModalScreen[TemplateEditResult | None]):
             self._error("instruction template name is required")
             return
         layout_profile = self.query_one("#layout-profile", Input).value.strip() or None
-        dialect = self.query_one("#agent-dialect", Input).value.strip().lower() or None
 
         skill_keys = [s.qualified_name for s in self._profile.skills]
         agent_keys = [a.qualified_name for a in self._profile.agents]
@@ -163,7 +158,6 @@ class TemplateEditModal(ModalScreen[TemplateEditResult | None]):
                 name=name,
                 instruction_template=instruction_template,
                 layout_profile=layout_profile,
-                agent_dialect=dialect,
                 rules=tuple(self._checked_keys("rule", self._rule_names)),
                 skills=tuple(self._checked_keys("skill", skill_keys)),
                 agents=tuple(self._checked_keys("agent", agent_keys)),

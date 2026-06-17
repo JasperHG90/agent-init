@@ -56,6 +56,7 @@ class LockError(RuntimeError):
 class LockOptions:
     project_root: Path
     progress_callback: Callable[[str, str, str], object] | None = None
+    allow_insecure: bool = False
 
 
 @dataclass
@@ -94,7 +95,7 @@ def _resolve_profile(project_root: Path, decl: ProjectDeclarations) -> layout_pr
     return layout_profiles.BUILTIN_CLAUDE
 
 
-def _ensure_repo(alias: str, url: str) -> str | None:
+def _ensure_repo(alias: str, url: str, allow_insecure: bool) -> str | None:
     try:
         repos.get(alias)
         skills.index_repo(alias)
@@ -103,19 +104,19 @@ def _ensure_repo(alias: str, url: str) -> str | None:
     except repos.RepoNotFoundError:
         pass
     try:
-        repos.add(alias, url, allow_empty=True)
+        repos.add(alias, url, allow_empty=True, allow_insecure=allow_insecure)
     except Exception as exc:
         return f"repo {alias}: failed to register {url}: {exc}"
     return None
 
 
-async def _ensure_repos(decl: ProjectDeclarations) -> list[str]:
+async def _ensure_repos(decl: ProjectDeclarations, allow_insecure: bool) -> list[str]:
     pairs = {alias: url for alias, url in decl.repos.items()}
     if not pairs:
         return []
 
     async def _one(alias: str, url: str) -> str | None:
-        return await asyncio.to_thread(_ensure_repo, alias, url)
+        return await asyncio.to_thread(_ensure_repo, alias, url, allow_insecure)
 
     results = await asyncio.gather(*(_one(alias, url) for alias, url in pairs.items()))
     return [r for r in results if r is not None]
@@ -294,12 +295,20 @@ async def _lock_mcps(
     return locked, errors
 
 
-def _compute_region_hashes(decl: ProjectDeclarations) -> dict[str, str]:
+def _compute_region_hashes(decl: ProjectDeclarations, profile: layout_profiles.LayoutProfile) -> dict[str, str]:
     """Compute hashes for the rendered AGENTS.md regions from current rules/template."""
     applied = [rules.get(name) for name in decl.rules]
 
     def _render_for_agent(agent: str | None) -> str:
-        return templates.render(decl.instruction_template, {"rules": applied, "agent": agent})
+        return templates.render(
+            decl.instruction_template,
+            {
+                "rules": applied,
+                "agent": agent,
+                "rules_mode": profile.rules_mode,
+                "rules_dir": profile.rules_dir,
+            },
+        )
 
     canonical = _render_for_agent(None)
     regions = {r.name: r.body for r in agents_md.parse(canonical)}
@@ -314,7 +323,7 @@ async def run(options: LockOptions) -> LockResult:
     result = LockResult(project_root=project_root)
 
     _notify(options.progress_callback, "repos", "all", "locking")
-    result.errors = await _ensure_repos(decl)
+    result.errors = await _ensure_repos(decl, options.allow_insecure)
     _notify(options.progress_callback, "repos", "all", "ok")
 
     skills_locked, skill_errors = await _lock_skills(
@@ -336,12 +345,11 @@ async def run(options: LockOptions) -> LockResult:
         profile.agents_md,
         *decl.symlinks,
     ]
-    region_hashes = await asyncio.to_thread(_compute_region_hashes, decl)
+    region_hashes = await asyncio.to_thread(_compute_region_hashes, decl, profile)
 
     lock = Manifest(
         instruction_template=decl.instruction_template,
         layout_profile=decl.layout_profile or profile.name,
-        agent_dialect=decl.agent_dialect,
         rules=decl.rules,
         symlinks=decl.symlinks,
         managed_files=list(dict.fromkeys(managed_files)),

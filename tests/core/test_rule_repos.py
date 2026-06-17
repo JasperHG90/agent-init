@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from aim.core import rule_repos, rules
+from aim.core import content_guard, rule_repos, rules
 from tests.fixtures import git_fixtures
 
 
@@ -73,3 +73,18 @@ def test_remove_drops_overlay(home: Path, tmp_path: Path) -> None:
 def test_remove_unknown_errors(home: Path) -> None:
     with pytest.raises(rule_repos.RuleRepoNotFoundError):
         rule_repos.remove("ghost")
+
+
+def test_add_rejects_http_transport(home: Path) -> None:
+    with pytest.raises(content_guard.InsecureTransportError):
+        rule_repos.add("demo", "http://example.com/repo.git")
+
+
+def test_add_rejects_hidden_unicode_overlay(home: Path, tmp_path: Path) -> None:
+    bare = _bare_rule_repo(
+        tmp_path,
+        {"rules/team-style.md": "Team style guide.​\n", "README.md": "hi\n"},
+    )
+    with pytest.raises(content_guard.HiddenUnicodeError):
+        rule_repos.add("team", f"file://{bare}")
+    assert rule_repos.list_repos() == []

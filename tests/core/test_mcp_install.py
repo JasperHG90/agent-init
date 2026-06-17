@@ -7,7 +7,7 @@ import pytest
 import respx
 from httpx import Response
 
-from aim.core import init, mcp_install, mcp_registry
+from aim.core import content_guard, init, mcp_install, mcp_registry
 
 
 def _http_payload(name: str, version: str = "1.0.0") -> dict:
@@ -184,3 +184,44 @@ def test_rollback_restores_previous_entry(project_root: Path) -> None:
     mcp_install.rollback(project_root, "srv")
     rolled_url = json.loads((project_root / ".mcp.json").read_text())["mcpServers"]["srv"]["url"]
     assert rolled_url == first_url
+
+
+@respx.mock
+def test_install_rejects_http_override_url(project_root: Path) -> None:
+    init.run(init.InitOptions(project_root=project_root))
+    respx.get(f"{mcp_registry._REGISTRY_BASE}").mock(
+        return_value=Response(200, json=_http_payload("my-server"))
+    )
+    with pytest.raises(content_guard.InsecureTransportError):
+        mcp_install.install(
+            project_root, "my-server", alias="my", overrides={"url": "http://example.com/mcp"}
+        )
+
+
+@respx.mock
+def test_install_allows_http_override_url_with_flag(project_root: Path) -> None:
+    init.run(init.InitOptions(project_root=project_root))
+    respx.get(f"{mcp_registry._REGISTRY_BASE}").mock(
+        return_value=Response(200, json=_http_payload("my-server"))
+    )
+    installed = mcp_install.install(
+        project_root,
+        "my-server",
+        alias="my",
+        overrides={"url": "http://example.com/mcp"},
+        allow_insecure=True,
+    )
+    assert installed.entry.url == "http://example.com/mcp"
+
+
+@respx.mock
+def test_install_rejects_hidden_unicode_override(project_root: Path) -> None:
+    init.run(init.InitOptions(project_root=project_root))
+    respx.get(f"{mcp_registry._REGISTRY_BASE}").mock(
+        return_value=Response(200, json=_http_payload("my-server"))
+    )
+    with pytest.raises(content_guard.HiddenUnicodeError):
+        mcp_install.install(
+            project_root, "my-server", alias="my", overrides={"command": "node​"}
+        )
+    assert not (project_root / ".mcp.json").exists()

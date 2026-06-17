@@ -8,6 +8,7 @@ from __future__ import annotations
 import re
 import tomllib
 from pathlib import Path
+from typing import Any
 
 import tomli_w
 
@@ -21,6 +22,25 @@ class DeclarationsNotFoundError(FileNotFoundError):
 
 class DeclarationsVersionError(RuntimeError):
     pass
+
+
+def _migrate(raw: dict[str, Any]) -> dict[str, Any]:
+    """Forward-migrate raw declarations to CURRENT_DECLARATIONS_VERSION."""
+    version = raw.get("manifest_version", 1)
+    if not isinstance(version, int):
+        raise DeclarationsVersionError(
+            f"manifest_version must be int, got {type(version).__name__}"
+        )
+    if version > CURRENT_DECLARATIONS_VERSION:
+        raise DeclarationsVersionError(
+            f"aim.toml version {version} is newer than supported ({CURRENT_DECLARATIONS_VERSION}). "
+            "Upgrade aim."
+        )
+    if version < 2:
+        # v2 drops agent_dialect and adds rules_mode default on the active layout profile.
+        raw.pop("agent_dialect", None)
+        raw["manifest_version"] = 2
+    return raw
 
 
 # TOML uses singular array-of-table headers; the models use plural field names.
@@ -57,12 +77,8 @@ def load(project_root: Path) -> ProjectDeclarations:
     for singular, plural in _TOML_READ_MAP.items():
         if singular in raw:
             raw[plural] = raw.pop(singular)
-    version = raw.get("manifest_version", CURRENT_DECLARATIONS_VERSION)
-    if version != CURRENT_DECLARATIONS_VERSION:
-        raise DeclarationsVersionError(
-            f"aim.toml version {version} is not supported; expected {CURRENT_DECLARATIONS_VERSION}"
-        )
-    return ProjectDeclarations.model_validate(raw)
+    migrated = _migrate(raw)
+    return ProjectDeclarations.model_validate(migrated)
 
 
 def load_or_default(project_root: Path) -> ProjectDeclarations:

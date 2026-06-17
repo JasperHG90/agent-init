@@ -237,10 +237,6 @@ class MainScreen(Screen[None]):
             result = init_mod.run(
                 init_mod.InitOptions(
                     project_root=config.project_root,
-                    instruction_template=config.instruction_template,
-                    symlinks=config.symlinks,
-                    seed_default_rules=config.seed_default_rules,
-                    agent_dialect=config.agent_dialect,
                     layout_profile=config.layout_profile,
                 )
             )

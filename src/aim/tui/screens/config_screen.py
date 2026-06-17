@@ -3,7 +3,7 @@
 Provides a single, focused pane for the *current* project's manifest:
 - where aim keeps its lockfile
 - active layout profile (skills/rules/subagents/mcp paths)
-- instruction template, symlinks, agent dialect
+- instruction template, symlinks
 - applied rules (read-only pointer to the Rules screen)
 - save re-runs `init` against the project
 
@@ -28,7 +28,7 @@ _HELP_TEXT = (
     "Fields:\n"
     "  Instruction template — which AGENTS.md scaffold to use (stored in aim.lock).\n"
     "  Applied rules — managed on the Rules [u] screen.\n"
-    "  Layout profile — controls skills/rules/subagents/mcp paths, agent dialect, AND\n"
+    "  Layout profile — controls skills/rules/subagents/mcp paths, rules mode, AND\n"
     "    per-agent AGENTS.md symlinks.\n"
     "Shortcuts work from the main menu: [l] PROFILES, [u] RULES."
 )
@@ -120,7 +120,7 @@ class ConfigScreen(Screen[None]):
             profile = layout_profiles.resolve_active(self._project_root)
         except Exception:
             return "—"
-        return f"{profile.name}  ·  skills:{profile.skills_dir}  rules:{profile.rules_dir}  subagents:{profile.agents_dir}  mcp:{profile.mcp_json}"
+        return f"{profile.name}  ·  skills:{profile.skills_dir}  rules:{profile.rules_mode}  subagents:{profile.agents_dir}  mcp:{profile.mcp_json}"
 
     def on_mount(self) -> None:
         self._status("edit project settings or the global template, then save")

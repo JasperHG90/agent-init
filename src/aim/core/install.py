@@ -26,7 +26,17 @@ from pathlib import Path
 
 from sqlmodel import select
 
-from aim.core import db, declarations, git, hashing, layout_profiles, manifest, paths, repos
+from aim.core import (
+    content_guard,
+    db,
+    declarations,
+    git,
+    hashing,
+    layout_profiles,
+    manifest,
+    paths,
+    repos,
+)
 from aim.core.models import InstalledSkill, Manifest, SkillIndex, SkillVersion
 
 DEFAULT_TARGET_BASE = ".claude/skills"
@@ -248,6 +258,12 @@ def _deploy(plan: InstallPlan) -> str:
     content hash of the deployed tree."""
     snap = _ensure_snapshot(plan.repo_alias, plan.version.sha, plan.source_path, plan.skill_name)
     _ensure_symlinks_safe(snap)
+    hidden = content_guard.scan_directory(snap)
+    if hidden:
+        raise content_guard.HiddenUnicodeError(
+            f"{plan.qualified_name}: hidden Unicode found in skill files:\n"
+            + "\n".join(hidden)
+        )
     if plan.target_dir.exists():
         shutil.rmtree(plan.target_dir)
     plan.target_dir.parent.mkdir(parents=True, exist_ok=True)

@@ -99,17 +99,34 @@ def test_update_with_force_overrides_local_edits(
 
 
 def test_sync_warns_on_in_region_drift(home: Path, project_root: Path) -> None:
-    rules.add("focus", "Focus.", is_default=True)
-    init_mod.run(init_mod.InitOptions(project_root=project_root))
+    from aim.core import layout_profiles
+
+    rules.add("focus", "Focus.")
+    # Use inline rules mode so the rule body lives inside the managed rules region.
+    layout_profiles.save_project_profile(
+        project_root,
+        layout_profiles.LayoutProfile(
+            name="inline",
+            skills_dir=".claude/skills",
+            rules_dir=".claude/rules",
+            agents_dir=".claude/agents",
+            agents_md="AGENTS.md",
+            mcp_json=".mcp.json",
+            rules_mode="inline",
+        ),
+    )
+    init_mod.run(
+        init_mod.InitOptions(project_root=project_root, layout_profile="inline", extra_rules=["focus"])
+    )
     asyncio.run(lock_run(LockOptions(project_root=project_root)))
-    asyncio.run(sync_mod.run(sync_mod.SyncOptions(project_root=project_root)))
+    asyncio.run(sync_mod.run(sync_mod.SyncOptions(project_root=project_root, layout_profile="inline")))
     agents = project_root / "AGENTS.md"
 
     text = agents.read_text()
     edited = text.replace("Focus.", "Focus. (edited inside marker)")
     agents.write_text(edited)
 
-    result = asyncio.run(sync_mod.run(sync_mod.SyncOptions(project_root=project_root)))
+    result = asyncio.run(sync_mod.run(sync_mod.SyncOptions(project_root=project_root, layout_profile="inline")))
     assert any("rules" in w and "edited" in w for w in result.drift_warnings)
 
 

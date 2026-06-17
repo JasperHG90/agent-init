@@ -5,6 +5,8 @@ prefixes (precedence: highest first):
 
     1. agents/.../<name>/AGENT.md or agents/.../<name>.md
     2. .claude/agents/.../<name>/AGENT.md or .claude/agents/.../<name>.md
+    3. */agents/.../<name>/AGENT.md or */agents/.../<name>.md
+       (any other nested agents dir, e.g. plugins/business-analytics/agents/...)
 
 Intermediate directories under `agents/` and `.claude/agents/` are allowed
 to support repos that group agents by category. The agent `name` is the
@@ -39,9 +41,13 @@ def split_csv(value: str) -> list[str]:
     return [p for p in (s.strip() for s in value.split(",")) if p]
 
 
+# Matches:
+#   agents/.../<name>/AGENT.md or agents/.../<name>.md    (rank 0; repo root agents dir)
+#   .claude/agents/.../<name>/AGENT.md or .md              (rank 1)
+#   <any-prefix>/agents/.../<name>/AGENT.md or .md        (rank 2; e.g. plugins/cat/agents/...)
 _AGENT_RE = re.compile(
-    r"^(?P<prefix>agents/|\.claude/agents/)(?:[^/]+/)*?"
-    r"(?:(?P<name_dir>[^/]+)/AGENT\.md|(?P<name_flat>[^/]+)\.md)$"
+    r"^(?:(?P<prefix>.*)/)?agents/(?:[^/]+/)*(?P<name_dir>[^/]+)/AGENT\.md$|"
+    r"^(?:(?P<prefix2>.*)/)?agents/(?:[^/]+/)*(?P<name_flat>[^/]+)\.md$"
 )
 
 
@@ -70,11 +76,21 @@ def discover(repo_alias: str) -> IndexResult:
         match = _AGENT_RE.match(p)
         if not match:
             continue
-        prefix = match.group("prefix") or ""
+        prefix = match.group("prefix")
+        prefix2 = match.group("prefix2")
         name = match.group("name_dir") or match.group("name_flat")
         if not validation.is_valid_agent_name(name):
             continue
-        prefix_rank = 0 if prefix == "agents/" else 1
+
+        # Use the captured prefix from either alternation.
+        effective_prefix = prefix if prefix is not None else prefix2
+        if effective_prefix is None:
+            prefix_rank = 0  # agents/<name>/... at repo root
+        elif effective_prefix == ".claude":
+            prefix_rank = 1  # .claude/agents/.../<name>/...
+        else:
+            prefix_rank = 2  # any other */agents/.../<name>/...
+
         depth = p.count("/")
         # Flat file: agents/.../<name>.md  -> source_path is the file itself.
         # Nested dir: agents/.../<name>/AGENT.md -> source_path is the directory.

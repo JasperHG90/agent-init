@@ -64,6 +64,27 @@ def test_discover_supports_nested_agents_dir(home: Path, tmp_path: Path) -> None
     assert paths["a/scout"] == "agents/data/scout.md"
 
 
+def test_discover_supports_plugin_agents_dir(home: Path, tmp_path: Path) -> None:
+    """Repos like wshobson/agents group agents under plugins/<cat>/agents/<name>."""
+    bare = _build_repo_with(
+        tmp_path,
+        {
+            "plugins/business-analytics/agents/python-pro/AGENT.md": (
+                "---\nname: Python Pro\ndescription: Advanced Python agent.\n---\n# Python Pro\n"
+            ),
+            "plugins/business-analytics/agents/scout.md": "---\nname: Scout\n---\n# Scout\n",
+            "README.md": "x\n",
+        },
+    )
+    repos.add("wshobson", f"file://{bare}")
+    rows = agents.list_agents()
+    names = {r.qualified_name for r in rows}
+    assert names == {"wshobson/python-pro", "wshobson/scout"}
+    paths = {r.qualified_name: r.source_path for r in rows}
+    assert paths["wshobson/python-pro"] == "plugins/business-analytics/agents/python-pro"
+    assert paths["wshobson/scout"] == "plugins/business-analytics/agents/scout.md"
+
+
 def test_precedence_agents_dir_wins(home: Path, tmp_path: Path) -> None:
     bare = _build_repo_with(
         tmp_path,
@@ -76,6 +97,22 @@ def test_precedence_agents_dir_wins(home: Path, tmp_path: Path) -> None:
     rows = agents.list_agents()
     assert [r.qualified_name for r in rows] == ["a/dup"]
     assert rows[0].source_path == "agents/dup"
+
+
+def test_precedence_canonical_wins_over_plugin_agent(home: Path, tmp_path: Path) -> None:
+    bare = _build_repo_with(
+        tmp_path,
+        {
+            "agents/dup/AGENT.md": "---\nname: canonical\n---\n# canonical\n",
+            "plugins/cat/agents/dup/AGENT.md": "---\nname: plugin shadow\n---\n# plugin shadow\n",
+        },
+    )
+    repos.add("a", f"file://{bare}")
+    rows = agents.list_agents()
+    assert [r.qualified_name for r in rows] == ["a/dup"]
+    assert rows[0].source_path == "agents/dup"
+    d = agents.discover("a")
+    assert any(s.source_path == "plugins/cat/agents/dup" for s in d.shadowed)
 
 
 def test_empty_repo_registration_allows_agent_only(home: Path, tmp_path: Path) -> None:

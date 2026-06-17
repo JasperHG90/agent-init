@@ -19,7 +19,7 @@ from pathlib import Path
 from jinja2 import Environment, StrictUndefined
 from sqlmodel import select
 
-from aim.core import db, paths
+from aim.core import content_guard, db, paths
 from aim.core.models import Template
 
 BUILTIN_DEFAULT = "default"
@@ -89,13 +89,19 @@ def resolve(name: str) -> ResolvedTemplate:
         # Prefer the user-editable override if it exists.
         override = _builtin_override_path(name)
         if override.is_file():
-            return ResolvedTemplate(name=name, body=override.read_text(encoding="utf-8"))
-        return ResolvedTemplate(name=name, body=_builtin_body(name))
+            body = override.read_text(encoding="utf-8")
+            content_guard.assert_no_hidden_unicode(body, source=str(override))
+            return ResolvedTemplate(name=name, body=body)
+        body = _builtin_body(name)
+        content_guard.assert_no_hidden_unicode(body, source=f"builtin template {name}")
+        return ResolvedTemplate(name=name, body=body)
     # User-registered template: source is a filesystem path to a .md.j2 file.
     path = Path(row.source)
     if not path.is_file():
         raise TemplateNotFoundError(f"template {name!r} source missing: {path}")
-    return ResolvedTemplate(name=name, body=path.read_text())
+    body = path.read_text()
+    content_guard.assert_no_hidden_unicode(body, source=str(path))
+    return ResolvedTemplate(name=name, body=body)
 
 
 def register_user_template(name: str, source_path: Path, description: str | None = None) -> None:

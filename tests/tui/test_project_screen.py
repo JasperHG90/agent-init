@@ -64,8 +64,8 @@ async def test_project_screen_shows_clean_and_edited(
 
 @pytest.mark.asyncio
 async def test_project_screen_rules_tab(home: Path, project_root: Path) -> None:
-    rules.add("be-concise", "Be concise.", is_default=True)
-    init.run(init.InitOptions(project_root=project_root))
+    rules.add("be-concise", "Be concise.")
+    init.run(init.InitOptions(project_root=project_root, extra_rules=["be-concise"]))
     await lock_run(LockOptions(project_root=project_root))
     await sync_mod.run(sync_mod.SyncOptions(project_root=project_root))
 

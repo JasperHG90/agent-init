@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from aim.core import agent_install, init, manifest, repos
+from aim.core import agent_install, content_guard, init, manifest, repos
 from tests.fixtures import git_fixtures
 
 
@@ -58,6 +58,31 @@ def test_update_skips_when_unchanged(home: Path, tmp_path: Path, project_root: P
     second = agent_install.update(project_root, qn)
     assert first.current.sha == second.current.sha
     assert second.history == []
+
+
+def test_install_plugin_style_agent(home: Path, tmp_path: Path, project_root: Path) -> None:
+    """Agents nested under plugins/<cat>/agents/<name> install correctly."""
+    working = git_fixtures.make_source_repo(
+        tmp_path / "src",
+        files={
+            "plugins/business-analytics/agents/python-pro/AGENT.md": (
+                "---\nname: Python Pro\ndescription: Advanced Python agent.\n---\n# Python Pro\n"
+            ),
+            "README.md": "x\n",
+        },
+    )
+    bare = git_fixtures.make_bare_remote(working, tmp_path / "bare.git")
+    init.run(init.InitOptions(project_root=project_root))
+    repos.add("wshobson", f"file://{bare}")
+
+    installed = agent_install.install(project_root, "wshobson/python-pro")
+    assert installed.qualified_name == "wshobson/python-pro"
+    target = project_root / ".claude" / "agents" / "python-pro.md"
+    assert target.exists()
+    assert "# Python Pro" in target.read_text()
+
+    m = manifest.load(project_root)
+    assert m.agents[0].source_path == "plugins/business-analytics/agents/python-pro"
 
 
 def test_update_detects_local_edits(home: Path, tmp_path: Path, project_root: Path) -> None:
@@ -143,3 +168,20 @@ def test_install_uses_tag_for_agent(home: Path, tmp_path: Path, project_root: Pa
 
     installed = agent_install.install(project_root, "anth/review")
     assert installed.current.tag == "v1.0.0"
+
+
+def test_install_rejects_hidden_unicode(home: Path, tmp_path: Path, project_root: Path) -> None:
+    working = git_fixtures.make_source_repo(
+        tmp_path / "src",
+        files={
+            "agents/review/AGENT.md": "---\nname: Review\n---\n# Review\n\nhidden​\n",
+            "README.md": "x\n",
+        },
+    )
+    bare = git_fixtures.make_bare_remote(working, tmp_path / "bare.git")
+    init.run(init.InitOptions(project_root=project_root))
+    repos.add("anth", f"file://{bare}")
+
+    with pytest.raises(content_guard.HiddenUnicodeError):
+        agent_install.install(project_root, "anth/review")
+    assert not (project_root / ".claude" / "agents" / "review.md").exists()

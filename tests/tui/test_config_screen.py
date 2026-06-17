@@ -14,12 +14,7 @@ from aim.tui.screens.config_screen import ConfigScreen
 
 @pytest.mark.asyncio
 async def test_project_tab_shows_current_manifest(home: Path, project_root: Path) -> None:
-    init_mod.run(
-        init_mod.InitOptions(
-            project_root=project_root,
-            agent_dialect="claude",
-        )
-    )
+    init_mod.run(init_mod.InitOptions(project_root=project_root))
     app = AimApp()
     async with app.run_test() as pilot:
         await pilot.pause()

@@ -182,6 +182,27 @@ def test_discover_supports_nested_skills_dir(home: Path, tmp_path: Path) -> None
     }
 
 
+def test_discover_supports_plugin_skills_dir(home: Path, tmp_path: Path) -> None:
+    """Repos like wshobson/agents group skills under plugins/<cat>/skills/<name>."""
+    _, bare = _build_repo_with(
+        tmp_path,
+        {
+            "plugins/business-analytics/skills/data-storytelling/SKILL.md": (
+                "# Data Storytelling\n\nTell stories with data.\n"
+            ),
+            "plugins/python-development/skills/async/SKILL.md": "# Async\n",
+            "README.md": "x\n",
+        },
+    )
+    repos.add("wshobson", f"file://{bare}")
+    rows = skills.list_skills()
+    names = {r.qualified_name for r in rows}
+    assert names == {"wshobson/data-storytelling", "wshobson/async"}
+    paths = {r.qualified_name: r.source_path for r in rows}
+    assert paths["wshobson/data-storytelling"] == "plugins/business-analytics/skills/data-storytelling"
+    assert paths["wshobson/async"] == "plugins/python-development/skills/async"
+
+
 def test_precedence_skills_dir_wins(home: Path, tmp_path: Path) -> None:
     _, bare = _build_repo_with(
         tmp_path,
@@ -197,6 +218,22 @@ def test_precedence_skills_dir_wins(home: Path, tmp_path: Path) -> None:
     # Re-run discover directly to inspect shadowed list.
     d = skills.discover("a")
     assert any(s.source_path == ".claude/skills/dup" for s in d.shadowed)
+
+
+def test_precedence_canonical_wins_over_plugin_skill(home: Path, tmp_path: Path) -> None:
+    _, bare = _build_repo_with(
+        tmp_path,
+        {
+            "skills/dup/SKILL.md": "# canonical\n",
+            "plugins/cat/skills/dup/SKILL.md": "# plugin shadow\n",
+        },
+    )
+    repos.add("a", f"file://{bare}")
+    rows = skills.list_skills()
+    assert [r.qualified_name for r in rows] == ["a/dup"]
+    assert rows[0].source_path == "skills/dup"
+    d = skills.discover("a")
+    assert any(s.source_path == "plugins/cat/skills/dup" for s in d.shadowed)
 
 
 def test_empty_repo_registration_fails_and_rolls_back(home: Path, tmp_path: Path) -> None:

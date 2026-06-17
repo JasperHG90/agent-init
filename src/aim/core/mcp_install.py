@@ -11,7 +11,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict
 
-from aim.core import declarations, hashing, manifest, mcp_registry, validation
+from aim.core import content_guard, declarations, hashing, manifest, mcp_registry, validation
 from aim.core.models import InstalledMcpServer, Manifest, McpClaudeEntry
 
 
@@ -62,7 +62,9 @@ class McpOverrideError(ValueError):
     """An override value has an invalid shape for the target field."""
 
 
-def _apply_overrides(entry: McpClaudeEntry, overrides: dict[str, object]) -> McpClaudeEntry:
+def _apply_overrides(
+    entry: McpClaudeEntry, overrides: dict[str, object], *, allow_insecure: bool = False
+) -> McpClaudeEntry:
     """Apply simple override hints to a mapped entry.
 
     Recognised keys: `command`, `url`, plus list/dict values for `args`,
@@ -86,6 +88,8 @@ def _apply_overrides(entry: McpClaudeEntry, overrides: dict[str, object]) -> Mcp
                 )
             data[key] = {str(k): str(v) for k, v in value.items() if v is not None}
         elif key in ("command", "url", "type"):
+            if key == "url":
+                content_guard.require_secure_url(str(value), allow_insecure=allow_insecure)
             data[key] = str(value)
         else:
             raise McpOverrideError(f"unsupported override key: {key}")
@@ -148,6 +152,7 @@ def install(
     preferred_transport: str | None = None,
     overrides: dict[str, object] | None = None,
     force: bool = False,
+    allow_insecure: bool = False,
 ) -> InstalledMcpServer:
     """Install (or replace) a managed MCP server entry under `alias`.
 
@@ -163,10 +168,14 @@ def install(
     if existing is not None:
         _check_local_edits(project_root, existing, force=force)
 
-    server = mcp_registry.find_server(registry_name, exact_name=registry_name)
-    entry = mcp_registry.map_to_claude_entry(server, preferred_transport=preferred_transport)
+    server = mcp_registry.find_server(
+        registry_name, exact_name=registry_name, allow_insecure=allow_insecure
+    )
+    entry = mcp_registry.map_to_claude_entry(
+        server, preferred_transport=preferred_transport, allow_insecure=allow_insecure
+    )
     if overrides:
-        entry = _apply_overrides(entry, overrides)
+        entry = _apply_overrides(entry, overrides, allow_insecure=allow_insecure)
 
     mcp_registry.merge_mcp_server(project_root, alias, entry)
     effective_overrides = overrides or {}
@@ -200,6 +209,7 @@ def update(
     alias: str,
     *,
     force: bool = False,
+    allow_insecure: bool = False,
 ) -> InstalledMcpServer:
     """Refresh a managed MCP server from the registry.
 
@@ -218,13 +228,14 @@ def update(
         installed.registry_name,
         exact_name=installed.registry_name,
         prefer_cache=False,
+        allow_insecure=allow_insecure,
     )
     new_entry = mcp_registry.map_to_claude_entry(
-        server, preferred_transport=installed.entry.type
+        server, preferred_transport=installed.entry.type, allow_insecure=allow_insecure
     )
     preserved_overrides = installed.overrides or {}
     if preserved_overrides:
-        new_entry = _apply_overrides(new_entry, preserved_overrides)
+        new_entry = _apply_overrides(new_entry, preserved_overrides, allow_insecure=allow_insecure)
     version = mcp_registry.make_mcp_server_version(
         server, entry=new_entry, overrides=preserved_overrides
     )

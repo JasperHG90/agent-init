@@ -148,7 +148,6 @@ class ProjectTemplatesScreen(Screen[None]):
                 "name": result.name,
                 "instruction_template": result.instruction_template,
                 "layout_profile": result.layout_profile,
-                "agent_dialect": result.agent_dialect,
                 "rules": list(result.rules),
                 "skills": [s for s in profile.skills if s.qualified_name in result.skills],
                 "agents": [a for a in profile.agents if a.qualified_name in result.agents],
@@ -214,7 +213,6 @@ class ProjectTemplatesScreen(Screen[None]):
             f"name: {profile.name}",
             f"instruction_template: {profile.instruction_template}",
             f"layout_profile: {profile.layout_profile or '—'}",
-            f"agent_dialect: {profile.agent_dialect or '—'}",
             f"symlinks: {', '.join(profile.symlinks) if profile.symlinks else '—'}",
             f"rules: {', '.join(profile.rules) if profile.rules else '—'}",
         ]

@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from aim.core import templates
+from aim.core import content_guard, templates
 from aim.core.rules import Rule
 
 
@@ -28,7 +28,10 @@ def test_render_with_rules(home: Path) -> None:
     rules = [
         Rule(name="be-concise", body="Be concise.", description="brevity", is_default=True),
     ]
-    out = templates.render(templates.BUILTIN_DEFAULT, {"rules": rules})
+    out = templates.render(
+        templates.BUILTIN_DEFAULT,
+        {"rules": rules, "rules_mode": "inline", "rules_dir": ".claude/rules"},
+    )
     assert "Be concise." in out
     assert "be-concise" in out
 
@@ -50,3 +53,11 @@ def test_register_user_template(home: Path, tmp_path: Path) -> None:
 def test_register_user_template_missing_file_raises(home: Path, tmp_path: Path) -> None:
     with pytest.raises(FileNotFoundError):
         templates.register_user_template("ghost", tmp_path / "nope.md.j2")
+
+
+def test_resolve_rejects_hidden_unicode_user_template(home: Path, tmp_path: Path) -> None:
+    custom = tmp_path / "custom.md.j2"
+    custom.write_text("# Custom\n\nhidden​\n")
+    templates.register_user_template("custom", custom, description="my template")
+    with pytest.raises(content_guard.HiddenUnicodeError):
+        templates.resolve("custom")

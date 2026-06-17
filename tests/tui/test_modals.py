@@ -128,9 +128,8 @@ async def test_skills_screen_install_opens_modal(home: Path, tmp_path: Path) -> 
 
 
 @pytest.mark.asyncio
-async def test_init_modal_submits_with_selected_symlinks(home: Path, project_root: Path) -> None:
-    """End-to-end: open init modal, tick a symlink checkbox, submit, verify file."""
-    rules.add("focus", "Focus.", is_default=True)
+async def test_init_modal_submits_with_selected_profile(home: Path, project_root: Path) -> None:
+    """End-to-end: open init modal, select a profile, submit, verify symlinks."""
     app = AimApp()
     async with app.run_test() as pilot:
         await pilot.pause()
@@ -139,10 +138,12 @@ async def test_init_modal_submits_with_selected_symlinks(home: Path, project_roo
         modal = app.screen
         assert isinstance(modal, InitModal)
 
-        from textual.widgets import Input
+        from textual.widgets import Input, Select
 
         modal.query_one("#project-root", Input).value = str(project_root)
-        modal.query_one(f"#{InitModal._symlink_id('CLAUDE.md')}", ToggleRow).value = True
+        # Select the Gemini profile, which carries the GEMINI.md symlink.
+        select = modal.query_one("#layout-profile", Select)
+        select.value = "gemini"
         await pilot.pause()
         # Click the Initialize button.
         from textual.widgets import Button
@@ -160,8 +161,8 @@ async def test_init_modal_submits_with_selected_symlinks(home: Path, project_roo
     from aim.core import declarations
 
     decl = declarations.load(project_root)
-    assert "CLAUDE.md" in decl.symlinks
-    assert "GEMINI.md" not in decl.symlinks
+    assert "GEMINI.md" in decl.symlinks
+    assert "CLAUDE.md" not in decl.symlinks
 
 
 @pytest.mark.asyncio
@@ -263,9 +264,8 @@ async def test_repo_add_modal_submits_on_enter_from_input(home: Path, tmp_path: 
 
 
 @pytest.mark.asyncio
-async def test_init_modal_submits_on_enter_from_checkbox(home: Path, project_root: Path) -> None:
-    """Pressing Enter with a checkbox focused must still submit the modal."""
-    rules.add("checkbox-enter-rule", "Rule.", is_default=True)
+async def test_init_modal_submits_on_enter_from_toggle(home: Path, project_root: Path) -> None:
+    """Pressing Enter with a toggle focused must still submit the modal."""
     app = AimApp()
     async with app.run_test(size=(80, 40)) as pilot:
         await pilot.pause()
@@ -274,9 +274,9 @@ async def test_init_modal_submits_on_enter_from_checkbox(home: Path, project_roo
         modal = app.screen
         assert isinstance(modal, InitModal)
         modal.query_one("#project-root", Input).value = str(project_root)
-        # Move focus to a symlink checkbox.
-        cb = modal.query_one(f"#{InitModal._symlink_id('CLAUDE.md')}", ToggleRow)
-        cb.focus()
+        # Move focus to the sync-agents toggle.
+        toggle = modal.query_one("#sync-agents", ToggleRow)
+        toggle.focus()
         await pilot.press("enter")
         await pilot.pause()
 

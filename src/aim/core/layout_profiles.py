@@ -19,7 +19,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from sqlmodel import select
@@ -63,7 +63,7 @@ class LayoutProfile(BaseModel):
     display_name: str | None = None
     description: str | None = None
     scope: LayoutProfileScope = LayoutProfileScope.PROJECT
-    agent_dialect: str | None = None
+    rules_mode: Literal["files", "inline"] = "files"
 
     rules_dir: str = ".claude/rules"
     skills_dir: str = ".claude/skills"
@@ -117,13 +117,14 @@ def _builtin(
     skills_dir: str,
     agents_dir: str,
     symlinks: list[str] | None = None,
+    rules_mode: Literal["files", "inline"] = "files",
 ) -> LayoutProfile:
     return LayoutProfile(
         name=name,
         display_name=display_name,
         description=description,
         scope=LayoutProfileScope.PROJECT,
-        agent_dialect=name,
+        rules_mode=rules_mode,
         rules_dir=".claude/rules",
         skills_dir=skills_dir,
         agents_dir=agents_dir,
@@ -140,6 +141,7 @@ BUILTIN_CLAUDE = _builtin(
     skills_dir=".claude/skills",
     agents_dir=".claude/agents",
     symlinks=["CLAUDE.md"],
+    rules_mode="files",
 )
 
 BUILTIN_GEMINI = _builtin(
@@ -149,6 +151,7 @@ BUILTIN_GEMINI = _builtin(
     skills_dir=".gemini/skills",
     agents_dir=".gemini/agents",
     symlinks=["GEMINI.md"],
+    rules_mode="inline",
 )
 
 _BUILTINS: dict[str, LayoutProfile] = {
@@ -177,6 +180,10 @@ def parse_toml(text: str, *, source: str | None = None) -> LayoutProfile:
         raw = tomllib.loads(text)
     except tomllib.TOMLDecodeError as exc:
         raise LayoutProfileTomlError(f"invalid TOML in {source or 'profile'}: {exc}") from exc
+    # Drop the legacy agent_dialect field from pre-v2 declarations and default
+    # missing rules_mode to "files" so existing profiles remain valid.
+    raw.pop("agent_dialect", None)
+    raw.setdefault("rules_mode", "files")
     # tomllib returns nested dicts as regular dicts; Pydantic handles them.
     try:
         return LayoutProfile.model_validate(raw)
@@ -195,8 +202,7 @@ def render_toml(profile: LayoutProfile, *, read_only_copy: bool = False) -> str:
     if profile.description:
         lines.append(f'description = "{_escape_toml_string(profile.description)}"')
     lines.append(f'scope = "{profile.scope.value}"')
-    if profile.agent_dialect:
-        lines.append(f'agent_dialect = "{profile.agent_dialect}"')
+    lines.append(f'rules_mode = "{profile.rules_mode}"')
     lines.append("")
     lines.append(f'rules_dir = "{profile.rules_dir}"')
     lines.append(f'skills_dir = "{profile.skills_dir}"')

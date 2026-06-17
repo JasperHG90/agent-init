@@ -53,15 +53,32 @@ def test_resolve_detects_cycle(home: Path) -> None:
 
 
 def test_init_includes_transitively_extended_rules(home: Path, project_root: Path) -> None:
+    from aim.core import layout_profiles
+
     rules.add("parent", "---\norder: 10\n---\nParent body.\n", is_default=False)
     rules.add(
         "child",
         "---\nextends: [parent]\norder: 20\n---\nChild body.\n",
-        is_default=True,
     )
-    init_mod.run(init_mod.InitOptions(project_root=project_root))
+    # Inline mode renders rule bodies directly into AGENTS.md so we can verify
+    # transitive expansion and ordering without reading separate rule files.
+    layout_profiles.save_project_profile(
+        project_root,
+        layout_profiles.LayoutProfile(
+            name="inline",
+            skills_dir=".claude/skills",
+            rules_dir=".claude/rules",
+            agents_dir=".claude/agents",
+            agents_md="AGENTS.md",
+            mcp_json=".mcp.json",
+            rules_mode="inline",
+        ),
+    )
+    init_mod.run(
+        init_mod.InitOptions(project_root=project_root, layout_profile="inline", extra_rules=["child"])
+    )
     asyncio.run(lock_run(LockOptions(project_root=project_root)))
-    asyncio.run(sync_mod.run(sync_mod.SyncOptions(project_root=project_root)))
+    asyncio.run(sync_mod.run(sync_mod.SyncOptions(project_root=project_root, layout_profile="inline")))
     text = (project_root / "AGENTS.md").read_text()
     assert "Parent body." in text
     assert "Child body." in text

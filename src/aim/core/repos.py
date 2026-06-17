@@ -22,7 +22,7 @@ from pathlib import Path
 
 from sqlmodel import select
 
-from aim.core import db, git, paths
+from aim.core import content_guard, db, git, paths
 from aim.core.models import AgentIndex, RegisteredRepo, RuleIndex, SkillIndex
 
 _ALIAS_RE = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
@@ -122,6 +122,7 @@ def add(
     *,
     default_ref: str = "HEAD",
     allow_empty: bool = False,
+    allow_insecure: bool = False,
 ) -> RegisteredRepo:
     """Register a skill source repo, bare-mirror-clone it, and index its skills.
 
@@ -130,6 +131,7 @@ def add(
     leaves no state behind.
     """
     _validate_alias(alias)
+    content_guard.require_secure_url(url, allow_insecure=allow_insecure)
     paths.ensure_global_dirs()
     with db.session() as session:
         existing = session.get(RegisteredRepo, alias)
@@ -178,9 +180,9 @@ def add(
         remove(alias)
         raise RepoHasNoArtifactsError(
             f"{alias}: no SKILL.md found under skills/**/, .claude/skills/**/, "
-            f"or repo root; no AGENT.md found under agents/**/ or "
-            f".claude/agents/**/; and no rule .md found under rules/**/ or "
-            f".claude/rules/**/"
+            f"*/skills/**/, or repo root; no AGENT.md found under agents/**/, "
+            f".claude/agents/**/, */agents/**/; and no rule .md found under "
+            f"rules/**/ or .claude/rules/**/"
         )
     return repo
 
@@ -401,8 +403,9 @@ class RefDisappearedError(RuntimeError):
     """default_ref no longer resolves on the remote (branch deleted, etc.)."""
 
 
-def refresh(alias: str) -> RegisteredRepo:
+def refresh(alias: str, *, allow_insecure: bool = False) -> RegisteredRepo:
     row = get(alias)
+    content_guard.require_secure_url(row.url, allow_insecure=allow_insecure)
     previous_sha = row.last_sha
     repo_dir = clone_dir(alias)
     try:

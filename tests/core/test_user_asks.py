@@ -2,8 +2,7 @@
 
 1. Symlink union on re-init (existing symlinks don't silently disappear).
 2. `rules.install_to_project` adds rule to manifest + re-renders AGENTS.md.
-3. Per-project `agent_dialect` round-trips through the manifest.
-4. `re.fullmatch` rejects trailing-newline names (adversarial finding #15).
+3. `re.fullmatch` rejects trailing-newline names (adversarial finding #15).
 """
 
 from __future__ import annotations
@@ -69,8 +68,26 @@ def test_re_init_clear_symlinks_wipes(home: Path, project_root: Path) -> None:
 # ---------- 2. Rule install flow ----------
 
 
+def _save_inline_profile(project_root: Path) -> None:
+    from aim.core import layout_profiles
+
+    layout_profiles.save_project_profile(
+        project_root,
+        layout_profiles.LayoutProfile(
+            name="inline",
+            skills_dir=".claude/skills",
+            rules_dir=".claude/rules",
+            agents_dir=".claude/agents",
+            agents_md="AGENTS.md",
+            mcp_json=".mcp.json",
+            rules_mode="inline",
+        ),
+    )
+
+
 def test_rule_install_adds_to_manifest_and_renders(home: Path, project_root: Path) -> None:
-    init_mod.run(init_mod.InitOptions(project_root=project_root))
+    _save_inline_profile(project_root)
+    init_mod.run(init_mod.InitOptions(project_root=project_root, layout_profile="inline"))
     rules.add("be-concise", "Be concise.")
 
     rules.install_to_project(project_root, "be-concise")
@@ -82,7 +99,10 @@ def test_rule_install_adds_to_manifest_and_renders(home: Path, project_root: Pat
 
 
 def test_rule_install_preserves_symlinks(home: Path, project_root: Path) -> None:
-    init_mod.run(init_mod.InitOptions(project_root=project_root, symlinks=("CLAUDE.md",)))
+    _save_inline_profile(project_root)
+    init_mod.run(
+        init_mod.InitOptions(project_root=project_root, layout_profile="inline", symlinks=("CLAUDE.md",))
+    )
     rules.add("focus", "Focus.")
     rules.install_to_project(project_root, "focus")
     _lock_and_sync(project_root)
@@ -97,26 +117,7 @@ def test_rule_install_unknown_errors(home: Path, project_root: Path) -> None:
         rules.install_to_project(project_root, "ghost")
 
 
-# ---------- 3. Agent dialect ----------
-
-
-def test_agent_dialect_stored_in_manifest(home: Path, project_root: Path) -> None:
-    init_mod.run(init_mod.InitOptions(project_root=project_root, agent_dialect="claude"))
-    _lock_and_sync(project_root)
-    m = manifest.load(project_root)
-    assert m.agent_dialect == "claude"
-
-
-def test_agent_dialect_preserved_on_reinit_when_none_passed(home: Path, project_root: Path) -> None:
-    init_mod.run(init_mod.InitOptions(project_root=project_root, agent_dialect="claude"))
-    _lock_and_sync(project_root)
-    init_mod.run(init_mod.InitOptions(project_root=project_root))
-    _lock_and_sync(project_root)
-    m = manifest.load(project_root)
-    assert m.agent_dialect == "claude"
-
-
-# ---------- 4. fullmatch trailing-newline ----------
+# ---------- 3. fullmatch trailing-newline ----------
 
 
 def test_rule_name_rejects_trailing_newline(home: Path) -> None:

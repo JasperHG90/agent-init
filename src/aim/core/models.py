@@ -121,7 +121,7 @@ class McpServerCache(SQLModel, table=True):
 
 # ---------- Project declarations (aim.toml) ----------
 
-CURRENT_DECLARATIONS_VERSION = 1
+CURRENT_DECLARATIONS_VERSION = 2
 
 
 class DeclaredRepo(BaseModel):
@@ -171,7 +171,6 @@ class ProjectDeclarations(BaseModel):
     manifest_version: int = CURRENT_DECLARATIONS_VERSION
     instruction_template: str = "default"
     layout_profile: str | None = None
-    agent_dialect: str | None = None
     symlinks: list[str] = Field(default_factory=list)
     rules: list[str] = Field(default_factory=list)
     repos: dict[str, str] = Field(default_factory=dict)
@@ -182,7 +181,7 @@ class ProjectDeclarations(BaseModel):
 
 # ---------- Manifest (per-project lockfile, committed) ----------
 
-CURRENT_MANIFEST_VERSION = 6  # v6: MCP overrides stored on InstalledMcpServer for declaration fidelity
+CURRENT_MANIFEST_VERSION = 7  # v7: dropped per-project agent_dialect
 HISTORY_CAP = 10
 
 
@@ -301,10 +300,6 @@ class Manifest(BaseModel):
     # Hash of the last-written body of each managed region inside AGENTS.md (and
     # symlinks). Drift means the user edited inside markers — warn before rewrite.
     managed_region_hashes: dict[str, str] = Field(default_factory=dict)
-    # Per-project preference for the primary agent dialect ("claude", "gemini",
-    # "opencode", or None). Not used for rendering yet — laid down for future
-    # per-agent dialect support without another manifest version bump.
-    agent_dialect: str | None = None
     # Name of the active layout profile. None resolves to no profile.
     layout_profile: str | None = None
     # Explicit list of symlinks so sync can recreate them.

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from aim.core import agents_md, hashing, layout_profiles, templates
+from aim.core import agents_md, content_guard, hashing, layout_profiles, templates
 from aim.core import rules as rules_mod
 
 _AGENT_FROM_FILENAME = {
@@ -43,14 +43,32 @@ def _detect_region_drift(filename: str, body: str, stored_hashes: dict[str, str]
     return warnings
 
 
-def _render_regions(template_name: str, applied_rules: list[rules_mod.Rule]) -> dict[str, str]:
-    rendered = templates.render(template_name, {"rules": applied_rules})
+def _render_regions(
+    template_name: str,
+    applied_rules: list[rules_mod.Rule],
+    *,
+    rules_mode: str,
+    rules_dir: str,
+) -> dict[str, str]:
+    rendered = templates.render(
+        template_name,
+        {"rules": applied_rules, "rules_mode": rules_mode, "rules_dir": rules_dir},
+    )
     regions = agents_md.parse(rendered)
     return {r.name: r.body for r in regions}
 
 
-def _render_for_template(template_name: str, applied_rules: list[rules_mod.Rule]) -> str:
-    return templates.render(template_name, {"rules": applied_rules})
+def _render_for_template(
+    template_name: str,
+    applied_rules: list[rules_mod.Rule],
+    *,
+    rules_mode: str,
+    rules_dir: str,
+) -> str:
+    return templates.render(
+        template_name,
+        {"rules": applied_rules, "rules_mode": rules_mode, "rules_dir": rules_dir},
+    )
 
 
 def write_agent_files(
@@ -66,7 +84,12 @@ def write_agent_files(
     assert isinstance(m, Manifest)
 
     applied = [rules_mod.get(name) for name in m.rules]
-    fresh_regions_canonical = _render_regions(m.instruction_template, applied)
+    fresh_regions_canonical = _render_regions(
+        m.instruction_template,
+        applied,
+        rules_mode=profile.rules_mode,
+        rules_dir=profile.rules_dir,
+    )
 
     drift_warnings: list[str] = []
     agents_path = project_root / profile.agents_md
@@ -76,7 +99,12 @@ def write_agent_files(
         drift_warnings.extend(_detect_region_drift(agents_path.name, existing, m.managed_region_hashes))
         merged = agents_md.merge(existing, fresh_regions_canonical)
     else:
-        merged = _render_for_template(m.instruction_template, applied)
+        merged = _render_for_template(
+            m.instruction_template,
+            applied,
+            rules_mode=profile.rules_mode,
+            rules_dir=profile.rules_dir,
+        )
 
     new_hashes = {r.name: hashing.hash_text(r.body) for r in agents_md.parse(merged)}
 
@@ -97,6 +125,7 @@ def write_agent_files(
 
     # Write AGENTS.md last so symlinks can reference it safely.
     agents_path.parent.mkdir(parents=True, exist_ok=True)
+    content_guard.assert_no_hidden_unicode(merged, source=agents_path.name)
     agents_path.write_text(merged)
 
     m.managed_region_hashes = new_hashes

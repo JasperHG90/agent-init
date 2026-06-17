@@ -82,7 +82,7 @@ def test_from_project_snapshots(home: Path, project_root: Path, tmp_path: Path) 
         init_mod.InitOptions(
             project_root=project_root,
             symlinks=("CLAUDE.md",),
-            agent_dialect="claude",
+            extra_rules=["be-concise"],
         )
     )
     install.install(project_root, "anth/foo")
@@ -91,7 +91,6 @@ def test_from_project_snapshots(home: Path, project_root: Path, tmp_path: Path) 
     assert snap.name == "python-tui"
     assert "CLAUDE.md" in snap.symlinks
     assert "be-concise" in snap.rules
-    assert snap.agent_dialect == "claude"
     assert [s.qualified_name for s in snap.skills] == ["anth/foo"]
 
 
@@ -106,8 +105,8 @@ def test_from_project_captures_agents_and_mcp(
     agent_bare = _agent_repo(tmp_path)
     repos.add("anth", f"file://{skill_bare}")
     repos.add("agents", f"file://{agent_bare}")
-    rules.add("be-concise", "Be concise.", is_default=True)
-    init_mod.run(init_mod.InitOptions(project_root=project_root))
+    rules.add("be-concise", "Be concise.")
+    init_mod.run(init_mod.InitOptions(project_root=project_root, extra_rules=["be-concise"]))
     install.install(project_root, "anth/foo")
     agent_install.install(project_root, "agents/review")
     respx.get(f"{mcp_registry._REGISTRY_BASE}").mock(
@@ -129,8 +128,12 @@ def test_apply_reproduces_state(home: Path, project_root: Path, tmp_path: Path) 
     )
     bare = git_fixtures.make_bare_remote(working, tmp_path / "bare.git")
     repos.add("anth", f"file://{bare}")
-    rules.add("be-concise", "Be concise.", is_default=True)
-    init_mod.run(init_mod.InitOptions(project_root=project_root, symlinks=("CLAUDE.md",)))
+    rules.add("be-concise", "Be concise.")
+    init_mod.run(
+        init_mod.InitOptions(
+            project_root=project_root, symlinks=("CLAUDE.md",), extra_rules=["be-concise"]
+        )
+    )
     install.install(project_root, "anth/foo")
 
     profiles.save(profiles.from_project("source", project_root))

@@ -15,7 +15,7 @@ from pathlib import Path
 
 from sqlmodel import select
 
-from aim.core import db, git, paths
+from aim.core import content_guard, db, git, paths
 from aim.core.models import RegisteredRuleRepo
 
 _ALIAS_RE = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
@@ -44,8 +44,11 @@ def clone_dir(alias: str) -> Path:
     return paths.rule_repos_cache_dir() / alias
 
 
-def add(alias: str, url: str, *, default_ref: str = "HEAD") -> RegisteredRuleRepo:
+def add(
+    alias: str, url: str, *, default_ref: str = "HEAD", allow_insecure: bool = False
+) -> RegisteredRuleRepo:
     _validate_alias(alias)
+    content_guard.require_secure_url(url, allow_insecure=allow_insecure)
     paths.ensure_global_dirs()
     with db.session() as session:
         if session.get(RegisteredRuleRepo, alias) is not None:
@@ -92,6 +95,11 @@ def _materialise_rules(alias: str, sha: str | None) -> None:
     except git.GitError:
         # No `rules/` dir at this sha — overlay is empty.
         pass
+    hidden = content_guard.scan_directory(dest)
+    if hidden:
+        raise content_guard.HiddenUnicodeError(
+            f"rule-repo {alias}: hidden Unicode found in overlay rules:\n" + "\n".join(hidden)
+        )
 
 
 def list_repos() -> list[RegisteredRuleRepo]:
@@ -116,11 +124,12 @@ def remove(alias: str) -> None:
         shutil.rmtree(side)
 
 
-def refresh(alias: str) -> RegisteredRuleRepo:
+def refresh(alias: str, *, allow_insecure: bool = False) -> RegisteredRuleRepo:
     with db.session() as session:
         row = session.get(RegisteredRuleRepo, alias)
     if row is None:
         raise RuleRepoNotFoundError(alias)
+    content_guard.require_secure_url(row.url, allow_insecure=allow_insecure)
     repo_dir = clone_dir(alias)
     git.get_backend().fetch(repo_dir)
     try:

@@ -16,7 +16,7 @@ from pathlib import Path
 
 from sqlmodel import select
 
-from aim.core import db, paths
+from aim.core import content_guard, db, paths
 from aim.core.models import RuleEntry
 
 _NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
@@ -52,6 +52,7 @@ def body_path(name: str) -> Path:
 
 def add(name: str, body: str, *, description: str | None = None, is_default: bool = False) -> Rule:
     _validate_name(name)
+    content_guard.assert_no_hidden_unicode(body, source=f"rule {name}")
     paths.ensure_global_dirs()
     body_path(name).write_text(body)
     with db.session() as session:
@@ -172,27 +173,36 @@ def delete(name: str) -> None:
 
 
 def apply_to_project(
-    project_root: Path, names: list[str], *, rules_dir: Path | None = None
+    project_root: Path,
+    names: list[str],
+    *,
+    rules_mode: str | None = None,
+    rules_dir: Path | None = None,
 ) -> list[Rule]:
-    """Copy named rule bodies into the project's rules dir.
-    Returns the resolved Rule objects in the order applied.
+    """Resolve named rules and, in "files" mode, copy them into the project's
+    rules dir. Returns the resolved Rule objects in the order applied.
 
-    Low-level primitive: writes files only. For the user-facing "install" flow
-    (which also updates the manifest and re-renders AGENTS.md), use
-    `install_to_project`.
+    Low-level primitive: writes files only when the active layout profile uses
+    rules_mode="files". For the user-facing "install" flow (which also updates
+    the manifest and re-renders AGENTS.md), use `install_to_project`.
     """
-    if rules_dir is None:
-        from aim.core.layout_profiles import resolve_active
+    from aim.core.layout_profiles import resolve_active
 
-        profile = resolve_active(project_root)
+    profile = resolve_active(project_root)
+    resolved_rules_mode = rules_mode or profile.rules_mode
+    if rules_dir is None:
         resolved_rules_dir = project_root / profile.rules_dir
     else:
         resolved_rules_dir = rules_dir
-    resolved_rules_dir.mkdir(parents=True, exist_ok=True)
+
+    if resolved_rules_mode == "files":
+        resolved_rules_dir.mkdir(parents=True, exist_ok=True)
     applied: list[Rule] = []
     for name in names:
         rule = get(name)
-        (resolved_rules_dir / f"{name}.md").write_text(rule.body)
+        content_guard.assert_no_hidden_unicode(rule.body, source=f"rule {name}")
+        if resolved_rules_mode == "files":
+            (resolved_rules_dir / f"{name}.md").write_text(rule.body)
         applied.append(rule)
     return applied
 
@@ -216,5 +226,5 @@ def install_to_project(project_root: Path, name: str) -> RuleInstallResult:
         decl.rules.append(name)
     _declarations.save(project_root, decl)
     # Re-run init so the scaffold template/profile remain consistent.
-    _init.run(_init.InitOptions(project_root=project_root, seed_default_rules=False))
+    _init.run(_init.InitOptions(project_root=project_root))
     return RuleInstallResult(project_root=project_root)

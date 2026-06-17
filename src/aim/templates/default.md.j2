@@ -18,7 +18,11 @@ This file provides guidance to coding agents (Claude Code, Gemini CLI, opencode,
 {% if rule.description %}
 *{{ rule.description }}*
 {% endif %}
+{%- if rules_mode == "files" %}
+Rule file: `{{ rules_dir }}/{{ rule.name }}.md`
+{%- else %}
 {{ rule.body }}
+{%- endif %}
 {%- endfor %}
 {%- else %}
 

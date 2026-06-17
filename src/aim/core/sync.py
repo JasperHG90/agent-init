@@ -19,6 +19,7 @@ from pathlib import Path
 from aim.core import (
     agent_files,
     agents,
+    content_guard,
     git,
     hashing,
     layout_profiles,
@@ -57,6 +58,7 @@ class SyncOptions:
     sync_agents: bool = True
     layout_profile: str | None = None
     progress_callback: Callable[[str, str, str], object] | None = None
+    allow_insecure: bool = False
 
 
 @dataclass
@@ -107,7 +109,7 @@ def _locked_repo_pairs(m: Manifest) -> dict[str, str]:
     return pairs
 
 
-def _register_repo(alias: str, url: str) -> str | None:
+def _register_repo(alias: str, url: str, allow_insecure: bool) -> str | None:
     """Register a repo and index its artifacts. Return an error string or None."""
     try:
         repos.get(alias)
@@ -118,19 +120,19 @@ def _register_repo(alias: str, url: str) -> str | None:
     except repos.RepoNotFoundError:
         pass
     try:
-        repos.add(alias, url, allow_empty=True)
+        repos.add(alias, url, allow_empty=True, allow_insecure=allow_insecure)
     except Exception as exc:
         return f"repo {alias}: failed to register {url}: {exc}"
     return None
 
 
-async def _ensure_repos(pairs: dict[str, str]) -> list[str]:
+async def _ensure_repos(pairs: dict[str, str], allow_insecure: bool) -> list[str]:
     """Concurrently register missing repos. Return list of error strings."""
     if not pairs:
         return []
 
     async def _one(alias: str, url: str) -> str | None:
-        return await asyncio.to_thread(_register_repo, alias, url)
+        return await asyncio.to_thread(_register_repo, alias, url, allow_insecure)
 
     results = await asyncio.gather(*(_one(alias, url) for alias, url in pairs.items()))
     return [r for r in results if r is not None]
@@ -258,6 +260,9 @@ def _sync_agent(
             )
 
     try:
+        content_guard.assert_no_hidden_unicode(
+            expected_content, source=f"agent {installed.qualified_name}"
+        )
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(expected_content, encoding="utf-8")
     except Exception as exc:
@@ -363,13 +368,15 @@ async def run(options: SyncOptions) -> SyncResult:
     # 1. Ensure repos.
     _notify(options.progress_callback, "repos", "all", "syncing")
     repo_pairs = _locked_repo_pairs(m)
-    result.repo_errors = await _ensure_repos(repo_pairs)
+    result.repo_errors = await _ensure_repos(repo_pairs, options.allow_insecure)
     _notify(options.progress_callback, "repos", "all", "ok")
 
     # 2. Apply rules on the main thread (DB + small files).
     _notify(options.progress_callback, "rules", "all", "syncing")
     project_rules_dir = project_root / profile.rules_dir
-    applied = rules_mod.apply_to_project(project_root, list(m.rules), rules_dir=project_rules_dir)
+    applied = rules_mod.apply_to_project(
+        project_root, list(m.rules), rules_mode=profile.rules_mode, rules_dir=project_rules_dir
+    )
     result.rules_applied = [r.name for r in applied]
     _notify(options.progress_callback, "rules", "all", "ok")
 

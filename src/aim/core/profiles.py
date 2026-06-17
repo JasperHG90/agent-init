@@ -1,7 +1,7 @@
 """Project profiles — named bundles of init settings.
 
 A profile snapshots a project's `(instruction_template, symlinks, rules, skills,
-agents, mcp_servers, agent_dialect, layout_profile)` so you can stamp out new
+agents, mcp_servers, layout_profile)` so you can stamp out new
 projects from it. Stored as JSON under `user_config_dir/profiles/<name>.json`.
 Skills, agents and MCP servers reference upstream by qualified_name/registry_name
 + pin/track, not by frozen bytes — so applying a profile always picks up the
@@ -84,7 +84,6 @@ class Profile(BaseModel):
     skills: list[ProfileSkill] = Field(default_factory=list)
     agents: list[ProfileAgent] = Field(default_factory=list)
     mcp_servers: list[ProfileMcpServer] = Field(default_factory=list)
-    agent_dialect: str | None = None
 
     @field_validator("name")
     @classmethod
@@ -198,8 +197,6 @@ def render_toml(profile: Profile) -> str:
     lines.append(f'instruction_template = "{_escape_toml_string(profile.instruction_template)}"')
     if profile.layout_profile:
         lines.append(f'layout_profile = "{_escape_toml_string(profile.layout_profile)}"')
-    if profile.agent_dialect:
-        lines.append(f'agent_dialect = "{_escape_toml_string(profile.agent_dialect)}"')
     lines.append(f"symlinks = {_render_string_list(profile.symlinks)}")
     lines.append(f"rules = {_render_string_list(profile.rules)}")
     lines.append("")
@@ -318,7 +315,6 @@ def from_project(name: str, project_root: Path) -> Profile:
             )
             for ms in mcp_sources
         ],
-        agent_dialect=decl.agent_dialect,
     )
 
 
@@ -334,7 +330,7 @@ class ProfileApplyResult:
     skipped_mcp: list[str] = field(default_factory=list)
 
 
-def apply(name: str, project_root: Path) -> ProfileApplyResult:
+def apply(name: str, project_root: Path, *, allow_insecure: bool = False) -> ProfileApplyResult:
     """Apply a profile to a project: init declarations, lock them, install skills/agents/MCP, sync."""
     profile = load(name)
     init_result = init_mod.run(
@@ -344,12 +340,13 @@ def apply(name: str, project_root: Path) -> ProfileApplyResult:
             layout_profile=profile.layout_profile,
             symlinks=tuple(profile.symlinks),
             extra_rules=list(profile.rules),
-            agent_dialect=profile.agent_dialect,
         )
     )
 
     # Resolve declarations into a lock so subsequent installs preserve symlinks.
-    asyncio.run(lock_mod.run(lock_mod.LockOptions(project_root=project_root)))
+    asyncio.run(
+        lock_mod.run(lock_mod.LockOptions(project_root=project_root, allow_insecure=allow_insecure))
+    )
 
     installed_skills: list[str] = []
     skipped_skills: list[str] = []
@@ -398,6 +395,7 @@ def apply(name: str, project_root: Path) -> ProfileApplyResult:
                 project_root=project_root,
                 sync_agents=True,
                 layout_profile=profile.layout_profile,
+                allow_insecure=allow_insecure,
             )
         )
     )

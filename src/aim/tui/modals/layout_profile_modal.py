@@ -63,11 +63,17 @@ class LayoutProfileModal(ModalScreen[LayoutProfileResult | None]):
                     id="scope-help",
                     markup=False,
                 ),
-                Static("Agent dialect (optional):", markup=False),
-                Input(
-                    value=(p.agent_dialect or "" if p else ""),
-                    placeholder="claude / gemini / opencode",
-                    id="agent-dialect",
+                Static("Rules mode:", markup=False),
+                RadioSet(
+                    RadioButton("files", id="rules-mode-files", value=True),
+                    RadioButton("inline", id="rules-mode-inline"),
+                    id="rules-mode",
+                ),
+                Static(
+                    "files: write rules to rules_dir/<name>.md. "
+                    "inline: render rule bodies into the AGENTS.md rules region.",
+                    id="rules-mode-help",
+                    markup=False,
                 ),
                 Static("Rules directory:", markup=False),
                 Input(
@@ -108,6 +114,12 @@ class LayoutProfileModal(ModalScreen[LayoutProfileResult | None]):
                 project_btn.value = True
             else:
                 global_btn.value = True
+            files_btn = self.query_one("#rules-mode-files", RadioButton)
+            inline_btn = self.query_one("#rules-mode-inline", RadioButton)
+            if self._original.rules_mode == "inline":
+                inline_btn.value = True
+            else:
+                files_btn.value = True
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "save":
@@ -134,7 +146,7 @@ class LayoutProfileModal(ModalScreen[LayoutProfileResult | None]):
         display_name = self.query_one("#display-name", Input).value.strip() or None
         description = self.query_one("#description", Input).value.strip() or None
         scope = self._read_scope()
-        agent_dialect = self.query_one("#agent-dialect", Input).value.strip().lower() or None
+        rules_mode = self._read_rules_mode()
         rules_dir = self.query_one("#rules-dir", Input).value.strip()
         skills_dir = self.query_one("#skills-dir", Input).value.strip()
         agents_md = self.query_one("#agents-md", Input).value.strip()
@@ -147,7 +159,7 @@ class LayoutProfileModal(ModalScreen[LayoutProfileResult | None]):
                 display_name=display_name,
                 description=description,
                 scope=scope,
-                agent_dialect=agent_dialect,
+                rules_mode=rules_mode,
                 rules_dir=rules_dir,
                 skills_dir=skills_dir,
                 agents_md=agents_md,
@@ -173,3 +185,10 @@ class LayoutProfileModal(ModalScreen[LayoutProfileResult | None]):
         if pressed is not None and pressed.id == "scope-global":
             return layout_profiles.LayoutProfileScope.GLOBAL
         return layout_profiles.LayoutProfileScope.PROJECT
+
+    def _read_rules_mode(self) -> str:
+        rs = self.query_one("#rules-mode", RadioSet)
+        pressed = rs.pressed_button
+        if pressed is not None and pressed.id == "rules-mode-inline":
+            return "inline"
+        return "files"

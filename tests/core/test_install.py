@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from aim.core import install, manifest, paths, repos
+from aim.core import content_guard, install, manifest, paths, repos
 from tests.fixtures import git_fixtures
 
 
@@ -204,3 +204,37 @@ def test_rollback_works_from_local_snapshot_even_if_upstream_lost(
     assert rolled.current.sha == v1_sha
     target = project_root / ".claude" / "skills" / "foo"
     assert (target / "SKILL.md").read_text() == "# v1\n"
+
+
+def test_install_plugin_style_skill(home: Path, project_root: Path, tmp_path: Path) -> None:
+    """Skills nested under plugins/<cat>/skills/<name> install correctly."""
+    _, bare = _build_repo(
+        tmp_path,
+        {
+            "plugins/business-analytics/skills/data-storytelling/SKILL.md": (
+                "# Data Storytelling\n\nTell stories.\n"
+            ),
+            "plugins/business-analytics/skills/data-storytelling/helper.md": "helper\n",
+        },
+    )
+    repos.add("wshobson", f"file://{bare}")
+    install.install(project_root, "wshobson/data-storytelling")
+
+    target = project_root / ".claude" / "skills" / "data-storytelling"
+    assert (target / "SKILL.md").read_text().startswith("# Data Storytelling")
+    assert (target / "helper.md").read_text() == "helper\n"
+    m = manifest.load(project_root)
+    assert m.skills[0].source_path == "plugins/business-analytics/skills/data-storytelling"
+
+
+def test_install_rejects_hidden_unicode(
+    home: Path, project_root: Path, tmp_path: Path
+) -> None:
+    _, bare = _build_repo(
+        tmp_path,
+        {"skills/foo/SKILL.md": "# foo\n\nhidden​\n"},
+    )
+    repos.add("a", f"file://{bare}")
+    with pytest.raises(content_guard.HiddenUnicodeError):
+        install.install(project_root, "a/foo")
+    assert not (project_root / ".claude" / "skills" / "foo").exists()

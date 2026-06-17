@@ -93,7 +93,6 @@ def load_or_create(project_root: Path) -> Manifest:
         m = Manifest(
             instruction_template=decl.instruction_template,
             layout_profile=decl.layout_profile,
-            agent_dialect=decl.agent_dialect,
             rules=list(decl.rules),
             symlinks=list(decl.symlinks),
         )

@@ -4,7 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from aim.core import rules
+from aim.core import agent_files, content_guard, rules
+from aim.core.models import Manifest
 
 
 def test_add_writes_body_and_metadata(home: Path) -> None:
@@ -70,3 +71,80 @@ def test_apply_to_project_copies_body(home: Path, project_root: Path) -> None:
     assert [r.name for r in applied] == ["style", "test"]
     assert (project_root / ".claude" / "rules" / "style.md").read_text() == "Be terse."
     assert (project_root / ".claude" / "rules" / "test.md").read_text() == "Test first."
+
+
+def test_apply_to_project_inline_skips_files(home: Path, project_root: Path) -> None:
+    from aim.core import layout_profiles
+
+    rules.add("style", "Be terse.")
+    layout_profiles.save_project_profile(
+        project_root,
+        layout_profiles.LayoutProfile(
+            name="inline",
+            skills_dir=".claude/skills",
+            rules_dir=".claude/rules",
+            agents_dir=".claude/agents",
+            agents_md="AGENTS.md",
+            mcp_json=".mcp.json",
+            rules_mode="inline",
+        ),
+    )
+    applied = rules.apply_to_project(project_root, ["style"], rules_mode="inline")
+    assert [r.name for r in applied] == ["style"]
+    assert not (project_root / ".claude" / "rules" / "style.md").exists()
+
+
+def test_add_rejects_hidden_unicode(home: Path) -> None:
+    with pytest.raises(content_guard.HiddenUnicodeError):
+        rules.add("bad", "behave​")
+    assert not rules.body_path("bad").exists()
+
+
+def test_apply_to_project_rejects_hidden_unicode(home: Path, project_root: Path) -> None:
+    rules.add("clean", "safe body")
+    rules.add("bad", "safe for now")
+    # Bypass the library add() gate so we can test the project-write gate.
+    rules.body_path("bad").write_text("bad​body")
+    with pytest.raises(content_guard.HiddenUnicodeError):
+        rules.apply_to_project(project_root, ["clean", "bad"])
+    assert not (project_root / ".claude" / "rules" / "bad.md").exists()
+
+
+def test_agents_md_renders_inline_rule_bodies(home: Path, project_root: Path) -> None:
+    from aim.core import layout_profiles
+
+    rules.add("style", "Be terse.")
+    profile = layout_profiles.LayoutProfile(
+        name="inline",
+        skills_dir=".claude/skills",
+        rules_dir=".claude/rules",
+        agents_dir=".claude/agents",
+        agents_md="AGENTS.md",
+        mcp_json=".mcp.json",
+        rules_mode="inline",
+    )
+    m = Manifest(rules=["style"])
+    agent_files.write_agent_files(project_root, m, profile)
+    text = (project_root / "AGENTS.md").read_text()
+    assert "Be terse." in text
+    assert not (project_root / ".claude" / "rules" / "style.md").exists()
+
+
+def test_agents_md_renders_file_references(home: Path, project_root: Path) -> None:
+    from aim.core import layout_profiles
+
+    rules.add("style", "Be terse.")
+    profile = layout_profiles.LayoutProfile(
+        name="files",
+        skills_dir=".claude/skills",
+        rules_dir=".claude/rules",
+        agents_dir=".claude/agents",
+        agents_md="AGENTS.md",
+        mcp_json=".mcp.json",
+        rules_mode="files",
+    )
+    m = Manifest(rules=["style"])
+    agent_files.write_agent_files(project_root, m, profile)
+    text = (project_root / "AGENTS.md").read_text()
+    assert ".claude/rules/style.md" in text
+    assert "Be terse." not in text

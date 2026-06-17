@@ -5,8 +5,10 @@ prefixes (precedence: highest first):
 
     1. skills/.../<name>/SKILL.md
     2. .claude/skills/.../<name>/SKILL.md
-    3. <name>/SKILL.md   (at repo root, no prefix)
-    4. SKILL.md          (at repo root, bare)
+    3. */skills/.../<name>/SKILL.md  (any other nested skills dir, e.g.
+                                     plugins/business-analytics/skills/...)
+    4. <name>/SKILL.md   (at repo root, no prefix)
+    5. SKILL.md          (at repo root, bare)
 
 Intermediate directories under `skills/` and `.claude/skills/` are allowed
 to support repos that group skills by category (e.g.
@@ -41,21 +43,16 @@ def split_csv(value: str) -> list[str]:
     return [p for p in (s.strip() for s in value.split(",")) if p]
 
 
-PRECEDENCE = (
-    "skills",
-    ".claude/skills",
-    "",  # root-level <name>/SKILL.md
-)
-
 # Matches:
-#   skills/.../<name>/SKILL.md          (rank 0; any depth ≥ 1)
-#   .claude/skills/.../<name>/SKILL.md  (rank 1; any depth ≥ 1)
-#   <name>/SKILL.md                     (rank 2; root-level dir)
-#   SKILL.md at repo root               (rank 3)
+#   skills/.../<name>/SKILL.md                    (rank 0; repo root skills dir)
+#   .claude/skills/.../<name>/SKILL.md             (rank 1)
+#   <any-prefix>/skills/.../<name>/SKILL.md       (rank 2; e.g. plugins/cat/skills/...)
+#   <name>/SKILL.md                                (rank 3; root-level dir)
+#   SKILL.md at repo root                          (rank 4)
 _SKILL_RE = re.compile(
-    r"^(?:(?P<prefix>skills/|\.claude/skills/)(?:[^/]+/)*(?P<name1>[^/]+)/SKILL\.md|"
-    r"(?P<name2>[^/]+)/SKILL\.md|"
-    r"^SKILL\.md)$"
+    r"^(?:(?P<prefix>.*)/)?skills/(?:[^/]+/)*(?P<name1>[^/]+)/SKILL\.md$|"
+    r"^(?P<name2>[^/]+)/SKILL\.md$|"
+    r"^SKILL\.md$"
 )
 
 
@@ -86,22 +83,30 @@ def discover(repo_alias: str) -> IndexResult:
         match = _SKILL_RE.match(p)
         if not match:
             continue
-        prefix = match.group("prefix") or ""
-        name = match.group("name1") or match.group("name2")
-        if not name:
+        prefix = match.group("prefix")
+        name1 = match.group("name1")
+        name2 = match.group("name2")
+
+        if name1 is not None:
+            name = name1
+            # Prefix is the path before the final `skills/` segment.
+            if prefix is None:
+                prefix_rank = 0  # skills/<name>/SKILL.md at repo root
+            elif prefix == ".claude":
+                prefix_rank = 1  # .claude/skills/.../<name>/SKILL.md
+            else:
+                prefix_rank = 2  # any other */skills/.../<name>/SKILL.md
+        elif name2 is not None:
+            name = name2
+            prefix_rank = 3  # root-level <name>/SKILL.md
+        else:
             name = repo_alias
+            prefix_rank = 4  # bare SKILL.md at repo root
+
         # Reject path-traversal names like `..` or names with path separators
         # before they are ever used in filesystem paths.
         if not is_valid_alias(name):
             continue
-        if prefix == "skills/":
-            prefix_rank = 0
-        elif prefix == ".claude/skills/":
-            prefix_rank = 1
-        elif name != repo_alias:
-            prefix_rank = 2
-        else:
-            prefix_rank = 3
         source_dir = p[: -len("/SKILL.md")] if p != "SKILL.md" else ""
         depth = p.count("/")
         by_name.setdefault(name, []).append(

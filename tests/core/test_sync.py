@@ -2,13 +2,27 @@ from __future__ import annotations
 
 import asyncio
 import json
+import subprocess
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
 import respx
 from httpx import Response
 
-from aim.core import agent_install, init, install, mcp_install, mcp_registry, repos, sync
+from aim.core import (
+    agent_install,
+    content_guard,
+    init,
+    install,
+    layout_profiles,
+    manifest,
+    mcp_install,
+    mcp_registry,
+    models,
+    repos,
+    sync,
+)
 from tests.fixtures import git_fixtures
 
 
@@ -231,3 +245,67 @@ def test_sync_profile_override_writes_correct_agent_file(
     # install already deployed the agent, so sync only re-renders the mirror.
     assert "anth/review" not in result.synced_agents
     assert (project_root / "CLAUDE.md").exists()
+
+
+def _malicious_skill_repo(tmp_path: Path) -> tuple[Path, Path]:
+    working = git_fixtures.make_source_repo(
+        tmp_path / "src",
+        files={
+            "skills/foo/SKILL.md": "# foo\n\nhidden​\n",
+            "README.md": "fixture\n",
+        },
+    )
+    bare = git_fixtures.make_bare_remote(working, tmp_path / "bare.git")
+    return working, bare
+
+
+def test_sync_rejects_hidden_unicode_skill(
+    home: Path, project_root: Path, tmp_path: Path
+) -> None:
+    working, bare = _malicious_skill_repo(tmp_path)
+    init.run(init.InitOptions(project_root=project_root))
+    repos.add("a", f"file://{bare}")
+    sha = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=working,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+
+    m = models.Manifest(
+        skills=[
+            models.InstalledSkill(
+                qualified_name="a/foo",
+                repo_alias="a",
+                repo_url=repos.get("a").url,
+                source_path="skills/foo",
+                target_dir=".claude/skills/foo",
+                current=models.SkillVersion(sha=sha, installed_at=datetime.now(UTC)),
+            )
+        ]
+    )
+    manifest.save(project_root, m)
+
+    target = project_root / ".claude" / "skills" / "foo"
+    assert not target.exists()
+    with pytest.raises(sync.SyncError, match="hidden Unicode"):
+        asyncio.run(sync.run(sync.SyncOptions(project_root=project_root)))
+    assert not target.exists()
+
+
+def test_sync_rejects_hidden_unicode_agents_md(
+    home: Path, project_root: Path, tmp_path: Path
+) -> None:
+    _, bare = _agent_repo(tmp_path)
+    init.run(init.InitOptions(project_root=project_root))
+    repos.add("anth", f"file://{bare}")
+    agent_install.install(project_root, "anth/review")
+
+    profile = layout_profiles.resolve_active(project_root)
+    agents_path = project_root / profile.agents_md
+    agents_path.write_text("# Project\n\nhidden​\n")
+
+    with pytest.raises(content_guard.HiddenUnicodeError):
+        asyncio.run(sync.run(sync.SyncOptions(project_root=project_root)))
+    assert "hidden​" in agents_path.read_text()

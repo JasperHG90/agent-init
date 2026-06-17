@@ -23,7 +23,7 @@ from cachetools import LRUCache, TTLCache
 from pydantic import BaseModel, ConfigDict, Field
 from sqlmodel import select
 
-from aim.core import db, layout_profiles
+from aim.core import content_guard, db, layout_profiles
 from aim.core.hashing import hash_text
 from aim.core.models import McpClaudeEntry, McpServerCache, McpServerVersion
 
@@ -113,7 +113,8 @@ def _canonical_json(value: dict) -> str:
     attempts=3,
     timeout=10,
 )
-def _fetch_json(url: str) -> dict:
+def _fetch_json(url: str, *, allow_insecure: bool = False) -> dict:
+    content_guard.require_secure_url(url, allow_insecure=allow_insecure)
     with httpx.Client(timeout=_TIMEOUT_SECONDS) as client:
         response = client.get(url, headers={"Accept": "application/json, application/problem+json"})
         response.raise_for_status()
@@ -124,7 +125,7 @@ def _fetch_json(url: str) -> dict:
 
 
 def search_registry(
-    query: str, cursor: str | None = None
+    query: str, cursor: str | None = None, *, allow_insecure: bool = False
 ) -> tuple[list[McpSearchResult], str | None]:
     """Search the public MCP registry.
 
@@ -143,7 +144,7 @@ def search_registry(
     url = f"{_REGISTRY_BASE}?{query_string}"
 
     try:
-        payload = _fetch_json(url)
+        payload = _fetch_json(url, allow_insecure=allow_insecure)
     except Exception as exc:
         raise McpRegistryError(f"registry search failed: {exc}") from exc
 
@@ -231,6 +232,7 @@ def find_server(
     exact_name: str | None = None,
     *,
     prefer_cache: bool = True,
+    allow_insecure: bool = False,
 ) -> McpServer:
     """Search the registry and return the single best-matching server.
 
@@ -248,7 +250,7 @@ def find_server(
         if cached is not None:
             return cached
 
-    results, _ = search_registry(query)
+    results, _ = search_registry(query, allow_insecure=allow_insecure)
     candidates = results
     if exact_name:
         candidates = [r for r in results if r.server.name == exact_name]
@@ -361,8 +363,9 @@ def _build_stdio_entry(package: McpPackage) -> McpClaudeEntry:
     return McpClaudeEntry(type="stdio", command=command, args=args, env=env)
 
 
-def _build_remote_entry(remote: McpRemote) -> McpClaudeEntry:
+def _build_remote_entry(remote: McpRemote, *, allow_insecure: bool = False) -> McpClaudeEntry:
     server_type = "http" if remote.type.lower() == "streamable-http" else remote.type.lower()
+    content_guard.require_secure_url(remote.url, allow_insecure=allow_insecure)
     headers: dict[str, str] = {}
     for header in remote.headers:
         if header.value is not None:
@@ -371,7 +374,7 @@ def _build_remote_entry(remote: McpRemote) -> McpClaudeEntry:
 
 
 def map_to_claude_entry(
-    server: McpServer, *, preferred_transport: str | None = None
+    server: McpServer, *, preferred_transport: str | None = None, allow_insecure: bool = False
 ) -> McpClaudeEntry:
     """Convert a registry server definition to a Claude Code `.mcp.json` entry.
 
@@ -384,7 +387,7 @@ def map_to_claude_entry(
     """
     remote = _choose_remote(server, preferred_transport)
     if remote is not None:
-        return _build_remote_entry(remote)
+        return _build_remote_entry(remote, allow_insecure=allow_insecure)
 
     if preferred_transport and preferred_transport.lower() == "stdio":
         for package in server.packages:
@@ -464,7 +467,11 @@ def merge_mcp_server(
     servers = data.setdefault("mcpServers", {})
     if not isinstance(servers, dict):
         raise McpRegistryError(".mcp.json mcpServers must be a JSON object")
-    servers[alias] = entry.model_dump(exclude_none=True)
+    entry_dict = entry.model_dump(exclude_none=True)
+    content_guard.assert_no_hidden_unicode(
+        json.dumps(entry_dict, ensure_ascii=False), source=f".mcp.json entry {alias}"
+    )
+    servers[alias] = entry_dict
     write_mcp_json(project_root, data)
     return data, entry
 

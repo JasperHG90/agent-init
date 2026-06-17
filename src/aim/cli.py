@@ -16,6 +16,7 @@ from aim import __version__
 from aim.core import agent_install as agent_install_mod
 from aim.core import agents as agents_mod
 from aim.core import agents_md as agents_md_mod
+from aim.core import content_guard as content_guard_mod
 from aim.core import doctor as doctor_mod
 from aim.core import format as format_mod
 from aim.core import git, hashing
@@ -64,6 +65,8 @@ _FRIENDLY_ERRORS: tuple[type[Exception], ...] = (
     repos_mod.RefDisappearedError,
     rules_mod.RuleNameError,
     rules_mod.RuleNotFoundError,
+    content_guard_mod.InsecureTransportError,
+    content_guard_mod.HiddenUnicodeError,
     install_mod.SkillNotIndexedError,
     install_mod.SkillNotInstalledError,
     install_mod.SkillSourcePathChangedError,
@@ -131,9 +134,21 @@ def _format_callback(ctx: typer.Context, value: str) -> str:
     return value
 
 
+def _allow_insecure_callback(ctx: typer.Context, value: bool) -> bool:
+    """Store the global --allow-insecure flag in ctx.obj for subcommands."""
+    ctx.obj = ctx.obj or {}
+    ctx.obj["allow_insecure"] = value
+    return value
+
+
 def _get_format(ctx: typer.Context) -> str:
     """Read the output format selected by the global --format/--json flag."""
     return (ctx.obj or {}).get("format", format_mod.OutputFormat.TABLE)
+
+
+def _get_allow_insecure(ctx: typer.Context) -> bool:
+    """Read the global --allow-insecure flag, defaulting to False."""
+    return bool((ctx.obj or {}).get("allow_insecure", False))
 
 
 @app.callback()
@@ -173,6 +188,13 @@ def main(
         False,
         "--compact",
         help="Output list commands as compact NDJSON (one JSON object per line).",
+    ),
+    allow_insecure: bool = typer.Option(
+        False,
+        "--allow-insecure",
+        help="Allow plain http:// transports for repos, rule-repos, and MCP servers.",
+        callback=_allow_insecure_callback,
+        is_eager=True,
     ),
 ) -> None:
     """aim: scaffold and manage agent-engineering projects.
@@ -366,11 +388,14 @@ app.add_typer(rule_repo_app, name="rule-repo")
 @rule_repo_app.command("add")
 @_friendly
 def rule_repo_add(
+    ctx: typer.Context,
     alias: str = typer.Argument(...),
     url: str = typer.Argument(...),
     default_ref: str = typer.Option("HEAD", "--ref"),
 ) -> None:
-    entry = rule_repos_mod.add(alias, url, default_ref=default_ref)
+    entry = rule_repos_mod.add(
+        alias, url, default_ref=default_ref, allow_insecure=_get_allow_insecure(ctx)
+    )
     typer.echo(f"added rule-repo {entry.alias} -> {entry.url}")
 
 
@@ -396,8 +421,11 @@ def rule_repo_list(ctx: typer.Context) -> None:
 
 @rule_repo_app.command("refresh")
 @_friendly
-def rule_repo_refresh(alias: str) -> None:
-    entry = rule_repos_mod.refresh(alias)
+def rule_repo_refresh(
+    ctx: typer.Context,
+    alias: str,
+) -> None:
+    entry = rule_repos_mod.refresh(alias, allow_insecure=_get_allow_insecure(ctx))
     typer.echo(f"refreshed {alias}: HEAD={(entry.last_sha or '?')[:12]}")
 
 
@@ -469,10 +497,11 @@ def profile_delete(name: str) -> None:
 @profile_app.command("apply")
 @_friendly
 def profile_apply(
+    ctx: typer.Context,
     name: str,
     project: Path | None = typer.Argument(None, help="Project root."),
 ) -> None:
-    result = profiles_mod.apply(name, _here(project))
+    result = profiles_mod.apply(name, _here(project), allow_insecure=_get_allow_insecure(ctx))
     typer.echo(f"applied project template {name} to {result.project_root}")
     for qn in result.installed_skills:
         typer.echo(f"  installed skill: {qn}")
@@ -534,6 +563,7 @@ def mcp_list_cmd(
 @mcp_app.command("install")
 @_friendly
 def mcp_install_cmd(
+    ctx: typer.Context,
     registry_name: str = typer.Argument(..., help="Canonical registry server name."),
     alias: str = typer.Argument(..., help="Local alias for .mcp.json -> mcpServers."),
     project: Path | None = typer.Argument(None, help="Project root."),
@@ -568,6 +598,7 @@ def mcp_install_cmd(
         preferred_transport=transport,
         overrides=overrides or None,
         force=force,
+        allow_insecure=_get_allow_insecure(ctx),
     )
     typer.echo(f"installed MCP server {installed.registry_name} as {installed.alias}")
 
@@ -575,12 +606,15 @@ def mcp_install_cmd(
 @mcp_app.command("update")
 @_friendly
 def mcp_update_cmd(
+    ctx: typer.Context,
     alias: str = typer.Argument(..., help="Local alias."),
     project: Path | None = typer.Argument(None, help="Project root."),
     force: bool = typer.Option(False, "--force", "-f", help="Overwrite local edits."),
 ) -> None:
     """Refresh a managed MCP server from the registry."""
-    updated = mcp_install_mod.update(_here(project), alias, force=force)
+    updated = mcp_install_mod.update(
+        _here(project), alias, force=force, allow_insecure=_get_allow_insecure(ctx)
+    )
     typer.echo(f"updated MCP server {updated.alias} -> {updated.current.registry_version or '?'}")
 
 
@@ -637,9 +671,6 @@ def init_cmd(
         "--symlink",
         help="Symlink to create pointing at AGENTS.md (repeatable, e.g. CLAUDE.md).",
     ),
-    no_default_rules: bool = typer.Option(
-        False, "--no-default-rules", help="Skip seeding rules flagged as default."
-    ),
     rule: list[str] = typer.Option(
         [], "--rule", "-r", help="Additional rule name to apply (repeatable)."
     ),
@@ -671,7 +702,6 @@ def init_cmd(
         project_root=_here(project),
         instruction_template=instruction_template,
         symlinks=tuple(symlink),
-        seed_default_rules=not no_default_rules,
         extra_rules=list(rule),
         extra_rule_files=extra_rule_files,
         layout_profile=layout_profile,
@@ -687,12 +717,17 @@ def init_cmd(
 @app.command("lock")
 @_friendly
 def lock_cmd(
+    ctx: typer.Context,
     project: Path | None = typer.Argument(None, help="Project root (default: current directory)."),
 ) -> None:
     """Resolve aim.toml declarations into an exact aim.lock."""
 
     async def _run() -> lock_mod.LockResult:
-        return await lock_mod.run(lock_mod.LockOptions(project_root=_here(project)))
+        return await lock_mod.run(
+            lock_mod.LockOptions(
+                project_root=_here(project), allow_insecure=_get_allow_insecure(ctx)
+            )
+        )
 
     result = asyncio.run(_run())
     for qn in result.locked_skills:
@@ -708,6 +743,7 @@ def lock_cmd(
 @app.command("sync")
 @_friendly
 def sync_cmd(
+    ctx: typer.Context,
     project: Path | None = typer.Argument(None, help="Project root (default: current directory)."),
     force: bool = typer.Option(False, "--force", "-f", help="Overwrite local edits."),
     no_sync_agents: bool = typer.Option(
@@ -726,6 +762,7 @@ def sync_cmd(
                 force=force,
                 sync_agents=not no_sync_agents,
                 layout_profile=layout_profile,
+                allow_insecure=_get_allow_insecure(ctx),
             )
         )
 
@@ -886,6 +923,7 @@ def rule_install(
 @repo_app.command("add")
 @_friendly
 def repo_add(
+    ctx: typer.Context,
     alias: str = typer.Argument(..., help="Local alias for the source repo."),
     url: str = typer.Argument(..., help="Git URL (https or ssh or file:// for local)."),
     default_ref: str = typer.Option(
@@ -896,7 +934,13 @@ def repo_add(
     ),
 ) -> None:
     """Register and bare-clone a skill source repository."""
-    repo = repos_mod.add(alias, url, default_ref=default_ref, allow_empty=allow_empty)
+    repo = repos_mod.add(
+        alias,
+        url,
+        default_ref=default_ref,
+        allow_empty=allow_empty,
+        allow_insecure=_get_allow_insecure(ctx),
+    )
     typer.echo(f"added repo {repo.alias} -> {repo.url}")
     if repo.last_sha:
         typer.echo(f"  HEAD: {repo.last_sha[:12]}")
@@ -939,8 +983,11 @@ def repo_rename(old: str, new: str) -> None:
 
 @repo_app.command("refresh")
 @_friendly
-def repo_refresh(alias: str) -> None:
-    repo = repos_mod.refresh(alias)
+def repo_refresh(
+    ctx: typer.Context,
+    alias: str,
+) -> None:
+    repo = repos_mod.refresh(alias, allow_insecure=_get_allow_insecure(ctx))
     sha = repo.last_sha[:12] if repo.last_sha else "?"
     typer.echo(f"refreshed {alias}: HEAD={sha}")
 

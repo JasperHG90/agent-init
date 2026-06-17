@@ -10,12 +10,11 @@ from aim.core import rules
 
 
 def test_first_init_creates_aim_toml(home: Path, project_root: Path) -> None:
-    rules.add("focus", "Focus on simplicity.", is_default=True)
     result = init_mod.run(init_mod.InitOptions(project_root=project_root))
     assert result.re_init is False
     assert result.declarations_path.exists()
     decl = declarations_mod.load(project_root)
-    assert decl.rules == ["focus"]
+    assert decl.rules == []
     assert decl.instruction_template == "default"
     assert "AGENTS.md" not in result.declarations_path.read_text()
 
@@ -53,22 +52,22 @@ def test_re_init_clear_symlinks_replaces_them(home: Path, project_root: Path) ->
     assert decl.symlinks == ["OPENCODE.md"]
 
 
-def test_re_init_updates_rules_in_declarations(home: Path, project_root: Path) -> None:
-    rules.add("first", "First rule.", is_default=True)
-    init_mod.run(init_mod.InitOptions(project_root=project_root))
+def test_re_init_preserves_rules_in_declarations(home: Path, project_root: Path) -> None:
+    rules.add("first", "First rule.")
+    init_mod.run(init_mod.InitOptions(project_root=project_root, extra_rules=["first"]))
     decl = declarations_mod.load(project_root)
     assert decl.rules == ["first"]
 
-    rules.add("second", "Second rule.", is_default=True)
-    init_mod.run(init_mod.InitOptions(project_root=project_root))
+    rules.add("second", "Second rule.")
+    init_mod.run(init_mod.InitOptions(project_root=project_root, extra_rules=["second"]))
     decl = declarations_mod.load(project_root)
     assert "first" in decl.rules
     assert "second" in decl.rules
 
 
-def test_init_with_no_default_rules(home: Path, project_root: Path) -> None:
+def test_init_does_not_seed_default_rules(home: Path, project_root: Path) -> None:
     rules.add("would-be-default", "body", is_default=True)
-    result = init_mod.run(init_mod.InitOptions(project_root=project_root, seed_default_rules=False))
+    result = init_mod.run(init_mod.InitOptions(project_root=project_root))
     assert result.applied_rules == []
     decl = declarations_mod.load(project_root)
     assert decl.rules == []
@@ -119,7 +118,7 @@ def test_init_records_layout_profile(home: Path, project_root: Path) -> None:
     assert decl.layout_profile == "custom"
 
 
-def test_init_records_agent_dialect(home: Path, project_root: Path) -> None:
-    init_mod.run(init_mod.InitOptions(project_root=project_root, agent_dialect="claude"))
+def test_init_records_layout_profile_default(home: Path, project_root: Path) -> None:
+    init_mod.run(init_mod.InitOptions(project_root=project_root))
     decl = declarations_mod.load(project_root)
-    assert decl.agent_dialect == "claude"
+    assert decl.layout_profile is None

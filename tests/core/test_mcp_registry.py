@@ -7,7 +7,7 @@ import pytest
 import respx
 from httpx import Response
 
-from aim.core import mcp_registry
+from aim.core import content_guard, mcp_registry
 
 
 def _payload(servers: list[dict], next_cursor: str | None = None) -> dict:
@@ -204,3 +204,27 @@ def test_hash_entry_excludes_none_fields() -> None:
     entry = mcp_registry.McpClaudeEntry(type="http", url="https://example.com")
     dumped = mcp_registry._canonical_json(entry.model_dump(exclude_none=True))
     assert "command" not in dumped
+
+
+def test_map_http_remote_rejects_insecure_url() -> None:
+    server = mcp_registry.McpServer.model_validate(
+        {
+            "name": "insecure",
+            "packages": [],
+            "remotes": [{"type": "streamable-http", "url": "http://example.com/mcp"}],
+        }
+    )
+    with pytest.raises(content_guard.InsecureTransportError):
+        mcp_registry.map_to_claude_entry(server)
+
+
+def test_map_http_remote_allows_insecure_url_when_flagged() -> None:
+    server = mcp_registry.McpServer.model_validate(
+        {
+            "name": "insecure",
+            "packages": [],
+            "remotes": [{"type": "streamable-http", "url": "http://example.com/mcp"}],
+        }
+    )
+    entry = mcp_registry.map_to_claude_entry(server, allow_insecure=True)
+    assert entry.url == "http://example.com/mcp"

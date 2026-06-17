@@ -183,10 +183,9 @@ class ProjectScreen(Screen[None]):
                 except Exception:
                     pass
 
-        dialect = f" · agent: {m.agent_dialect}" if m.agent_dialect else ""
         self._status(
             f"{len(m.skills)} skill(s), {len(m.agents)} subagent(s), "
-            f"{len(m.mcp_servers)} MCP server(s), {len(m.rules)} rule(s){dialect}"
+            f"{len(m.mcp_servers)} MCP server(s), {len(m.rules)} rule(s)"
         )
 
     def _selected_in(self, table_id: str) -> str | None:

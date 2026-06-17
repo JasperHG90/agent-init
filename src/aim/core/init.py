@@ -30,9 +30,7 @@ class InitOptions:
     instruction_template: str = templates.BUILTIN_DEFAULT
     symlinks: tuple[str, ...] = ()
     clear_symlinks: bool = False
-    seed_default_rules: bool = True
     extra_rules: list[str] = field(default_factory=list)
-    agent_dialect: str | None = None
     layout_profile: str | None = None
     extra_rule_files: dict[str, Path] = field(default_factory=dict)
 
@@ -99,10 +97,6 @@ def run(options: InitOptions) -> InitResult:
     rule_names: list[str] = []
     if re_init:
         rule_names = list(decl.rules)
-    if options.seed_default_rules:
-        for r in rules.list_defaults():
-            if r.name not in rule_names:
-                rule_names.append(r.name)
     for name in options.extra_rules:
         if name not in rule_names:
             rule_names.append(name)
@@ -116,7 +110,6 @@ def run(options: InitOptions) -> InitResult:
     # Update declaration model.
     decl.instruction_template = options.instruction_template
     decl.layout_profile = options.layout_profile or decl.layout_profile
-    decl.agent_dialect = options.agent_dialect or decl.agent_dialect
     decl.rules = rule_names
     decl.symlinks = requested_symlinks
 

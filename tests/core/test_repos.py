@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from aim.core import git, repo_rules, repos
+from aim.core import content_guard, git, repo_rules, repos
 from tests.fixtures import git_fixtures
 
 
@@ -295,3 +295,30 @@ def test_refresh_auth_failure_has_helpful_message(
         assert "gh auth status (GH_HOST=github.client.example)" in msg
     finally:
         git.reset_backend()
+
+
+def test_add_rejects_http_transport(home: Path) -> None:
+    with pytest.raises(content_guard.InsecureTransportError):
+        repos.add("demo", "http://example.com/repo.git")
+
+
+def test_add_allows_http_with_allow_insecure(home: Path, fake_backend) -> None:
+    # When allow_insecure=True the URL is accepted and passed to git.
+    # The fake backend fails with an auth error, proving we did not reject it early.
+    with pytest.raises(git.GitError):
+        repos.add("demo", "http://example.com/repo.git", allow_insecure=True)
+
+
+def test_refresh_rejects_http_transport(home: Path, bare_remote: tuple[Path, Path]) -> None:
+    _, bare = bare_remote
+    repos.add("demo", f"file://{bare}")
+    from aim.core import db
+
+    with db.session() as session:
+        row = session.get(repos.RegisteredRepo, "demo")
+        assert row is not None
+        row.url = "http://example.com/repo.git"
+        session.add(row)
+        session.commit()
+    with pytest.raises(content_guard.InsecureTransportError):
+        repos.refresh("demo")

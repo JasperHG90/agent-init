@@ -62,6 +62,13 @@ def _v5_to_v6(raw: dict[str, Any]) -> dict[str, Any]:
     return raw
 
 
+def _v6_to_v7(raw: dict[str, Any]) -> dict[str, Any]:
+    """v7 drops the per-project `agent_dialect` field."""
+    raw.pop("agent_dialect", None)
+    raw["manifest_version"] = 7
+    return raw
+
+
 MIGRATIONS: dict[int, Callable[[dict[str, Any]], dict[str, Any]]] = {
     0: _v0_to_v1,
     1: _v1_to_v2,
@@ -69,6 +76,7 @@ MIGRATIONS: dict[int, Callable[[dict[str, Any]], dict[str, Any]]] = {
     3: _v3_to_v4,
     4: _v4_to_v5,
     5: _v5_to_v6,
+    6: _v6_to_v7,
 }
 
 

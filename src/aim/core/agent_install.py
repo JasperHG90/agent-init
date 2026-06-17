@@ -8,7 +8,16 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from aim.core import agents, declarations, hashing, layout_profiles, manifest, paths, validation
+from aim.core import (
+    agents,
+    content_guard,
+    declarations,
+    hashing,
+    layout_profiles,
+    manifest,
+    paths,
+    validation,
+)
 from aim.core.install import resolve_install_version
 from aim.core.models import InstalledAgent, Manifest, SkillVersion
 
@@ -135,6 +144,7 @@ def install(
         )
 
     target = _target_path(project_root, row.agent_name)
+    content_guard.assert_no_hidden_unicode(content, source=f"agent {qualified_name}")
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(content, encoding="utf-8")
     content_hash = hashing.hash_text(content)
@@ -201,6 +211,7 @@ def update(
 
     _check_local_edits(project_root, existing, force=force)
     content = agents.read_agent_content(qualified_name)
+    content_guard.assert_no_hidden_unicode(content, source=f"agent {qualified_name}")
     target = _resolve_target_path(project_root, existing.target_path)
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(content, encoding="utf-8")
@@ -287,6 +298,7 @@ def rollback(project_root: Path, qualified_name: str, *, force: bool = False) ->
     else:
         artifact_path = f"{existing.source_path}/AGENT.md"
     content = agents.git.get_backend().cat_file(repo_dir, target_version.sha, artifact_path)
+    content_guard.assert_no_hidden_unicode(content, source=f"agent {qualified_name}")
 
     target = _resolve_target_path(project_root, existing.target_path)
     target.parent.mkdir(parents=True, exist_ok=True)

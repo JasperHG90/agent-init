@@ -84,7 +84,7 @@ jobs:
     timeout-minutes: 20
     strategy:
       matrix:
-        package: [agent_init]
+        package: [atm]
     steps:
       - name: Build package
         uses: JasperHG90/toiminnot/actions/uv_build@main

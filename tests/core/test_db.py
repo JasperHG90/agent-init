@@ -4,8 +4,8 @@ from pathlib import Path
 
 from sqlmodel import select
 
-from agent_init.core import db
-from agent_init.core.models import RegisteredRepo
+from atm.core import db
+from atm.core.models import RegisteredRepo
 
 
 def test_engine_creates_tables(home: Path) -> None:

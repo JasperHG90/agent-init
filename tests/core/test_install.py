@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from agent_init.core import install, manifest, paths, repos
+from atm.core import install, manifest, paths, repos
 from tests.fixtures import git_fixtures
 
 
@@ -155,9 +155,7 @@ def test_delete_unknown_errors(home: Path, project_root: Path) -> None:
         install.delete(project_root, "ghost/skill")
 
 
-def test_rollback_restores_previous_version(
-    home: Path, project_root: Path, tmp_path: Path
-) -> None:
+def test_rollback_restores_previous_version(home: Path, project_root: Path, tmp_path: Path) -> None:
     working, bare = _build_repo(tmp_path, {"skills/foo/SKILL.md": "# v1\n"})
     repos.add("a", f"file://{bare}")
     install.install(project_root, "a/foo")
@@ -174,9 +172,7 @@ def test_rollback_restores_previous_version(
     assert (target / "SKILL.md").read_text() == "# v1\n"
 
 
-def test_rollback_without_history_errors(
-    home: Path, project_root: Path, tmp_path: Path
-) -> None:
+def test_rollback_without_history_errors(home: Path, project_root: Path, tmp_path: Path) -> None:
     _, bare = _build_repo(tmp_path, {"skills/foo/SKILL.md": "# foo\n"})
     repos.add("a", f"file://{bare}")
     install.install(project_root, "a/foo")

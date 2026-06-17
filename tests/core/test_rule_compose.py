@@ -6,8 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from agent_init.core import init as init_mod
-from agent_init.core import rule_compose, rules
+from atm.core import init as init_mod
+from atm.core import rule_compose, rules
 
 
 def test_no_front_matter_is_default_order() -> None:
@@ -48,9 +48,7 @@ def test_resolve_detects_cycle(home: Path) -> None:
         rule_compose.resolve(["x"], lambda n: rules.get(n).body)
 
 
-def test_init_includes_transitively_extended_rules(
-    home: Path, project_root: Path
-) -> None:
+def test_init_includes_transitively_extended_rules(home: Path, project_root: Path) -> None:
     rules.add("parent", "---\norder: 10\n---\nParent body.\n", is_default=False)
     rules.add(
         "child",

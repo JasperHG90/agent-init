@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from agent_init.tui.modals.repo_add import sanitize_repo_alias
-from agent_init.tui.modals.rule_add import sanitize_rule_name
+from atm.tui.modals.repo_add import sanitize_repo_alias
+from atm.tui.modals.rule_add import sanitize_rule_name
 
 
 def test_rule_name_lowercases_and_replaces_spaces() -> None:

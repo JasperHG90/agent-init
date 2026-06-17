@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from agent_init.core import install, manifest, repos
+from atm.core import install, manifest, repos
 from tests.fixtures import git_fixtures
 
 
@@ -21,9 +21,7 @@ def _two_repo_setup(tmp_path: Path) -> tuple[Path, Path, Path, Path]:
     return src_a, bare_a, src_b, bare_b
 
 
-def test_update_many_all_noop_when_at_head(
-    home: Path, project_root: Path, tmp_path: Path
-) -> None:
+def test_update_many_all_noop_when_at_head(home: Path, project_root: Path, tmp_path: Path) -> None:
     _src_a, bare_a, _src_b, bare_b = _two_repo_setup(tmp_path)
     repos.add("a", f"file://{bare_a}")
     repos.add("b", f"file://{bare_b}")
@@ -52,9 +50,7 @@ def test_update_many_outdated_skips_unchanged(
     assert by_skill["a/bar"].status == "noop"
 
 
-def test_update_many_repo_filter(
-    home: Path, project_root: Path, tmp_path: Path
-) -> None:
+def test_update_many_repo_filter(home: Path, project_root: Path, tmp_path: Path) -> None:
     _src_a, bare_a, _src_b, bare_b = _two_repo_setup(tmp_path)
     repos.add("a", f"file://{bare_a}")
     repos.add("b", f"file://{bare_b}")
@@ -66,9 +62,7 @@ def test_update_many_repo_filter(
     assert by_skill["b/baz"].status == "skipped"
 
 
-def test_update_many_dry_run_does_not_apply(
-    home: Path, project_root: Path, tmp_path: Path
-) -> None:
+def test_update_many_dry_run_does_not_apply(home: Path, project_root: Path, tmp_path: Path) -> None:
     src_a, bare_a, _src_b, _bare_b = _two_repo_setup(tmp_path)
     repos.add("a", f"file://{bare_a}")
     install.install(project_root, "a/foo")

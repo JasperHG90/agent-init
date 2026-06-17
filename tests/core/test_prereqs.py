@@ -4,19 +4,15 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from agent_init.core import install, repos
+from atm.core import install, repos
 from tests.fixtures import git_fixtures
 
 
-def test_prereqs_warning_when_missing(
-    home: Path, project_root: Path, tmp_path: Path
-) -> None:
+def test_prereqs_warning_when_missing(home: Path, project_root: Path, tmp_path: Path) -> None:
     working = git_fixtures.make_source_repo(
         tmp_path / "src",
         files={
-            "skills/review/SKILL.md": (
-                "---\nprereqs: [anth/format]\n---\n# review\n"
-            ),
+            "skills/review/SKILL.md": ("---\nprereqs: [anth/format]\n---\n# review\n"),
             "skills/format/SKILL.md": "# format\n",
         },
     )
@@ -27,15 +23,11 @@ def test_prereqs_warning_when_missing(
     assert any("missing prereqs" in w and "anth/format" in w for w in warnings)
 
 
-def test_prereqs_no_warning_when_present(
-    home: Path, project_root: Path, tmp_path: Path
-) -> None:
+def test_prereqs_no_warning_when_present(home: Path, project_root: Path, tmp_path: Path) -> None:
     working = git_fixtures.make_source_repo(
         tmp_path / "src",
         files={
-            "skills/review/SKILL.md": (
-                "---\nprereqs: [anth/format]\n---\n# review\n"
-            ),
+            "skills/review/SKILL.md": ("---\nprereqs: [anth/format]\n---\n# review\n"),
             "skills/format/SKILL.md": "# format\n",
         },
     )
@@ -48,9 +40,7 @@ def test_prereqs_no_warning_when_present(
     assert not any("missing prereqs" in w for w in warnings)
 
 
-def test_capability_collision(
-    home: Path, project_root: Path, tmp_path: Path
-) -> None:
+def test_capability_collision(home: Path, project_root: Path, tmp_path: Path) -> None:
     working = git_fixtures.make_source_repo(
         tmp_path / "src",
         files={

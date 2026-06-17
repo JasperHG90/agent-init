@@ -7,15 +7,15 @@ from pathlib import Path
 import pytest
 from textual.widgets import DataTable, Input
 
-from agent_init.core import layout_profiles, manifest
-from agent_init.tui.app import AgentInitApp
-from agent_init.tui.modals.layout_profile_modal import LayoutProfileModal
-from agent_init.tui.screens.layout_profiles_screen import LayoutProfilesScreen
+from atm.core import layout_profiles, manifest
+from atm.tui.app import AtmApp
+from atm.tui.modals.layout_profile_modal import LayoutProfileModal
+from atm.tui.screens.layout_profiles_screen import LayoutProfilesScreen
 
 
 @pytest.mark.asyncio
 async def test_layout_profiles_screen_lists_builtins(home: Path) -> None:
-    app = AgentInitApp()
+    app = AtmApp()
     async with app.run_test() as pilot:
         await pilot.pause()
         await pilot.press("l")
@@ -28,10 +28,8 @@ async def test_layout_profiles_screen_lists_builtins(home: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_layout_profiles_screen_adds_project_profile(
-    home: Path, project_root: Path
-) -> None:
-    app = AgentInitApp(project_root=project_root)
+async def test_layout_profiles_screen_adds_project_profile(home: Path, project_root: Path) -> None:
+    app = AtmApp(project_root=project_root)
     async with app.run_test() as pilot:
         await pilot.pause()
         await pilot.press("l")
@@ -60,14 +58,12 @@ async def test_layout_profiles_screen_adds_project_profile(
 
 
 @pytest.mark.asyncio
-async def test_layout_profiles_screen_sets_active(
-    home: Path, project_root: Path
-) -> None:
+async def test_layout_profiles_screen_sets_active(home: Path, project_root: Path) -> None:
     layout_profiles.save_project_profile(
         project_root,
         layout_profiles.LayoutProfile(name="custom", skills_dir=".custom/skills"),
     )
-    app = AgentInitApp(project_root=project_root)
+    app = AtmApp(project_root=project_root)
     async with app.run_test() as pilot:
         await pilot.pause()
         await pilot.press("l")

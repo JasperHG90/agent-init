@@ -1,7 +1,7 @@
 [project]
-name = "agent-init"
+name = "atm"
 version = "0.1.0"
-description = "Scaffolder for agent-engineering projects (AGENTS.md, reusable skills, rules)."
+description = "Agent Tooling Manager: scaffold and manage agent-engineering projects (AGENTS.md, reusable skills, rules, MCP servers, sub-agents)."
 authors = [
     { name = "Jasper Ginn", email = "jasperginn@gmail.com" }
 ]
@@ -21,7 +21,7 @@ dependencies = [
 ]
 
 [project.scripts]
-agent-init = "agent_init.cli:app"
+atm = "atm.cli:app"
 
 [build-system]
 requires = ["uv_build>=0.10.8,<0.11.0"]
@@ -45,7 +45,7 @@ select = ["E", "F", "I", "W", "B", "UP", "RUF"]
 ignore = ["E501", "B008"]  # B008: Typer/Click require call-in-default for parameter metadata
 
 [tool.ruff.lint.per-file-ignores]
-"src/agent_init/tui/**" = ["RUF012"]  # Textual BINDINGS = [...] is the framework idiom
+"src/atm/tui/**" = ["RUF012"]  # Textual BINDINGS = [...] is the framework idiom
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

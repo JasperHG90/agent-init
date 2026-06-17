@@ -4,15 +4,15 @@ from pathlib import Path
 
 import pytest
 
-from agent_init.core import repos, rules
-from agent_init.tui.app import AgentInitApp
-from agent_init.tui.modals.palette import PaletteModal
+from atm.core import repos, rules
+from atm.tui.app import AtmApp
+from atm.tui.modals.palette import PaletteModal
 from tests.fixtures import git_fixtures
 
 
 @pytest.mark.asyncio
 async def test_palette_opens(home: Path) -> None:
-    app = AgentInitApp()
+    app = AtmApp()
     async with app.run_test() as pilot:
         await pilot.pause()
         app.action_open_palette()
@@ -21,9 +21,7 @@ async def test_palette_opens(home: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_palette_filters_by_substring(
-    home: Path, tmp_path: Path
-) -> None:
+async def test_palette_filters_by_substring(home: Path, tmp_path: Path) -> None:
     working = git_fixtures.make_source_repo(
         tmp_path / "src", files={"skills/code-review/SKILL.md": "# code-review\n"}
     )
@@ -31,7 +29,7 @@ async def test_palette_filters_by_substring(
     repos.add("anth", f"file://{bare}")
     rules.add("be-concise", "Be concise.", is_default=True)
 
-    app = AgentInitApp()
+    app = AtmApp()
     async with app.run_test() as pilot:
         await pilot.pause()
         app.action_open_palette()
@@ -50,9 +48,9 @@ async def test_palette_filters_by_substring(
 
 @pytest.mark.asyncio
 async def test_palette_action_routes_to_screen(home: Path) -> None:
-    from agent_init.tui.screens.repos_screen import ReposScreen
+    from atm.tui.screens.repos_screen import ReposScreen
 
-    app = AgentInitApp()
+    app = AtmApp()
     async with app.run_test() as pilot:
         await pilot.pause()
         app.action_open_palette()

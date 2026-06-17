@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from agent_init.core import init as init_mod
-from agent_init.core import install, manifest, repos
+from atm.core import init as init_mod
+from atm.core import install, manifest, repos
 from tests.fixtures import git_fixtures
 
 
@@ -21,9 +21,7 @@ def test_init_dry_run_does_not_write(home: Path, project_root: Path) -> None:
         manifest.load(project_root)
 
 
-def test_init_dry_run_reflects_mirror_addition(
-    home: Path, project_root: Path
-) -> None:
+def test_init_dry_run_reflects_mirror_addition(home: Path, project_root: Path) -> None:
     init_mod.run(init_mod.InitOptions(project_root=project_root))  # commit baseline
     result = init_mod.run(
         init_mod.InitOptions(

@@ -9,8 +9,8 @@ import sys
 import tempfile
 from pathlib import Path
 
-from agent_init.core import repos, rules
-from agent_init.tui.app import AgentInitApp
+from atm.core import repos, rules
+from atm.tui.app import AtmApp
 
 
 def _run_git(args: list[str], cwd: Path) -> None:
@@ -94,10 +94,10 @@ def _make_gif(png_paths: list[Path], gif_path: Path, *, delay_ms: int = 1500) ->
 
 
 async def capture_screenshots(output_dir: Path) -> list[Path]:
-    import agent_init.core.db as db
-    import agent_init.core.paths as paths
+    import atm.core.db as db
+    import atm.core.paths as paths
 
-    home = Path(tempfile.mkdtemp(prefix="agent-init-capture-"))
+    home = Path(tempfile.mkdtemp(prefix="atm-capture-"))
     original_cwd = Path.cwd()
     os.chdir(home)
     # Sandbox global state so we don't conflict with a real user database.
@@ -116,7 +116,7 @@ async def capture_screenshots(output_dir: Path) -> list[Path]:
         )
         rules.add("be-concise", "Be concise.", description="brevity", is_default=True)
 
-        app = AgentInitApp()
+        app = AtmApp()
         screenshots: list[Path] = []
 
         async with app.run_test() as pilot:

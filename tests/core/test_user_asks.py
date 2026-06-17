@@ -12,17 +12,16 @@ from pathlib import Path
 
 import pytest
 
-from agent_init.core import init as init_mod
-from agent_init.core import manifest, repos, rules
+from atm.core import init as init_mod
+from atm.core import manifest, repos, rules
 
 # ---------- 1. Mirror union ----------
+
 
 def test_re_init_preserves_existing_mirrors_when_none_specified(
     home: Path, project_root: Path
 ) -> None:
-    init_mod.run(
-        init_mod.InitOptions(project_root=project_root, mirrors=("CLAUDE.md",))
-    )
+    init_mod.run(init_mod.InitOptions(project_root=project_root, mirrors=("CLAUDE.md",)))
     assert (project_root / "CLAUDE.md").exists()
 
     # Re-init with no mirror flag — CLAUDE.md must still be there afterwards.
@@ -33,35 +32,24 @@ def test_re_init_preserves_existing_mirrors_when_none_specified(
 
 
 def test_re_init_unions_new_with_existing(home: Path, project_root: Path) -> None:
-    init_mod.run(
-        init_mod.InitOptions(project_root=project_root, mirrors=("CLAUDE.md",))
-    )
-    init_mod.run(
-        init_mod.InitOptions(project_root=project_root, mirrors=("GEMINI.md",))
-    )
+    init_mod.run(init_mod.InitOptions(project_root=project_root, mirrors=("CLAUDE.md",)))
+    init_mod.run(init_mod.InitOptions(project_root=project_root, mirrors=("GEMINI.md",)))
     m = manifest.load(project_root)
     assert "CLAUDE.md" in m.managed_files
     assert "GEMINI.md" in m.managed_files
 
 
 def test_re_init_clear_mirrors_wipes(home: Path, project_root: Path) -> None:
-    init_mod.run(
-        init_mod.InitOptions(project_root=project_root, mirrors=("CLAUDE.md",))
-    )
-    init_mod.run(
-        init_mod.InitOptions(
-            project_root=project_root, mirrors=(), clear_mirrors=True
-        )
-    )
+    init_mod.run(init_mod.InitOptions(project_root=project_root, mirrors=("CLAUDE.md",)))
+    init_mod.run(init_mod.InitOptions(project_root=project_root, mirrors=(), clear_mirrors=True))
     m = manifest.load(project_root)
     assert m.managed_files == ["AGENTS.md"]
 
 
 # ---------- 2. Rule install flow ----------
 
-def test_rule_install_adds_to_manifest_and_renders(
-    home: Path, project_root: Path
-) -> None:
+
+def test_rule_install_adds_to_manifest_and_renders(home: Path, project_root: Path) -> None:
     init_mod.run(init_mod.InitOptions(project_root=project_root))
     rules.add("be-concise", "Be concise.")
 
@@ -73,9 +61,7 @@ def test_rule_install_adds_to_manifest_and_renders(
 
 
 def test_rule_install_preserves_mirrors(home: Path, project_root: Path) -> None:
-    init_mod.run(
-        init_mod.InitOptions(project_root=project_root, mirrors=("CLAUDE.md",))
-    )
+    init_mod.run(init_mod.InitOptions(project_root=project_root, mirrors=("CLAUDE.md",)))
     rules.add("focus", "Focus.")
     rules.install_to_project(project_root, "focus")
 
@@ -91,26 +77,22 @@ def test_rule_install_unknown_errors(home: Path, project_root: Path) -> None:
 
 # ---------- 3. Agent dialect ----------
 
+
 def test_agent_dialect_stored_in_manifest(home: Path, project_root: Path) -> None:
-    init_mod.run(
-        init_mod.InitOptions(project_root=project_root, agent_dialect="claude")
-    )
+    init_mod.run(init_mod.InitOptions(project_root=project_root, agent_dialect="claude"))
     m = manifest.load(project_root)
     assert m.agent_dialect == "claude"
 
 
-def test_agent_dialect_preserved_on_reinit_when_none_passed(
-    home: Path, project_root: Path
-) -> None:
-    init_mod.run(
-        init_mod.InitOptions(project_root=project_root, agent_dialect="claude")
-    )
+def test_agent_dialect_preserved_on_reinit_when_none_passed(home: Path, project_root: Path) -> None:
+    init_mod.run(init_mod.InitOptions(project_root=project_root, agent_dialect="claude"))
     init_mod.run(init_mod.InitOptions(project_root=project_root))
     m = manifest.load(project_root)
     assert m.agent_dialect == "claude"
 
 
 # ---------- 4. fullmatch trailing-newline ----------
+
 
 def test_rule_name_rejects_trailing_newline(home: Path) -> None:
     with pytest.raises(rules.RuleNameError):

@@ -6,7 +6,7 @@ from collections.abc import Iterator
 
 import pytest
 
-from agent_init.core import layout_profiles
+from atm.core import layout_profiles
 
 
 @pytest.fixture(autouse=True)
@@ -22,7 +22,7 @@ def _block_mcp_registry_network(monkeypatch: pytest.MonkeyPatch) -> Iterator[Non
 
     Tests that exercise registry functionality monkeypatch the specific calls
     they need; this just stops the app-mount worker from stalling teardown."""
-    from agent_init.core import mcp_registry
+    from atm.core import mcp_registry
 
     def _raise_disabled(_url: str) -> dict:
         raise mcp_registry.McpRegistryError("network disabled in TUI tests")

@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from agent_init.core import rules
+from atm.core import rules
 
 
 def test_add_writes_body_and_metadata(home: Path) -> None:

@@ -4,8 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from agent_init.core import init as init_mod
-from agent_init.core import manifest, rules
+from atm.core import init as init_mod
+from atm.core import manifest, rules
 
 
 def test_first_init_creates_agents_md_and_manifest(home: Path, project_root: Path) -> None:
@@ -15,8 +15,8 @@ def test_first_init_creates_agents_md_and_manifest(home: Path, project_root: Pat
     assert result.agents_md_path.exists()
     contents = result.agents_md_path.read_text()
     assert "Focus on simplicity." in contents
-    assert "BEGIN agent-init: header" in contents
-    assert "BEGIN agent-init: rules" in contents
+    assert "BEGIN atm: header" in contents
+    assert "BEGIN atm: rules" in contents
     m = manifest.load(project_root)
     assert m.rules == ["focus"]
     assert "AGENTS.md" in m.managed_files
@@ -31,9 +31,7 @@ def test_first_init_no_mirrors_by_default(home: Path, project_root: Path) -> Non
 
 
 def test_first_init_writes_only_selected_mirrors(home: Path, project_root: Path) -> None:
-    result = init_mod.run(
-        init_mod.InitOptions(project_root=project_root, mirrors=("CLAUDE.md",))
-    )
+    result = init_mod.run(init_mod.InitOptions(project_root=project_root, mirrors=("CLAUDE.md",)))
     mirror_names = {p.name for p in result.mirror_paths}
     assert mirror_names == {"CLAUDE.md"}
     assert not (project_root / "GEMINI.md").exists()
@@ -69,18 +67,14 @@ def test_re_init_updates_managed_region(home: Path, project_root: Path) -> None:
 
 
 def test_init_with_no_mirror(home: Path, project_root: Path) -> None:
-    result = init_mod.run(
-        init_mod.InitOptions(project_root=project_root, mirrors=tuple())
-    )
+    result = init_mod.run(init_mod.InitOptions(project_root=project_root, mirrors=tuple()))
     assert result.mirror_paths == []
     assert not (project_root / "CLAUDE.md").exists()
 
 
 def test_init_with_no_default_rules(home: Path, project_root: Path) -> None:
     rules.add("would-be-default", "body", is_default=True)
-    result = init_mod.run(
-        init_mod.InitOptions(project_root=project_root, seed_default_rules=False)
-    )
+    result = init_mod.run(init_mod.InitOptions(project_root=project_root, seed_default_rules=False))
     assert result.applied_rules == []
     m = manifest.load(project_root)
     assert m.rules == []
@@ -113,5 +107,3 @@ def test_init_rejects_invalid_rule_file_name(home: Path, project_root: Path) -> 
                 extra_rule_files={"bad rule": rule_file},
             )
         )
-
-

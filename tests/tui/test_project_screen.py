@@ -4,23 +4,21 @@ from pathlib import Path
 
 import pytest
 
-from agent_init.core import init, install, repos, rules
-from agent_init.tui.app import AgentInitApp
-from agent_init.tui.screens.project_screen import ProjectScreen
+from atm.core import init, install, repos, rules
+from atm.tui.app import AtmApp
+from atm.tui.screens.project_screen import ProjectScreen
 from tests.fixtures import git_fixtures
 
 
 @pytest.mark.asyncio
-async def test_project_screen_empty_when_no_manifest(
-    home: Path, project_root: Path
-) -> None:
-    app = AgentInitApp()
+async def test_project_screen_empty_when_no_manifest(home: Path, project_root: Path) -> None:
+    app = AtmApp()
     async with app.run_test() as pilot:
         await pilot.pause()
         screen = ProjectScreen(project_root)
         app.push_screen(screen)
         await pilot.pause()
-        assert "no .agent-init/manifest.json" in screen.last_status
+        assert "no .atm/manifest.json" in screen.last_status
 
 
 @pytest.mark.asyncio
@@ -34,7 +32,7 @@ async def test_project_screen_shows_clean_and_edited(
     repos.add("a", f"file://{bare}")
     install.install(project_root, "a/foo")
 
-    app = AgentInitApp()
+    app = AtmApp()
     async with app.run_test() as pilot:
         await pilot.pause()
         app.push_screen(ProjectScreen(project_root))
@@ -50,7 +48,7 @@ async def test_project_screen_shows_clean_and_edited(
 
     # Now edit the file and re-open.
     (project_root / ".claude" / "skills" / "foo" / "SKILL.md").write_text("hand-edit\n")
-    app = AgentInitApp()
+    app = AtmApp()
     async with app.run_test() as pilot:
         await pilot.pause()
         app.push_screen(ProjectScreen(project_root))
@@ -66,7 +64,7 @@ async def test_project_screen_rules_tab(home: Path, project_root: Path) -> None:
     rules.add("be-concise", "Be concise.", is_default=True)
     init.run(init.InitOptions(project_root=project_root))
 
-    app = AgentInitApp()
+    app = AtmApp()
     async with app.run_test() as pilot:
         await pilot.pause()
         app.push_screen(ProjectScreen(project_root))

@@ -2,21 +2,21 @@ from __future__ import annotations
 
 import pytest
 
-from agent_init.core import agents_md
+from atm.core import agents_md
 
 
 def test_parse_returns_regions_in_order() -> None:
     text = """# Title
 
-<!-- BEGIN agent-init: a -->
+<!-- BEGIN atm: a -->
 A body
-<!-- END agent-init: a -->
+<!-- END atm: a -->
 
 middle
 
-<!-- BEGIN agent-init: b -->
+<!-- BEGIN atm: b -->
 B body
-<!-- END agent-init: b -->
+<!-- END atm: b -->
 """
     regions = agents_md.parse(text)
     assert [r.name for r in regions] == ["a", "b"]
@@ -29,7 +29,7 @@ def test_parse_empty_when_no_markers() -> None:
 
 
 def test_parse_raises_on_unbalanced_markers() -> None:
-    text = "<!-- BEGIN agent-init: a -->\nbody\n"
+    text = "<!-- BEGIN atm: a -->\nbody\n"
     with pytest.raises(agents_md.RegionError):
         agents_md.parse(text)
 
@@ -37,9 +37,9 @@ def test_parse_raises_on_unbalanced_markers() -> None:
 def test_merge_replaces_existing_region_preserving_outside() -> None:
     existing = """User preamble.
 
-<!-- BEGIN agent-init: rules -->
+<!-- BEGIN atm: rules -->
 old rule body
-<!-- END agent-init: rules -->
+<!-- END atm: rules -->
 
 User postlude.
 """
@@ -54,36 +54,36 @@ def test_merge_appends_missing_region() -> None:
     existing = "Hello.\n"
     out = agents_md.merge(existing, {"new": "fresh content"})
     assert "Hello." in out
-    assert "<!-- BEGIN agent-init: new -->" in out
+    assert "<!-- BEGIN atm: new -->" in out
     assert "fresh content" in out
 
 
 def test_merge_leaves_unmentioned_regions_alone() -> None:
-    existing = """<!-- BEGIN agent-init: a -->
+    existing = """<!-- BEGIN atm: a -->
 A
-<!-- END agent-init: a -->
-<!-- BEGIN agent-init: b -->
+<!-- END atm: a -->
+<!-- BEGIN atm: b -->
 B
-<!-- END agent-init: b -->
+<!-- END atm: b -->
 """
     out = agents_md.merge(existing, {"a": "A2"})
     assert "A2" in out
     assert "B" in out  # untouched
-    assert out.count("BEGIN agent-init: b") == 1
+    assert out.count("BEGIN atm: b") == 1
 
 
 def test_build_from_scratch() -> None:
     out = agents_md.build([("a", "alpha"), ("b", "beta")])
-    assert "BEGIN agent-init: a" in out
+    assert "BEGIN atm: a" in out
     assert "alpha" in out
-    assert "BEGIN agent-init: b" in out
+    assert "BEGIN atm: b" in out
     assert "beta" in out
 
 
 def test_merge_idempotent_when_body_unchanged() -> None:
-    existing = """<!-- BEGIN agent-init: r -->
+    existing = """<!-- BEGIN atm: r -->
 same body
-<!-- END agent-init: r -->
+<!-- END atm: r -->
 """
     once = agents_md.merge(existing, {"r": "same body"})
     twice = agents_md.merge(once, {"r": "same body"})

@@ -1,4 +1,4 @@
-# Justfile for agent-init — uv-based Python project.
+# Justfile for atm — Agent Tooling Manager.
 # Install `just`: https://github.com/casey/just
 
 set positional-arguments
@@ -49,13 +49,13 @@ typecheck:
 # Run lint + typecheck + tests. Handy for pre-push.
 check: lint typecheck test-core
 
-# Run the agent-init TUI locally.
+# Run the atm TUI locally.
 tui *args='':
-    uv run agent-init tui {{args}}
+    uv run atm tui {{args}}
 
-# Run agent-init in the current project.
+# Run atm in the current project.
 run *args='':
-    uv run agent-init {{args}}
+    uv run atm {{args}}
 
 # Build distribution packages.
 build:

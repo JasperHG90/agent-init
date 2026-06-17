@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from agent_init.core import repos, skills
+from atm.core import repos, skills
 from tests.fixtures import git_fixtures
 
 
@@ -244,9 +244,7 @@ def test_search_matches_qualified_name(home: Path, tmp_path: Path) -> None:
     assert [r.qualified_name for r in hits] == ["a/review"]
 
 
-def test_refresh_reindexes_when_sha_changes(
-    home: Path, bare_remote: tuple[Path, Path]
-) -> None:
+def test_refresh_reindexes_when_sha_changes(home: Path, bare_remote: tuple[Path, Path]) -> None:
     working, bare = bare_remote
     repos.add("anth", f"file://{bare}")
     initial = [r.qualified_name for r in skills.list_skills()]

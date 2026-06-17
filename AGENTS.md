@@ -64,13 +64,13 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 
 **These guidelines are working if:** fewer unnecessary changes in diffs, fewer rewrites due to overcomplication, and clarifying questions come before implementation rather than after mistakes.
 
-<!-- BEGIN agent-init: header -->
-This file provides guidance to coding agents (Claude Code, Gemini CLI, opencode, etc.) when working in this repository. It is partially managed by [agent-init](https://github.com/jasperginn/agent_init). Content inside `<!-- BEGIN agent-init: ... -->` / `<!-- END agent-init: ... -->` markers is regenerated; content outside markers is preserved across regenerations.
-<!-- END agent-init: header -->
+<!-- BEGIN atm: header -->
+This file provides guidance to coding agents (Claude Code, Gemini CLI, opencode, etc.) when working in this repository. It is partially managed by [atm](https://github.com/jasperginn/atm). Content inside `<!-- BEGIN atm: ... -->` / `<!-- END atm: ... -->` markers is regenerated; content outside markers is preserved across regenerations.
+<!-- END atm: header -->
 
-<!-- BEGIN agent-init: rules -->
+<!-- BEGIN atm: rules -->
 
 ### rule-one
 
 First rule
-<!-- END agent-init: rules -->
+<!-- END atm: rules -->

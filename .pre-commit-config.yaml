@@ -46,10 +46,10 @@ repos:
 
   - repo: local
     hooks:
-      - id: agent-init-check
-        name: agent-init check
+      - id: atm-check
+        name: atm check
         description: Fail commit if AGENTS.md / mirror regions or installed skills have drifted.
-        entry: agent-init check
+        entry: atm check
         language: python
-        files: '(^AGENTS\.md$|^CLAUDE\.md$|^GEMINI\.md$|^OPENCODE\.md$|^\.agent-init/|^\.claude/skills/)'
+        files: '(^AGENTS\.md$|^CLAUDE\.md$|^GEMINI\.md$|^OPENCODE\.md$|^\.atm/|^\.claude/skills/)'
         pass_filenames: false

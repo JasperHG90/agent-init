@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from agent_init.core import git, repo_rules, repos
+from atm.core import git, repo_rules, repos
 from tests.fixtures import git_fixtures
 
 
@@ -39,9 +39,7 @@ class _AuthFailingBackend:
         _ = (repo_dir, sha, path)
         raise git.GitError("not found")
 
-    def archive(
-        self, repo_dir: Path, sha: str, source_path: str, dest_dir: Path
-    ) -> None:
+    def archive(self, repo_dir: Path, sha: str, source_path: str, dest_dir: Path) -> None:
         _ = (repo_dir, sha, source_path, dest_dir)
         raise git.GitError("archive failed")
 
@@ -118,9 +116,7 @@ def test_rename_to_existing_errors(home: Path, bare_remote: tuple[Path, Path]) -
         repos.rename("a", "b")
 
 
-def test_refresh_updates_last_sha_on_new_commit(
-    home: Path, bare_remote: tuple[Path, Path]
-) -> None:
+def test_refresh_updates_last_sha_on_new_commit(home: Path, bare_remote: tuple[Path, Path]) -> None:
     working, bare = bare_remote
     repo = repos.add("anthropic", f"file://{bare}")
     initial_sha = repo.last_sha
@@ -273,22 +269,18 @@ def test_refresh_auth_failure_has_helpful_message(
             _ = (repo_dir, sha, path)
             raise git.GitError("not found")
 
-        def archive(
-            self, repo_dir: Path, sha: str, source_path: str, dest_dir: Path
-        ) -> None:
+        def archive(self, repo_dir: Path, sha: str, source_path: str, dest_dir: Path) -> None:
             _ = (repo_dir, sha, source_path, dest_dir)
             raise git.GitError("archive failed")
 
-        def last_touching_sha(
-            self, repo_dir: Path, ref: str, source_path: str
-        ) -> str:
+        def last_touching_sha(self, repo_dir: Path, ref: str, source_path: str) -> str:
             _ = (repo_dir, ref, source_path)
             raise git.GitError("not found")
 
     git.set_backend(_FetchFailingBackend())
     try:
         # Override the stored URL so refresh sees a GitHub Enterprise-style URL.
-        from agent_init.core import db
+        from atm.core import db
 
         with db.session() as session:
             repo = session.get(repos.RegisteredRepo, "client")

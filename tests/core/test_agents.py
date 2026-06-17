@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from agent_init.core import agents, repos
+from atm.core import agents, repos
 from tests.fixtures import git_fixtures
 
 

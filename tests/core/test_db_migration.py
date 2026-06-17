@@ -11,13 +11,13 @@ from pathlib import Path
 
 from sqlmodel import select
 
-from agent_init.core import db
-from agent_init.core.models import SkillIndex
+from atm.core import db
+from atm.core.models import SkillIndex
 
 
 def test_missing_column_is_added(home: Path) -> None:
     # Pre-create the SQLite file with a legacy schema (no prereqs/provides).
-    db_path = home / "data" / "agent-init.sqlite"
+    db_path = home / "data" / "atm.sqlite"
     db_path.parent.mkdir(parents=True, exist_ok=True)
     legacy_conn = sqlite3.connect(db_path)
     legacy_conn.execute(

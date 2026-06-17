@@ -8,16 +8,16 @@ import pytest
 from textual.app import App
 from textual.widgets import DataTable, Input
 
-from agent_init.core import profiles, rules
-from agent_init.tui.app import AgentInitApp
-from agent_init.tui.modals.agent_picker import AgentPickerModal
-from agent_init.tui.modals.export_toml import ExportTomlModal
-from agent_init.tui.modals.import_toml import ImportTomlModal
-from agent_init.tui.modals.mcp_picker import McpPickerModal
-from agent_init.tui.modals.rule_picker import RulePickerModal
-from agent_init.tui.modals.skill_picker import SkillPickerModal
-from agent_init.tui.screens.project_templates_screen import ProjectTemplatesScreen
-from agent_init.tui.screens.template_builder_screen import TemplateBuilderScreen
+from atm.core import profiles, rules
+from atm.tui.app import AtmApp
+from atm.tui.modals.agent_picker import AgentPickerModal
+from atm.tui.modals.export_toml import ExportTomlModal
+from atm.tui.modals.import_toml import ImportTomlModal
+from atm.tui.modals.mcp_picker import McpPickerModal
+from atm.tui.modals.rule_picker import RulePickerModal
+from atm.tui.modals.skill_picker import SkillPickerModal
+from atm.tui.screens.project_templates_screen import ProjectTemplatesScreen
+from atm.tui.screens.template_builder_screen import TemplateBuilderScreen
 
 
 def _unfocus_input(app: App[None]) -> None:
@@ -26,10 +26,8 @@ def _unfocus_input(app: App[None]) -> None:
 
 
 @pytest.mark.asyncio
-async def test_builder_opens_from_templates_screen(
-    home: Path, project_root: Path
-) -> None:
-    app = AgentInitApp(project_root=project_root)
+async def test_builder_opens_from_templates_screen(home: Path, project_root: Path) -> None:
+    app = AtmApp(project_root=project_root)
     async with app.run_test() as pilot:
         await pilot.pause()
         app.push_screen(ProjectTemplatesScreen(project_root))
@@ -41,7 +39,7 @@ async def test_builder_opens_from_templates_screen(
 
 @pytest.mark.asyncio
 async def test_builder_saves_template(home: Path, project_root: Path) -> None:
-    app = AgentInitApp(project_root=project_root)
+    app = AtmApp(project_root=project_root)
     async with app.run_test() as pilot:
         await pilot.pause()
         app.push_screen(TemplateBuilderScreen())
@@ -58,7 +56,7 @@ async def test_builder_saves_template(home: Path, project_root: Path) -> None:
 @pytest.mark.asyncio
 async def test_builder_adds_rule(home: Path, project_root: Path) -> None:
     rules.add("builder-rule", "A rule for the builder.")
-    app = AgentInitApp(project_root=project_root)
+    app = AtmApp(project_root=project_root)
     async with app.run_test() as pilot:
         await pilot.pause()
         app.push_screen(TemplateBuilderScreen())
@@ -79,7 +77,7 @@ async def test_builder_adds_rule(home: Path, project_root: Path) -> None:
 @pytest.mark.asyncio
 async def test_builder_skips_duplicate_rule(home: Path, project_root: Path) -> None:
     rules.add("dup-rule", "Duplicate rule.")
-    app = AgentInitApp(project_root=project_root)
+    app = AtmApp(project_root=project_root)
     async with app.run_test() as pilot:
         await pilot.pause()
         app.push_screen(TemplateBuilderScreen())
@@ -98,7 +96,7 @@ async def test_builder_skips_duplicate_rule(home: Path, project_root: Path) -> N
 @pytest.mark.asyncio
 async def test_builder_removes_rule(home: Path, project_root: Path) -> None:
     rules.add("remove-rule", "Rule to remove.")
-    app = AgentInitApp(project_root=project_root)
+    app = AtmApp(project_root=project_root)
     async with app.run_test() as pilot:
         await pilot.pause()
         app.push_screen(TemplateBuilderScreen())
@@ -123,12 +121,12 @@ async def test_builder_imports_toml(home: Path, project_root: Path, tmp_path: Pa
         'name = "imported-template"\n'
         'template = "default"\n'
         'rules = ["imported-rule"]\n'
-        '[[skill]]\n'
+        "[[skill]]\n"
         'qualified_name = "repo/skill"\n',
         encoding="utf-8",
     )
 
-    app = AgentInitApp(project_root=project_root)
+    app = AtmApp(project_root=project_root)
     async with app.run_test() as pilot:
         await pilot.pause()
         app.push_screen(TemplateBuilderScreen())
@@ -160,7 +158,7 @@ async def test_builder_exports_toml(home: Path, project_root: Path, tmp_path: Pa
     )
     export_path = tmp_path / "exported.toml"
 
-    app = AgentInitApp(project_root=project_root)
+    app = AtmApp(project_root=project_root)
     async with app.run_test() as pilot:
         await pilot.pause()
         app.push_screen(TemplateBuilderScreen(profile))
@@ -184,7 +182,7 @@ async def test_builder_exports_toml(home: Path, project_root: Path, tmp_path: Pa
 
 @pytest.mark.asyncio
 async def test_builder_skill_picker_opens(home: Path, project_root: Path) -> None:
-    app = AgentInitApp(project_root=project_root)
+    app = AtmApp(project_root=project_root)
     async with app.run_test() as pilot:
         await pilot.pause()
         app.push_screen(TemplateBuilderScreen())
@@ -197,7 +195,7 @@ async def test_builder_skill_picker_opens(home: Path, project_root: Path) -> Non
 
 @pytest.mark.asyncio
 async def test_builder_agent_picker_opens(home: Path, project_root: Path) -> None:
-    app = AgentInitApp(project_root=project_root)
+    app = AtmApp(project_root=project_root)
     async with app.run_test() as pilot:
         await pilot.pause()
         app.push_screen(TemplateBuilderScreen())
@@ -210,7 +208,7 @@ async def test_builder_agent_picker_opens(home: Path, project_root: Path) -> Non
 
 @pytest.mark.asyncio
 async def test_builder_mcp_picker_opens(home: Path, project_root: Path) -> None:
-    app = AgentInitApp(project_root=project_root)
+    app = AtmApp(project_root=project_root)
     async with app.run_test() as pilot:
         await pilot.pause()
         app.push_screen(TemplateBuilderScreen())

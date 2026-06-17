@@ -10,9 +10,9 @@ from pathlib import Path
 
 import pytest
 
-from agent_init.core import init as init_mod
-from agent_init.core import install, manifest, paths, repos, rules
-from agent_init.core.install import _SNAPSHOT_SENTINEL
+from atm.core import init as init_mod
+from atm.core import install, manifest, paths, repos, rules
+from atm.core.install import _SNAPSHOT_SENTINEL
 from tests.fixtures import git_fixtures
 
 
@@ -25,6 +25,7 @@ def _build_repo(tmp_path: Path, files: dict[str, str], tag: str | None = None) -
 
 
 # ---------- #1: tag-after-edit must not be attached ----------
+
 
 def test_tag_not_attached_when_skill_edited_after_tag(
     home: Path, project_root: Path, tmp_path: Path
@@ -42,9 +43,7 @@ def test_tag_not_attached_when_skill_edited_after_tag(
     assert "+" not in installed.current.identifier()
 
 
-def test_tag_attached_when_at_tag(
-    home: Path, project_root: Path, tmp_path: Path
-) -> None:
+def test_tag_attached_when_at_tag(home: Path, project_root: Path, tmp_path: Path) -> None:
     working = git_fixtures.make_source_repo(
         tmp_path / "src", files={"skills/foo/SKILL.md": "# v1\n"}
     )
@@ -56,6 +55,7 @@ def test_tag_attached_when_at_tag(
 
 
 # ---------- #2: update refuses to overwrite local edits ----------
+
 
 def test_update_refuses_when_target_has_local_edits(
     home: Path, project_root: Path, tmp_path: Path
@@ -93,9 +93,8 @@ def test_update_with_force_overrides_local_edits(
 
 # ---------- #3: in-region drift warning on re-init ----------
 
-def test_init_warns_on_in_region_drift(
-    home: Path, project_root: Path
-) -> None:
+
+def test_init_warns_on_in_region_drift(home: Path, project_root: Path) -> None:
     rules.add("focus", "Focus.", is_default=True)
     init_mod.run(init_mod.InitOptions(project_root=project_root))
     agents = project_root / "AGENTS.md"
@@ -110,9 +109,8 @@ def test_init_warns_on_in_region_drift(
 
 # ---------- #5: snapshot sentinel survives partial extraction ----------
 
-def test_partial_snapshot_is_re_extracted(
-    home: Path, project_root: Path, tmp_path: Path
-) -> None:
+
+def test_partial_snapshot_is_re_extracted(home: Path, project_root: Path, tmp_path: Path) -> None:
     _, bare = _build_repo(
         tmp_path,
         {
@@ -139,8 +137,9 @@ def test_partial_snapshot_is_re_extracted(
 
 # ---------- #6: archive failure surfaces the git error, not a tar error ----------
 
+
 def test_archive_bad_sha_surfaces_git_error(home: Path, tmp_path: Path) -> None:
-    from agent_init.core import git as git_mod
+    from atm.core import git as git_mod
 
     working = git_fixtures.make_source_repo(
         tmp_path / "src", files={"skills/foo/SKILL.md": "# foo\n"}
@@ -149,20 +148,19 @@ def test_archive_bad_sha_surfaces_git_error(home: Path, tmp_path: Path) -> None:
     repos.add("a", f"file://{bare}")
     dest = tmp_path / "out"
     with pytest.raises(git_mod.GitError) as excinfo:
-        git_mod.get_backend().archive(
-            repos.clone_dir("a"), "0" * 40, "skills/foo", dest
-        )
+        git_mod.get_backend().archive(repos.clone_dir("a"), "0" * 40, "skills/foo", dest)
     assert "git archive failed" in str(excinfo.value)
 
 
 # ---------- #7: repos.add rolls back on indexing failure ----------
+
 
 def test_repos_add_rolls_back_on_indexing_failure(
     home: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _, bare = _build_repo(tmp_path, {"skills/foo/SKILL.md": "# foo\n"})
 
-    from agent_init.core import skills as skills_mod
+    from atm.core import skills as skills_mod
 
     def boom(_alias: str) -> None:
         raise RuntimeError("simulated indexing failure")
@@ -177,9 +175,8 @@ def test_repos_add_rolls_back_on_indexing_failure(
 
 # ---------- #4: rollback honors repo_alias from manifest (survives rename) ----------
 
-def test_rollback_works_after_repo_rename(
-    home: Path, project_root: Path, tmp_path: Path
-) -> None:
+
+def test_rollback_works_after_repo_rename(home: Path, project_root: Path, tmp_path: Path) -> None:
     working, bare = _build_repo(tmp_path, {"skills/foo/SKILL.md": "# v1\n"})
     repos.add("a", f"file://{bare}")
     install.install(project_root, "a/foo")
@@ -202,9 +199,8 @@ def test_rollback_works_after_repo_rename(
 
 # ---------- #9: refresh raises when default_ref disappears ----------
 
-def test_refresh_raises_when_ref_disappears(
-    home: Path, tmp_path: Path
-) -> None:
+
+def test_refresh_raises_when_ref_disappears(home: Path, tmp_path: Path) -> None:
     _, bare = _build_repo(tmp_path, {"skills/foo/SKILL.md": "# foo\n"})
     repos.add("a", f"file://{bare}", default_ref="refs/heads/main")
     # Wipe the upstream branch.
@@ -221,9 +217,8 @@ def test_refresh_raises_when_ref_disappears(
 
 # ---------- #18: source_path at repo root end-to-end ----------
 
-def test_install_root_level_skill(
-    home: Path, project_root: Path, tmp_path: Path
-) -> None:
+
+def test_install_root_level_skill(home: Path, project_root: Path, tmp_path: Path) -> None:
     _, bare = _build_repo(
         tmp_path,
         {"rootskill/SKILL.md": "# root\n", "rootskill/extra.md": "x\n", "README.md": "y\n"},
@@ -236,6 +231,7 @@ def test_install_root_level_skill(
 
 
 # ---------- #19: multi-skill in one repo ----------
+
 
 def test_multi_skill_install_and_update_independence(
     home: Path, project_root: Path, tmp_path: Path
@@ -271,6 +267,7 @@ def test_multi_skill_install_and_update_independence(
 
 # ---------- #16: rule library tolerates orphaned body files ----------
 
+
 def test_rule_get_when_body_file_deleted(home: Path) -> None:
     rules.add("orphan", "body")
     rules.body_path("orphan").unlink()
@@ -282,6 +279,7 @@ def test_rule_get_when_body_file_deleted(home: Path) -> None:
 
 
 # ---------- snapshot remains valid across rename of repo ----------
+
 
 def test_rollback_unavailable_when_both_gone(
     home: Path, project_root: Path, tmp_path: Path

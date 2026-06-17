@@ -5,19 +5,17 @@ from pathlib import Path
 import pytest
 from textual.widgets import DataTable, Input, Static
 
-from agent_init.core import init, profiles, rules
-from agent_init.tui.app import AgentInitApp
-from agent_init.tui.modals.template_edit import TemplateEditModal
-from agent_init.tui.modals.template_save import TemplateSaveModal
-from agent_init.tui.screens.project_templates_screen import ProjectTemplatesScreen
-from agent_init.tui.widgets import ToggleRow
+from atm.core import init, profiles, rules
+from atm.tui.app import AtmApp
+from atm.tui.modals.template_edit import TemplateEditModal
+from atm.tui.modals.template_save import TemplateSaveModal
+from atm.tui.screens.project_templates_screen import ProjectTemplatesScreen
+from atm.tui.widgets import ToggleRow
 
 
 @pytest.mark.asyncio
-async def test_templates_screen_empty_when_no_templates(
-    home: Path, project_root: Path
-) -> None:
-    app = AgentInitApp(project_root=project_root)
+async def test_templates_screen_empty_when_no_templates(home: Path, project_root: Path) -> None:
+    app = AtmApp(project_root=project_root)
     async with app.run_test() as pilot:
         await pilot.pause()
         app.push_screen(ProjectTemplatesScreen(project_root))
@@ -27,11 +25,9 @@ async def test_templates_screen_empty_when_no_templates(
 
 
 @pytest.mark.asyncio
-async def test_templates_screen_saves_current_project(
-    home: Path, project_root: Path
-) -> None:
+async def test_templates_screen_saves_current_project(home: Path, project_root: Path) -> None:
     init.run(init.InitOptions(project_root=project_root))
-    app = AgentInitApp(project_root=project_root)
+    app = AtmApp(project_root=project_root)
     async with app.run_test() as pilot:
         await pilot.pause()
         app.push_screen(ProjectTemplatesScreen(project_root))
@@ -49,12 +45,10 @@ async def test_templates_screen_saves_current_project(
 
 
 @pytest.mark.asyncio
-async def test_templates_screen_edits_template(
-    home: Path, project_root: Path
-) -> None:
+async def test_templates_screen_edits_template(home: Path, project_root: Path) -> None:
     init.run(init.InitOptions(project_root=project_root))
     profiles.save(profiles.from_project("old", project_root))
-    app = AgentInitApp(project_root=project_root)
+    app = AtmApp(project_root=project_root)
     async with app.run_test() as pilot:
         await pilot.pause()
         app.push_screen(ProjectTemplatesScreen(project_root))
@@ -69,9 +63,7 @@ async def test_templates_screen_edits_template(
 
 
 @pytest.mark.asyncio
-async def test_template_edit_checkbox_toggles_uncheck_all(
-    home: Path, project_root: Path
-) -> None:
+async def test_template_edit_checkbox_toggles_uncheck_all(home: Path, project_root: Path) -> None:
     """Checkboxes in the edit modal must be clickable and uncheckable."""
     rules.add("rule-one", "First rule", is_default=True)
     init.run(init.InitOptions(project_root=project_root))
@@ -85,7 +77,7 @@ async def test_template_edit_checkbox_toggles_uncheck_all(
     )
     profiles.save(profile)
 
-    app = AgentInitApp(project_root=project_root)
+    app = AtmApp(project_root=project_root)
     async with app.run_test(size=(80, 40)) as pilot:
         await pilot.pause()
         app.push_screen(ProjectTemplatesScreen(project_root))
@@ -127,9 +119,7 @@ async def test_template_edit_checkbox_toggles_uncheck_all(
 
 
 @pytest.mark.asyncio
-async def test_template_edit_togglerow_space_toggles(
-    home: Path, project_root: Path
-) -> None:
+async def test_template_edit_togglerow_space_toggles(home: Path, project_root: Path) -> None:
     """Focused ToggleRow must toggle on Space."""
     rules.add("rule-one", "First rule", is_default=True)
     init.run(init.InitOptions(project_root=project_root))
@@ -140,7 +130,7 @@ async def test_template_edit_togglerow_space_toggles(
     )
     profiles.save(profile)
 
-    app = AgentInitApp(project_root=project_root)
+    app = AtmApp(project_root=project_root)
     async with app.run_test(size=(80, 40)) as pilot:
         await pilot.pause()
         app.push_screen(ProjectTemplatesScreen(project_root))
@@ -161,9 +151,7 @@ async def test_template_edit_togglerow_space_toggles(
 
 
 @pytest.mark.asyncio
-async def test_template_edit_togglerow_reaches_by_tab(
-    home: Path, project_root: Path
-) -> None:
+async def test_template_edit_togglerow_reaches_by_tab(home: Path, project_root: Path) -> None:
     """Tab navigation must reach ToggleRow and Space must toggle it."""
     rules.add("rule-tab", "Tab rule", is_default=True)
     init.run(init.InitOptions(project_root=project_root))
@@ -174,7 +162,7 @@ async def test_template_edit_togglerow_reaches_by_tab(
     )
     profiles.save(profile)
 
-    app = AgentInitApp(project_root=project_root)
+    app = AtmApp(project_root=project_root)
     async with app.run_test(size=(80, 40)) as pilot:
         await pilot.pause()
         app.push_screen(ProjectTemplatesScreen(project_root))

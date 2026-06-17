@@ -7,7 +7,7 @@ import pytest
 import respx
 from httpx import Response
 
-from agent_init.core import mcp_registry
+from atm.core import mcp_registry
 
 
 def _payload(servers: list[dict], next_cursor: str | None = None) -> dict:
@@ -49,9 +49,7 @@ def _stdio_server(name: str = "filesystem") -> dict:
                 "version": "3.1.0",
                 "runtimeHint": "npx",
                 "transport": {"type": "stdio"},
-                "environmentVariables": [
-                    {"name": "ROOT", "default": "/tmp", "isSecret": False}
-                ],
+                "environmentVariables": [{"name": "ROOT", "default": "/tmp", "isSecret": False}],
             }
         ],
         "remotes": [],

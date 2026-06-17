@@ -9,8 +9,8 @@ from pathlib import Path
 
 import pytest
 
-from agent_init.core import mcp_registry
-from agent_init.tui.app import AgentInitApp
+from atm.core import mcp_registry
+from atm.tui.app import AtmApp
 
 
 def _server(name: str, version: str) -> mcp_registry.McpServer:
@@ -24,7 +24,9 @@ def _server(name: str, version: str) -> mcp_registry.McpServer:
 
 
 @pytest.mark.asyncio
-async def test_mcp_screen_defaults_and_enter_search(home: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_mcp_screen_defaults_and_enter_search(
+    home: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     from textual.widgets import DataTable, Input
 
     search_results = [
@@ -45,7 +47,7 @@ async def test_mcp_screen_defaults_and_enter_search(home: Path, monkeypatch: pyt
     monkeypatch.setattr(mcp_registry, "find_server", _find_server)
     monkeypatch.setattr(mcp_registry, "search_registry", _search_registry)
 
-    app = AgentInitApp(project_root=home)
+    app = AtmApp(project_root=home)
     async with app.run_test() as pilot:
         await pilot.pause()
         await app.workers.wait_for_complete()
@@ -75,7 +77,9 @@ async def test_mcp_screen_defaults_and_enter_search(home: Path, monkeypatch: pyt
 
 
 @pytest.mark.asyncio
-async def test_mcp_screen_install_binding_opens_modal(home: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_mcp_screen_install_binding_opens_modal(
+    home: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     from textual.widgets import DataTable, Input
 
     monkeypatch.setattr(
@@ -84,7 +88,7 @@ async def test_mcp_screen_install_binding_opens_modal(home: Path, monkeypatch: p
         lambda name, exact_name=None: _server("playwright-mcp", "1.0.0"),
     )
 
-    app = AgentInitApp(project_root=home)
+    app = AtmApp(project_root=home)
     async with app.run_test() as pilot:
         await pilot.pause()
         await app.workers.wait_for_complete()

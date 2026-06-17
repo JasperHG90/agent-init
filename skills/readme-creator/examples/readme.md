@@ -117,8 +117,8 @@ cookie-cutter layouts, or Apple mimicry. If you use a theme, apply it fully.
 ## Before / after example
 
 **Before:**
-> agent-init is a tool for managing agent-related files and configurations in software projects.
+> atm is a tool for managing agent-related files and configurations in software projects.
 
 **After:**
-> `agent-init` installs Claude skills, rules, and agent instructions from git repos into your
+> `atm` installs Claude skills, rules, and agent instructions from git repos into your
 > project, so your AI assistant has the right context from day one.

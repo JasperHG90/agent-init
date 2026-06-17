@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 from pydantic import BaseModel
 
-from agent_init.core import format as format_mod
+from atm.core import format as format_mod
 
 
 class _PydanticRow(BaseModel):

@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from agent_init.core import layout_profiles, manifest, paths
+from atm.core import layout_profiles, manifest, paths
 
 
 @pytest.fixture
@@ -113,9 +113,7 @@ def test_repo_profile_overrides_db_profile(project_root: Path, layout_dir: Path)
     assert got.skills_dir == ".repo/skills"
 
 
-def test_sync_demotes_edited_global_copy(
-    project_root: Path, layout_dir: Path
-) -> None:
+def test_sync_demotes_edited_global_copy(project_root: Path, layout_dir: Path) -> None:
     # Start with a global profile cached in DB and a matching repo read-only copy.
     profile = layout_profiles.LayoutProfile(name="shared", skills_dir=".shared/skills")
     layout_profiles.save_global_profile(project_root, profile)
@@ -137,9 +135,7 @@ def test_sync_demotes_edited_global_copy(
     assert synced.skills_dir == ".edited/skills"
 
 
-def test_delete_global_profile_removes_db_and_repo(
-    project_root: Path, layout_dir: Path
-) -> None:
+def test_delete_global_profile_removes_db_and_repo(project_root: Path, layout_dir: Path) -> None:
     profile = layout_profiles.LayoutProfile(name="gone", skills_dir=".gone/skills")
     layout_profiles.save_global_profile(project_root, profile)
     assert (layout_dir / "gone.toml").exists()

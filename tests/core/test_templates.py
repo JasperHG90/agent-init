@@ -4,14 +4,14 @@ from pathlib import Path
 
 import pytest
 
-from agent_init.core import templates
-from agent_init.core.rules import Rule
+from atm.core import templates
+from atm.core.rules import Rule
 
 
 def test_resolve_builtin_default(home: Path) -> None:
     t = templates.resolve(templates.BUILTIN_DEFAULT)
     assert t.name == templates.BUILTIN_DEFAULT
-    assert "agent-init" in t.body
+    assert "atm" in t.body
 
 
 def test_resolve_unknown_raises(home: Path) -> None:
@@ -40,7 +40,7 @@ def test_render_with_no_rules_shows_empty_state(home: Path) -> None:
 
 def test_register_user_template(home: Path, tmp_path: Path) -> None:
     custom = tmp_path / "custom.md.j2"
-    custom.write_text("# Custom\n\n<!-- BEGIN agent-init: header -->\nhi\n<!-- END agent-init: header -->\n")
+    custom.write_text("# Custom\n\n<!-- BEGIN atm: header -->\nhi\n<!-- END atm: header -->\n")
     templates.register_user_template("custom", custom, description="my template")
     resolved = templates.resolve("custom")
     assert resolved.name == "custom"

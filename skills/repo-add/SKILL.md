@@ -2,34 +2,34 @@
 name: repo-add
 description: |
   Use when the user asks to register or add a skill source repository,
-  rule-library overlay, or agent source repository for agent-init.
-  Handles `agent-init repo add` and `agent-init rule-repo add`.
+  rule-library overlay, or agent source repository for atm.
+  Handles `atm repo add` and `atm rule-repo add`.
 ---
 
 # Repo Add
 
-A skill for registering source repositories with agent-init.
+A skill for registering source repositories with atm.
 
 ## When to use
 
 Use this skill whenever the user wants to:
 
-- Add a skill/agent/rule source repo to agent-init
+- Add a skill/agent/rule source repo to atm
 - Register a git URL so skills, agents, or rules become installable
 - Refresh or remove a registered repo
 
 ## Workflow
 
-1. **Ensure `agent-init` is installed.** Before running any command, check whether `agent-init` is available:
+1. **Ensure `atm` is installed.** Before running any command, check whether `atm` is available:
 
-   - Try `command -v agent-init` or `agent-init --version`.
+   - Try `command -v atm` or `atm --version`.
    - If the command succeeds, continue with the workflow.
-   - If the command is not found, tell the user: "`agent-init` is not installed. Install it with `uvx`? Defaults to the latest version; say a version number if you want a specific one."
+   - If the command is not found, tell the user: "`atm` is not installed. Install it with `uvx`? Defaults to the latest version; say a version number if you want a specific one."
    - If the user agrees, run:
-     - Latest: `uvx install agent-init`
-     - Specific version: `uvx install agent-init==<version>`
-   - After installing, verify with `agent-init --version` before continuing.
-   - If the user declines, stop and explain that this skill requires `agent-init`.
+     - Latest: `uvx install atm`
+     - Specific version: `uvx install atm==<version>`
+   - After installing, verify with `atm --version` before continuing.
+   - If the user declines, stop and explain that this skill requires `atm`.
 
 2. **Gather inputs with `AskUserQuestion`.** If the alias, URL, or ref are not already clear from context, ask using `AskUserQuestion`. The tool requires `header`, `question`, `type`, and `options` fields; each option must be an object with `label`, `value`, and `description`. For text inputs, supply example options as quick-select suggestions.
 
@@ -71,24 +71,24 @@ Use this skill whenever the user wants to:
 
    If `AskUserQuestion` is unavailable, ask in plain text and confirm the values before running the command.
 
-3. **Prefer `agent-init repo add`.** This indexes skills, agents, and rules in one operation:
+3. **Prefer `atm repo add`.** This indexes skills, agents, and rules in one operation:
 
    ```bash
-   agent-init repo add <alias> <url> [--ref <branch-or-tag>]
+   atm repo add <alias> <url> [--ref <branch-or-tag>]
    ```
 
 4. **If that fails and the user explicitly mentioned rules,** fall back to the rule-library overlay command:
 
    ```bash
-   agent-init rule-repo add <alias> <url> [--ref <branch-or-tag>]
+   atm rule-repo add <alias> <url> [--ref <branch-or-tag>]
    ```
 
 5. **After adding, show what became available.** Run one or more of:
 
    ```bash
-   agent-init skill list --compact
-   agent-init agent list --compact
-   agent-init rule list --compact
+   atm skill list --compact
+   atm agent list --compact
+   atm rule list --compact
    ```
 
 6. **Echo the exact command used** and the short SHA/head if the CLI returned it.

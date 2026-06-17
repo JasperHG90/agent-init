@@ -1,4 +1,4 @@
-"""Shared fixtures. The AGENT_INIT_HOME env var redirects all platformdirs
+"""Shared fixtures. The ATM_HOME env var redirects all platformdirs
 lookups to a tmp dir so tests never touch the real user data/cache/config dirs.
 """
 
@@ -9,19 +9,19 @@ from pathlib import Path
 
 import pytest
 
-from agent_init.core import db, paths
+from atm.core import db, paths
 
 
 @pytest.fixture(autouse=True)
 def home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Path]:
-    """Isolate all global agent-init state into tmp_path/home.
+    """Isolate all global atm state into tmp_path/home.
 
     This fixture is autouse so every test — even core tests that only ask for
     `project_root` — runs against a temporary SQLite DB instead of the user's
     production cache database.
     """
     home_dir = tmp_path / "home"
-    monkeypatch.setenv("AGENT_INIT_HOME", str(home_dir))
+    monkeypatch.setenv("ATM_HOME", str(home_dir))
     # Reset the cached engine *before* touching any code path that might
     # initialize it, then point paths at the tmp dir and create tables there.
     db.reset_engine()
@@ -34,7 +34,7 @@ def home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Path]:
 
 
 def _clear_mcp_caches() -> None:
-    from agent_init.core import mcp_registry
+    from atm.core import mcp_registry
 
     mcp_registry._SEARCH_CACHE.clear()
     mcp_registry._DEFAULT_CACHE.clear()

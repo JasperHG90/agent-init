@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from agent_init.core import agent_install, init, manifest, repos
+from atm.core import agent_install, init, manifest, repos
 from tests.fixtures import git_fixtures
 
 
@@ -88,7 +88,9 @@ def test_uninstall_removes_file_and_manifest_entry(
     assert manifest.load(project_root).agents == []
 
 
-def test_delete_removes_file_and_manifest_entry(home: Path, tmp_path: Path, project_root: Path) -> None:
+def test_delete_removes_file_and_manifest_entry(
+    home: Path, tmp_path: Path, project_root: Path
+) -> None:
     _, qn = _make_project_and_repo(tmp_path, project_root)
     agent_install.install(project_root, qn)
     agent_install.delete(project_root, qn)

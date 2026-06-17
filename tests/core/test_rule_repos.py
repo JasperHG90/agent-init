@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from agent_init.core import rule_repos, rules
+from atm.core import rule_repos, rules
 from tests.fixtures import git_fixtures
 
 
@@ -15,9 +15,7 @@ def _bare_rule_repo(tmp_path: Path, files: dict[str, str]) -> Path:
     return git_fixtures.make_bare_remote(working, tmp_path / "bare.git")
 
 
-def test_add_lists_and_makes_rules_visible(
-    home: Path, tmp_path: Path
-) -> None:
+def test_add_lists_and_makes_rules_visible(home: Path, tmp_path: Path) -> None:
     bare = _bare_rule_repo(
         tmp_path,
         {
@@ -50,9 +48,7 @@ def test_local_rule_shadows_overlay(home: Path, tmp_path: Path) -> None:
     assert "local version" in resolved.body
 
 
-def test_refresh_picks_up_new_overlay_rules(
-    home: Path, tmp_path: Path
-) -> None:
+def test_refresh_picks_up_new_overlay_rules(home: Path, tmp_path: Path) -> None:
     bare = _bare_rule_repo(tmp_path, {"rules/a.md": "a\n"})
     rule_repos.add("team", f"file://{bare}")
     assert {r.name for r in rules.list_all() if r.source == "team"} == {"a"}

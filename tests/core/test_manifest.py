@@ -6,9 +6,9 @@ from pathlib import Path
 
 import pytest
 
-from agent_init.core import manifest as manifest_mod
-from agent_init.core.manifest_migrate import ManifestVersionError, migrate
-from agent_init.core.models import (
+from atm.core import manifest as manifest_mod
+from atm.core.manifest_migrate import ManifestVersionError, migrate
+from atm.core.models import (
     CURRENT_MANIFEST_VERSION,
     HISTORY_CAP,
     InstalledSkill,
@@ -56,9 +56,7 @@ def test_identifier_sha_only(project_root: Path) -> None:
 def test_history_push_caps_at_limit() -> None:
     skill = _skill("v1.0.0", "aaaaaaa")
     for i in range(HISTORY_CAP + 5):
-        new = SkillVersion(
-            tag=f"v1.0.{i + 1}", sha=f"{i:07d}", installed_at=datetime.now(UTC)
-        )
+        new = SkillVersion(tag=f"v1.0.{i + 1}", sha=f"{i:07d}", installed_at=datetime.now(UTC))
         skill.push_history(new)
     assert len(skill.history) == HISTORY_CAP
     # newest history entry should be the previously-current one
@@ -78,7 +76,7 @@ def test_migrate_rejects_future_version() -> None:
 
 def test_manifest_rejects_unknown_fields(project_root: Path) -> None:
     bad = {"manifest_version": 1, "skills": [], "rules": [], "garbage": True}
-    path = project_root / ".agent-init" / "manifest.json"
+    path = project_root / ".atm" / "manifest.json"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(bad))
     from pydantic import ValidationError

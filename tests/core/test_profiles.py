@@ -7,7 +7,7 @@ import respx
 from httpx import Response
 from pydantic import ValidationError
 
-from agent_init.core import (
+from atm.core import (
     agent_install,
     install,
     mcp_install,
@@ -16,7 +16,7 @@ from agent_init.core import (
     repos,
     rules,
 )
-from agent_init.core import init as init_mod
+from atm.core import init as init_mod
 from tests.fixtures import git_fixtures
 
 
@@ -71,9 +71,7 @@ def _clear_mcp_cache():
     mcp_registry._SEARCH_CACHE.clear()
 
 
-def test_from_project_snapshots(
-    home: Path, project_root: Path, tmp_path: Path
-) -> None:
+def test_from_project_snapshots(home: Path, project_root: Path, tmp_path: Path) -> None:
     working = git_fixtures.make_source_repo(
         tmp_path / "src", files={"skills/foo/SKILL.md": "# foo\n"}
     )
@@ -124,9 +122,7 @@ def test_from_project_captures_agents_and_mcp(
     assert snap.mcp_servers[0].transport == "http"
 
 
-def test_apply_reproduces_state(
-    home: Path, project_root: Path, tmp_path: Path
-) -> None:
+def test_apply_reproduces_state(home: Path, project_root: Path, tmp_path: Path) -> None:
     # Build a source project, snapshot it, apply to a new project.
     working = git_fixtures.make_source_repo(
         tmp_path / "src", files={"skills/foo/SKILL.md": "# foo\n"}
@@ -134,11 +130,7 @@ def test_apply_reproduces_state(
     bare = git_fixtures.make_bare_remote(working, tmp_path / "bare.git")
     repos.add("anth", f"file://{bare}")
     rules.add("be-concise", "Be concise.", is_default=True)
-    init_mod.run(
-        init_mod.InitOptions(
-            project_root=project_root, mirrors=("CLAUDE.md",)
-        )
-    )
+    init_mod.run(init_mod.InitOptions(project_root=project_root, mirrors=("CLAUDE.md",)))
     install.install(project_root, "anth/foo")
 
     profiles.save(profiles.from_project("source", project_root))
@@ -148,7 +140,7 @@ def test_apply_reproduces_state(
     target_target = target / ".claude" / "skills" / "foo"
     assert (target_target / "SKILL.md").exists()
     assert (target / "CLAUDE.md").exists()
-    from agent_init.core import manifest
+    from atm.core import manifest
 
     m = manifest.load(target)
     assert "be-concise" in m.rules
@@ -164,9 +156,7 @@ def test_list_and_delete(home: Path) -> None:
     assert [p.name for p in profiles.list_profiles()] == ["b"]
 
 
-def test_apply_reports_skipped_items(
-    home: Path, project_root: Path, tmp_path: Path
-) -> None:
+def test_apply_reports_skipped_items(home: Path, project_root: Path, tmp_path: Path) -> None:
     working = git_fixtures.make_source_repo(
         tmp_path / "src_skill", files={"skills/foo/SKILL.md": "# foo\n"}
     )

@@ -1,7 +1,9 @@
 manifest_version = 7
 instruction_template = "default"
 mcp_servers = []
-rules = []
+rules = [
+    "pre-existing-issues",
+]
 managed_files = [
     "AGENTS.md",
     "CLAUDE.md",

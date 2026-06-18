@@ -1,5 +1,4 @@
-# CLAUDE.md
-
+<!-- BEGIN aim: guidelines -->
 Behavioral guidelines to reduce common LLM coding mistakes. Merge with project-specific instructions as needed.
 
 **Tradeoff:** These guidelines bias toward caution over speed. For trivial tasks, use judgment.
@@ -34,7 +33,6 @@ When editing existing code:
 - Don't "improve" adjacent code, comments, or formatting.
 - Don't refactor things that aren't broken.
 - Match existing style, even if you'd do it differently.
-- If you notice unrelated dead code, mention it - don't delete it.
 
 When your changes create orphans:
 - Remove imports/variables/functions that YOUR changes made unused.
@@ -63,12 +61,4 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 ---
 
 **These guidelines are working if:** fewer unnecessary changes in diffs, fewer rewrites due to overcomplication, and clarifying questions come before implementation rather than after mistakes.
-
-<!-- BEGIN aim: header -->
-This file provides guidance to coding agents (Claude Code, Gemini CLI, opencode, etc.) when working in this repository. It is partially managed by [aim](https://github.com/JasperHG90/agent-integrations-manager). Content inside `<!-- BEGIN aim: ... -->` / `<!-- END aim: ... -->` markers is regenerated; content outside markers is preserved across regenerations.
-<!-- END aim: header -->
-
-<!-- BEGIN aim: rules -->
-
-_No rules applied. Add rules with `aim rule add` and apply them with `aim rule apply`._
-<!-- END aim: rules -->
+<!-- END aim: guidelines -->

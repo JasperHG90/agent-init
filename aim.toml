@@ -4,7 +4,9 @@ layout_profile = "claude"
 symlinks = [
     "CLAUDE.md",
 ]
-rules = []
+rules = [
+    "pre-existing-issues",
+]
 mcp_servers = []
 
 [repos]

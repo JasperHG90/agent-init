@@ -1,0 +1,3 @@
+# Not touched by `aim prune`
+.claude/skills/local/*
+.claude/rules/local/*

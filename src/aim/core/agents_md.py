@@ -56,7 +56,9 @@ def parse(text: str) -> list[Region]:
 def merge(existing: str, new_regions: dict[str, str]) -> str:
     """Replace each named region in `existing` with the corresponding new body.
 
-    - Regions present in `existing` but not in `new_regions` are left alone.
+    - Regions present in `existing` but not in `new_regions` are removed
+      (markers + body). aim owns its marker regions: when the template no
+      longer emits a region, it disappears from the output.
     - Regions in `new_regions` but missing from `existing` are appended at the
       end (each in its own marker pair, separated by a blank line).
     - Content outside any region is preserved verbatim.
@@ -70,7 +72,7 @@ def merge(existing: str, new_regions: dict[str, str]) -> str:
     def _replace(match: re.Match[str]) -> str:
         name = match.group("name")
         if name not in new_regions:
-            return match.group(0)
+            return ""
         handled.add(name)
         body = new_regions[name]
         if not body.startswith("\n"):

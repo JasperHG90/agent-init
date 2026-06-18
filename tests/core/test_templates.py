@@ -30,15 +30,31 @@ def test_render_with_rules(home: Path) -> None:
     ]
     out = templates.render(
         templates.BUILTIN_DEFAULT,
-        {"rules": rules, "rules_mode": "inline", "rules_dir": ".claude/rules"},
+        {"rules": rules, "rules_mode": "inline"},
     )
     assert "Be concise." in out
     assert "be-concise" in out
 
 
-def test_render_with_no_rules_shows_empty_state(home: Path) -> None:
-    out = templates.render(templates.BUILTIN_DEFAULT, {"rules": []})
-    assert "No rules applied" in out
+def test_render_inline_with_no_rules_emits_empty_block(home: Path) -> None:
+    out = templates.render(templates.BUILTIN_DEFAULT, {"rules": [], "rules_mode": "inline"})
+    assert "<!-- BEGIN aim: rules -->" in out
+    assert "<!-- END aim: rules -->" in out
+    assert "### " not in out
+
+
+def test_render_files_mode_omits_rules_block(home: Path) -> None:
+    out = templates.render(templates.BUILTIN_DEFAULT, {"rules": [], "rules_mode": "files"})
+    assert "aim: rules" not in out
+    assert "## Applied rules" not in out
+
+
+def test_render_guidelines_region_present_in_both_modes(home: Path) -> None:
+    for mode in ("files", "inline"):
+        out = templates.render(templates.BUILTIN_DEFAULT, {"rules": [], "rules_mode": mode})
+        assert "<!-- BEGIN aim: guidelines -->" in out
+        assert "<!-- END aim: guidelines -->" in out
+        assert "Think Before Coding" in out
 
 
 def test_register_user_template(home: Path, tmp_path: Path) -> None:

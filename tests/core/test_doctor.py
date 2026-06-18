@@ -54,13 +54,13 @@ def test_doctor_detects_skill_drift(home: Path, project_root: Path, tmp_path: Pa
 def test_doctor_detects_region_drift(home: Path, project_root: Path) -> None:
     init_mod.run(init_mod.InitOptions(project_root=project_root))
     _run_lock_and_sync(project_root)
-    # Edit inside the rules region marker.
+    # Edit inside the header region marker.
     agents = project_root / "AGENTS.md"
     text = agents.read_text()
-    edited = text.replace("No rules applied", "edited inside marker")
+    edited = text.replace("Agent instructions", "edited inside marker")
     agents.write_text(edited)
     report = doctor.audit(project_roots=[project_root])
-    assert any("region 'rules' edited" in f.message for f in report.by_severity("warning"))
+    assert any("region 'header' edited" in f.message for f in report.by_severity("warning"))
 
 
 def test_doctor_detects_missing_target_dir(home: Path, project_root: Path, tmp_path: Path) -> None:

@@ -66,7 +66,7 @@ def test_merge_appends_missing_region() -> None:
     assert "fresh content" in out
 
 
-def test_merge_leaves_unmentioned_regions_alone() -> None:
+def test_merge_drops_regions_not_in_new() -> None:
     existing = """<!-- BEGIN aim: a -->
 A
 <!-- END aim: a -->
@@ -76,8 +76,9 @@ B
 """
     out = agents_md.merge(existing, {"a": "A2"})
     assert "A2" in out
-    assert "B" in out  # untouched
-    assert out.count("BEGIN aim: b") == 1
+    assert "BEGIN aim: b" not in out
+    assert "END aim: b" not in out
+    assert "\nB\n" not in out
 
 
 def test_build_from_scratch() -> None:

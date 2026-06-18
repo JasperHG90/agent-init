@@ -48,11 +48,10 @@ def _render_regions(
     applied_rules: list[rules_mod.Rule],
     *,
     rules_mode: str,
-    rules_dir: str,
 ) -> dict[str, str]:
     rendered = templates.render(
         template_name,
-        {"rules": applied_rules, "rules_mode": rules_mode, "rules_dir": rules_dir},
+        {"rules": applied_rules, "rules_mode": rules_mode},
     )
     regions = agents_md.parse(rendered)
     return {r.name: r.body for r in regions}
@@ -63,11 +62,10 @@ def _render_for_template(
     applied_rules: list[rules_mod.Rule],
     *,
     rules_mode: str,
-    rules_dir: str,
 ) -> str:
     return templates.render(
         template_name,
-        {"rules": applied_rules, "rules_mode": rules_mode, "rules_dir": rules_dir},
+        {"rules": applied_rules, "rules_mode": rules_mode},
     )
 
 
@@ -88,7 +86,6 @@ def write_agent_files(
         m.instruction_template,
         applied,
         rules_mode=profile.rules_mode,
-        rules_dir=profile.rules_dir,
     )
 
     drift_warnings: list[str] = []
@@ -105,7 +102,6 @@ def write_agent_files(
             m.instruction_template,
             applied,
             rules_mode=profile.rules_mode,
-            rules_dir=profile.rules_dir,
         )
 
     new_hashes = {r.name: hashing.hash_text(r.body) for r in agents_md.parse(merged)}

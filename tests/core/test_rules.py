@@ -130,7 +130,7 @@ def test_agents_md_renders_inline_rule_bodies(home: Path, project_root: Path) ->
     assert not (project_root / ".claude" / "rules" / "style.md").exists()
 
 
-def test_agents_md_renders_file_references(home: Path, project_root: Path) -> None:
+def test_agents_md_files_mode_omits_rules_section(home: Path, project_root: Path) -> None:
     from aim.core import layout_profiles
 
     rules.add("style", "Be terse.")
@@ -146,5 +146,5 @@ def test_agents_md_renders_file_references(home: Path, project_root: Path) -> No
     m = Manifest(rules=["style"])
     agent_files.write_agent_files(project_root, m, profile)
     text = (project_root / "AGENTS.md").read_text()
-    assert ".claude/rules/style.md" in text
+    assert "aim: rules" not in text
     assert "Be terse." not in text

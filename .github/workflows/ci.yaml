@@ -52,13 +52,17 @@ jobs:
     if: always() && (github.event_name == 'push' || needs.changes.outputs.python == 'true' || needs.changes.outputs.ci-config == 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    env:
+      # The local aim-check hook needs the package installed, which pre-commit's
+      # isolated venv does not provide. It still runs locally via uv.
+      SKIP: aim-check
     steps:
       - uses: actions/checkout@v4
       - name: Run pre-commit checks
         uses: JasperHG90/toiminnot/actions/prek@main
         with:
           python_version: ${{ env.PYTHON_VERSION }}
-          prek_version: '0.2.25'
+          pre_commit_version: '4.2.0'
 
   python-tests:
     needs: changes

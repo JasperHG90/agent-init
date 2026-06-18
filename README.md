@@ -45,59 +45,32 @@ uv sync
 uv run aim --version
 ```
 
-## Screenshots
+## Demo
 
-> **Note:** these screenshots are from an earlier release and no longer match the current TUI. They will be refreshed in an upcoming update.
+The TUI is the default interface — just run `aim`. The skills and agents shown come from repositories already registered in the author's workspace; `aim` ships no built-in catalog.
 
+### Touring the TUI
 
-The TUI is the default interface; every screenshot below is what you see after running `aim`. The skills and agents shown are from repositories that were already registered in the author's workspace — `aim` does not ship with a built-in catalog.
-
-### Main menu
+Launch with no arguments and navigate the whole tool from the keyboard: the main menu, the registered repos, the skills browser, and the per-project view with live drift status.
 
 <p align="center">
-  <img src="assets/main.png" alt="aim main menu with keyboard shortcuts for init, repos, skills, agents, MCP, rules, templates, project, config, and profiles" width="720">
+  <img src="assets/aim-tui.gif" alt="Navigating the aim TUI: main menu with keyboard shortcuts, the registered repos table, the searchable skills browser, and the project view showing installed skills with drift status" width="820">
 </p>
 
-### Browse and install skills
+### The CLI
+
+Every action is also a scriptable command — `aim --help` lists them, command groups like `aim skill` expose their subcommands, and `aim doctor` audits drift across your projects.
 
 <p align="center">
-  <img src="assets/skills.png" alt="Skills browser showing indexed skills from multiple registered repositories with search and install shortcuts" width="720">
+  <img src="assets/aim-demo.gif" alt="Running aim on the command line: the top-level help, the aim skill command group, and an aim doctor health audit" width="820">
 </p>
 
-### Browse and install sub-agents
+### Lock &amp; sync
+
+`aim lock` resolves your `aim.toml` declarations into a SHA-pinned `aim.lock.toml`, and `aim sync` reproduces that exact state in the project — the workflow that makes a setup survive a fresh clone.
 
 <p align="center">
-  <img src="assets/agents.png" alt="Agents browser listing sub-agents with titles, descriptions, and model metadata" width="720">
-</p>
-
-### MCP server registry
-
-<p align="center">
-  <img src="assets/mcp.png" alt="MCP server registry search screen for discovering community MCP servers" width="720">
-</p>
-
-### Reusable rules library
-
-<p align="center">
-  <img src="assets/rules.png" alt="Rules library listing named rule snippets with a default flag so chosen rules auto-seed into projects" width="720">
-</p>
-
-### Project manifest with drift detection
-
-<p align="center">
-  <img src="assets/project.png" alt="Project screen with tabs for installed skills, agents, MCP servers, and rules, showing version pins and drift status" width="720">
-</p>
-
-### Layout profiles
-
-<p align="center">
-  <img src="assets/profiles.png" alt="Layout profiles screen showing Claude Code, Gemini CLI, and custom profiles with their target directories and mirrors" width="720">
-</p>
-
-### Project templates
-
-<p align="center">
-  <img src="assets/templates.png" alt="Project templates screen listing reusable setups and the count of skills, agents, MCP servers, and rules each one contains" width="720">
+  <img src="assets/aim-lock-sync.gif" alt="Running aim lock to pin declarations into aim.lock.toml, then aim sync to install the locked skills and agents into the project" width="820">
 </p>
 
 ## Quick start

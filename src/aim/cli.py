@@ -212,11 +212,17 @@ def _parse_source_url(url: str) -> tuple[str, str | None, str | None]:
 
 
 def _resolve_or_register_repo(
-    url: str, *, alias: str | None, allow_insecure: bool, default_ref: str | None = None
+    url: str,
+    *,
+    alias: str | None,
+    allow_insecure: bool,
+    default_ref: str | None = None,
+    assume_yes: bool = False,
 ) -> str:
     """Resolve a full git URL to a registered repo alias, registering it if
     necessary. Reuses an existing alias when the URL is already registered;
-    otherwise registers under `alias` (or one derived from the URL)."""
+    otherwise prompts before registering under `alias` (or one derived from the
+    URL). Pass `assume_yes` to skip the prompt."""
     target = _normalize_repo_url(url)
     for repo in repos_mod.list_repos():
         if _normalize_repo_url(repo.url) == target:
@@ -231,6 +237,10 @@ def _resolve_or_register_repo(
             f"alias {chosen!r} already maps to {existing.url}; pass --alias to choose another"
         )
     if existing is None:
+        if not assume_yes and not typer.confirm(
+            f"Repo {chosen!r} ({url}) is not registered. Register it now?", default=True
+        ):
+            raise typer.Abort()
         typer.echo(f"registering repo {chosen!r} -> {url}")
         repos_mod.add(
             chosen, url, default_ref=default_ref or "HEAD", allow_empty=True,
@@ -240,7 +250,13 @@ def _resolve_or_register_repo(
 
 
 def _qualified_for_add(
-    ctx: typer.Context, url: str, name: str | None, alias: str | None, kind: str
+    ctx: typer.Context,
+    url: str,
+    name: str | None,
+    alias: str | None,
+    kind: str,
+    *,
+    assume_yes: bool = False,
 ) -> str:
     """Resolve `add`'s URL (+ optional NAME) to a qualified name, registering the
     repo if needed. Accepts a clone URL or a web tree/blob URL; when the URL
@@ -252,7 +268,11 @@ def _qualified_for_add(
             f"could not infer the {kind} name from {url!r}; pass NAME explicitly"
         )
     repo_alias = _resolve_or_register_repo(
-        clone_url, alias=alias, allow_insecure=_get_allow_insecure(ctx), default_ref=ref
+        clone_url,
+        alias=alias,
+        allow_insecure=_get_allow_insecure(ctx),
+        default_ref=ref,
+        assume_yes=assume_yes,
     )
     return f"{repo_alias}/{resolved}"
 
@@ -1007,9 +1027,12 @@ def rule_add(
         "--track",
         help="Ref to track on update: 'latest-tag', a branch name, or any ref. Overrides repo default_ref.",
     ),
+    yes: bool = typer.Option(
+        False, "--yes", "-y", help="Register the source repo without prompting."
+    ),
 ) -> None:
     """Add a rule from a git repository, registering the repo if needed."""
-    qualified_name = _qualified_for_add(ctx, url, name, alias, "rule")
+    qualified_name = _qualified_for_add(ctx, url, name, alias, "rule", assume_yes=yes)
     installed = rule_install_mod.install(_here(project), qualified_name, pin=pin, track=track)
     typer.echo(f"added rule {qualified_name} {installed.current.identifier()}")
 
@@ -1209,9 +1232,12 @@ def skill_add(
         "--track",
         help="Ref to track on update: 'latest-tag', a branch name, or any ref. Overrides repo default_ref.",
     ),
+    yes: bool = typer.Option(
+        False, "--yes", "-y", help="Register the source repo without prompting."
+    ),
 ) -> None:
     """Add a skill from a git repository, registering the repo if needed."""
-    qualified_name = _qualified_for_add(ctx, url, name, alias, "skill")
+    qualified_name = _qualified_for_add(ctx, url, name, alias, "skill", assume_yes=yes)
     installed = install_mod.install(_here(project), qualified_name, pin=pin, track=track)
     typer.echo(
         f"added {qualified_name} {installed.current.identifier()} -> {installed.target_dir}"
@@ -1395,9 +1421,12 @@ def agent_add(
         "--track",
         help="Ref to track on update: 'latest-tag', a branch name, or any ref. Overrides repo default_ref.",
     ),
+    yes: bool = typer.Option(
+        False, "--yes", "-y", help="Register the source repo without prompting."
+    ),
 ) -> None:
     """Add a sub-agent from a git repository, registering the repo if needed."""
-    qualified_name = _qualified_for_add(ctx, url, name, alias, "sub-agent")
+    qualified_name = _qualified_for_add(ctx, url, name, alias, "sub-agent", assume_yes=yes)
     installed = agent_install_mod.install(_here(project), qualified_name, pin=pin, track=track)
     typer.echo(
         f"added {qualified_name} {installed.current.identifier()} -> {installed.target_path}"

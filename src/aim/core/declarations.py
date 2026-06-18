@@ -129,9 +129,23 @@ def _update_skill(project_root: Path, installed: object) -> None:
     save(project_root, decl)
 
 
+def _prune_repo_if_unused(decl: ProjectDeclarations, alias: str) -> None:
+    """Drop the `[repos]` binding for `alias` once no declared skill, agent, or
+    rule references it. Install paths add these bindings, so an orphaned one only
+    lingers after the last artifact from that repo is removed."""
+    used = (
+        any(s.repo_alias == alias for s in decl.skills)
+        or any(a.repo_alias == alias for a in decl.agents)
+        or any(r.repo_alias == alias for r in decl.rules)
+    )
+    if not used:
+        decl.repos.pop(alias, None)
+
+
 def _remove_skill(project_root: Path, qualified_name: str) -> None:
     decl = load_or_default(project_root)
     decl.skills = [s for s in decl.skills if s.qualified_name != qualified_name]
+    _prune_repo_if_unused(decl, qualified_name.split("/", 1)[0])
     save(project_root, decl)
 
 
@@ -158,6 +172,7 @@ def _update_agent(project_root: Path, installed: object) -> None:
 def _remove_agent(project_root: Path, qualified_name: str) -> None:
     decl = load_or_default(project_root)
     decl.agents = [a for a in decl.agents if a.qualified_name != qualified_name]
+    _prune_repo_if_unused(decl, qualified_name.split("/", 1)[0])
     save(project_root, decl)
 
 
@@ -183,6 +198,7 @@ def _update_rule(project_root: Path, installed: object) -> None:
 def _remove_rule(project_root: Path, qualified_name: str) -> None:
     decl = load_or_default(project_root)
     decl.rules = [r for r in decl.rules if r.qualified_name != qualified_name]
+    _prune_repo_if_unused(decl, qualified_name.split("/", 1)[0])
     save(project_root, decl)
 
 

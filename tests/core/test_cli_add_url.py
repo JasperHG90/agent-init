@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from aim.cli import _parse_source_url
+from aim.cli import _looks_like_url, _parse_source_url
 
 
 @pytest.mark.parametrize(
@@ -36,3 +36,18 @@ from aim.cli import _parse_source_url
 )
 def test_parse_source_url(url: str, expected: tuple[str, str | None, str | None]) -> None:
     assert _parse_source_url(url) == expected
+
+
+@pytest.mark.parametrize(
+    ("target", "is_url"),
+    [
+        ("https://github.com/org/repo", True),
+        ("http://example.com/a/b", True),
+        ("git@github.com:org/repo.git", True),
+        ("alias/name", False),
+        ("remove", False),
+        ("just-a-word", False),
+    ],
+)
+def test_looks_like_url(target: str, is_url: bool) -> None:
+    assert _looks_like_url(target) is is_url

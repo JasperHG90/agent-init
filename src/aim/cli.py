@@ -249,23 +249,49 @@ def _resolve_or_register_repo(
     return chosen
 
 
+def _looks_like_url(target: str) -> bool:
+    t = target.strip()
+    return "://" in t or (t.startswith("git@") and ":" in t)
+
+
+_QUALIFIED_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_-]*/[a-z0-9][a-z0-9_-]*$")
+
+
 def _qualified_for_add(
     ctx: typer.Context,
-    url: str,
+    target: str,
     name: str | None,
     alias: str | None,
     kind: str,
     *,
     assume_yes: bool = False,
 ) -> str:
-    """Resolve `add`'s URL (+ optional NAME) to a qualified name, registering the
-    repo if needed. Accepts a clone URL or a web tree/blob URL; when the URL
-    encodes the artifact path, NAME is inferred from it."""
-    clone_url, ref, name_hint = _parse_source_url(url)
+    """Resolve `add`'s positional arg to a qualified name.
+
+    Two forms are accepted:
+    - a git URL (clone or web tree/blob) — registers the repo (after a prompt,
+      unless `assume_yes`) and infers NAME from the URL path when omitted;
+    - a bare `<alias>/<name>` against an already-registered repo — never
+      registers; fails if the repo isn't registered yet.
+    """
+    if not _looks_like_url(target):
+        if name is None and _QUALIFIED_NAME_RE.match(target):
+            repo_alias = target.split("/", 1)[0]
+            if repo_alias not in {r.alias for r in repos_mod.list_repos()}:
+                raise typer.BadParameter(
+                    f"repo {repo_alias!r} is not registered. Add it first "
+                    f"(`aim repo add {repo_alias} <git-url>`), then retry."
+                )
+            return target
+        raise typer.BadParameter(
+            f"expected a git URL or '<alias>/<name>', got {target!r}"
+        )
+
+    clone_url, ref, name_hint = _parse_source_url(target)
     resolved = name or name_hint
     if not resolved:
         raise typer.BadParameter(
-            f"could not infer the {kind} name from {url!r}; pass NAME explicitly"
+            f"could not infer the {kind} name from {target!r}; pass NAME explicitly"
         )
     repo_alias = _resolve_or_register_repo(
         clone_url,
@@ -1011,7 +1037,7 @@ def rule_search(
 @_friendly
 def rule_add(
     ctx: typer.Context,
-    url: str = typer.Argument(..., help="Git clone URL, or a web tree/blob URL to the rule."),
+    url: str = typer.Argument(..., help="Git URL (clone or web tree/blob), or '<alias>/<name>' of an already-registered repo."),
     name: str | None = typer.Argument(
         None, help="Rule name within the repo (inferred from a tree/blob URL if omitted)."
     ),
@@ -1216,7 +1242,7 @@ def skill_search(
 @_friendly
 def skill_add(
     ctx: typer.Context,
-    url: str = typer.Argument(..., help="Git clone URL, or a web tree/blob URL to the skill."),
+    url: str = typer.Argument(..., help="Git URL (clone or web tree/blob), or '<alias>/<name>' of an already-registered repo."),
     name: str | None = typer.Argument(
         None, help="Skill name within the repo (inferred from a tree/blob URL if omitted)."
     ),
@@ -1405,7 +1431,7 @@ def agent_search(
 @_friendly
 def agent_add(
     ctx: typer.Context,
-    url: str = typer.Argument(..., help="Git clone URL, or a web tree/blob URL to the sub-agent."),
+    url: str = typer.Argument(..., help="Git URL (clone or web tree/blob), or '<alias>/<name>' of an already-registered repo."),
     name: str | None = typer.Argument(
         None, help="Sub-agent name within the repo (inferred from a tree/blob URL if omitted)."
     ),

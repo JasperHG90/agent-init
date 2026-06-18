@@ -1,9 +1,9 @@
 ---
 name: repo-add
 description: |
-  Use when the user asks to register or add a skill source repository,
-  rule-library overlay, or agent source repository for aim.
-  Handles `aim repo add` and `aim rule-repo add`.
+  Use when the user asks to register or add a source repository for aim —
+  the repo that provides skills, sub-agents, and/or rules. Handles
+  `aim repo add`, `aim repo list`, `aim repo refresh`, and `aim repo remove`.
 ---
 
 # Repo Add
@@ -71,30 +71,26 @@ Use this skill whenever the user wants to:
 
    If `AskUserQuestion` is unavailable, ask in plain text and confirm the values before running the command.
 
-3. **Prefer `aim repo add`.** This indexes skills, agents, and rules in one operation:
+3. **Register with `aim repo add`.** This clones the repo and indexes its skills, sub-agents, and rules in one operation:
 
    ```bash
    aim repo add <alias> <url> [--ref <branch-or-tag>]
    ```
 
-4. **If that fails and the user explicitly mentioned rules,** fall back to the rule-library overlay command:
-
-   ```bash
-   aim rule-repo add <alias> <url> [--ref <branch-or-tag>]
-   ```
-
-5. **After adding, show what became available.** Run one or more of:
+4. **After adding, show what became available.** Run one or more of:
 
    ```bash
    aim skill list --compact
-   aim agent list --compact
+   aim subagent list --compact
    aim rule list --compact
    ```
 
-6. **Echo the exact command used** and the short SHA/head if the CLI returned it.
+5. **Echo the exact command used** and the short SHA/head if the CLI returned it.
 
 ## Tips
 
 - Alias names must be lowercase alphanumeric, `_`, or `-`.
-- If the repo contains no skills/agents/rules and registration fails, suggest `--allow-empty` only when the user intentionally wants a placeholder.
+- `aim repo add` fails if the repo contains no skills, sub-agents, or rules.
+- Use `aim repo refresh <alias>` to pull upstream changes and re-index, and
+  `aim repo remove <alias>` to unregister.
 - Surface any git authentication hints the CLI provides; do not reword them.

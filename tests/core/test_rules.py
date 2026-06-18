@@ -136,3 +136,15 @@ def test_install_rejects_hidden_unicode(home: Path, tmp_path: Path, project_root
     with pytest.raises(content_guard.HiddenUnicodeError):
         rule_install.install(project_root, qn)
     assert not (project_root / ".claude" / "rules" / "be-concise.md").exists()
+
+
+def test_remove_prunes_orphan_repo_binding(home: Path, tmp_path: Path, project_root: Path) -> None:
+    from aim.core import declarations
+
+    _, qn = _make_project_and_repo(tmp_path, project_root)
+    rule_install.install(project_root, qn)
+    assert "anth" in declarations.load(project_root).repos
+
+    rule_install.delete(project_root, qn)
+    # The last artifact from the repo is gone, so its [repos] binding is pruned.
+    assert "anth" not in declarations.load(project_root).repos

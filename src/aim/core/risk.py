@@ -388,6 +388,34 @@ def get_classifier(config: RiskConfig) -> RiskClassifier:
     return local or judge or NullClassifier()
 
 
+def prewarm(project_root: Path | None) -> None:
+    """Best-effort: load the active risk model(s) in a daemon thread so the expensive
+    one-time init (ONNX session build, DSPy import) overlaps the artifact fetch instead
+    of blocking the scan. A no-op when risk is off. Never raises — policy resolution and
+    load errors are swallowed; the real scan inside the deploy surfaces them."""
+    try:
+        config = config_from_policy(policy.effective_policy(project_root))
+    except Exception:
+        return
+    if not config.active:
+        return
+
+    def _load() -> None:
+        try:
+            if config.classifier:
+                # The screen gates the judge, so only warm the screen here — eagerly
+                # spinning up the judge LM would do DSPy/model work for artifacts the
+                # screen is about to block.
+                _load_onnx_model(config.model_id)
+            elif config.llm_judge and config.judge:
+                _judge_lm(config.judge)
+                _rule_judge_signature()
+        except Exception:
+            pass
+
+    threading.Thread(target=_load, daemon=True).start()
+
+
 # ---------- verdict store: per-artifact history (last 3), keyed by content hash ----------
 
 _HISTORY = 3

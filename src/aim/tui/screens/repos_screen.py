@@ -177,12 +177,20 @@ class ReposScreen(Screen[None]):
         def _on_confirm(yes: bool | None) -> None:
             if yes is not True:
                 return
+            project_root = getattr(self.app, "_project_root", None)
             try:
+                repos.get(alias)  # fail before deleting anything
+                removed = (
+                    repos.remove_project_artifacts(project_root, alias)
+                    if project_root is not None
+                    else []
+                )
                 repos.remove(alias)
             except repos.RepoNotFoundError as exc:
                 self.app.notify(f"remove failed: {exc}", severity="error")
                 return
-            self.app.notify(f"removed {alias}")
+            extra = f" (+{len(removed)} artifact(s))" if removed else ""
+            self.app.notify(f"removed {alias}{extra}")
             self._populate()
 
         self.app.push_screen(

@@ -229,6 +229,40 @@ def remove(alias: str) -> None:
     git.remove_clone(clone_dir(alias))
 
 
+def remove_project_artifacts(project_root: Path, alias: str) -> list[str]:
+    """Uninstall every skill/agent/rule in `project_root` that came from `alias`
+    (deployed files + lockfile + aim.toml declarations, which prunes the `[repos]`
+    binding once the last one is gone). Returns the qualified names removed; a no-op
+    when the project has no declarations. Imports the artifact modules locally to keep
+    repos free of an import cycle."""
+    from aim.core import agent_install, declarations, install, rule_install
+
+    try:
+        decl = declarations.load(project_root)
+    except declarations.DeclarationsNotFoundError:
+        return []
+    removed: list[str] = []
+    for skill in [s for s in decl.skills if s.repo_alias == alias]:
+        try:
+            install.delete(project_root, skill.qualified_name)
+        except install.SkillNotInstalledError:
+            declarations._remove_skill(project_root, skill.qualified_name)
+        removed.append(skill.qualified_name)
+    for agent in [a for a in decl.agents if a.repo_alias == alias]:
+        try:
+            agent_install.delete(project_root, agent.qualified_name)
+        except agent_install.AgentNotInstalledError:
+            declarations._remove_agent(project_root, agent.qualified_name)
+        removed.append(agent.qualified_name)
+    for rule in [r for r in decl.rules if r.repo_alias == alias]:
+        try:
+            rule_install.delete(project_root, rule.qualified_name)
+        except rule_install.RuleNotInstalledError:
+            declarations._remove_rule(project_root, rule.qualified_name)
+        removed.append(rule.qualified_name)
+    return removed
+
+
 def _delete_skill_index(alias: str):  # type: ignore[no-untyped-def]
     from sqlmodel import delete as _delete
 

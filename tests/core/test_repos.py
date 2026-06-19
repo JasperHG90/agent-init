@@ -39,6 +39,10 @@ class _AuthFailingBackend:
         _ = (repo_dir, sha, path)
         raise git.GitError("not found")
 
+    def cat_file_batch(self, repo_dir: Path, sha: str, paths: list[str]) -> dict[str, bytes]:
+        _ = (repo_dir, sha, paths)
+        raise git.GitError("not found")
+
     def cat_file_bytes(self, repo_dir: Path, sha: str, path: str) -> bytes:
         _ = (repo_dir, sha, path)
         raise git.GitError("not found")
@@ -99,6 +103,33 @@ def test_remove_removes_clone(home: Path, bare_remote: tuple[Path, Path]) -> Non
     assert not repos.clone_dir("doomed").exists()
     with pytest.raises(repos.RepoNotFoundError):
         repos.get("doomed")
+
+
+def test_remove_project_artifacts_uninstalls_repo_skills(
+    home: Path, project_root: Path, tmp_path: Path
+) -> None:
+    from aim.core import declarations, install
+
+    working = git_fixtures.make_source_repo(
+        tmp_path / "src", files={"skills/foo/SKILL.md": "# foo\n\nDescribed.\n"}
+    )
+    bare = git_fixtures.make_bare_remote(working, tmp_path / "bare.git")
+    repos.add("a", f"file://{bare}")
+    install.install(project_root, "a/foo")
+    assert (project_root / ".claude" / "skills" / "foo").exists()
+    assert "a" in declarations.load(project_root).repos
+
+    removed = repos.remove_project_artifacts(project_root, "a")
+
+    assert removed == ["a/foo"]
+    assert not (project_root / ".claude" / "skills" / "foo").exists()
+    decl = declarations.load(project_root)
+    assert decl.skills == []
+    assert "a" not in decl.repos  # [repos] binding pruned with the last artifact
+
+
+def test_remove_project_artifacts_no_declarations_is_noop(home: Path, project_root: Path) -> None:
+    assert repos.remove_project_artifacts(project_root, "anything") == []
 
 
 def test_rename_moves_clone(home: Path, bare_remote: tuple[Path, Path]) -> None:
@@ -271,6 +302,10 @@ def test_refresh_auth_failure_has_helpful_message(
 
         def cat_file(self, repo_dir: Path, sha: str, path: str) -> str:
             _ = (repo_dir, sha, path)
+            raise git.GitError("not found")
+
+        def cat_file_batch(self, repo_dir: Path, sha: str, paths: list[str]) -> dict[str, bytes]:
+            _ = (repo_dir, sha, paths)
             raise git.GitError("not found")
 
         def cat_file_bytes(self, repo_dir: Path, sha: str, path: str) -> bytes:

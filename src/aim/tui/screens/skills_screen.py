@@ -34,6 +34,7 @@ class SkillsScreen(Screen[None]):
     def __init__(self) -> None:
         super().__init__()
         self._repo_filter: str | None = None
+        self._installing: tuple[str, SkillInstallConfig] | None = None
 
     def compose(self) -> ComposeResult:
         yield Static("Skills", id="title", markup=False)
@@ -150,17 +151,30 @@ class SkillsScreen(Screen[None]):
     def _install(self, qualified_name: str, cfg: SkillInstallConfig | None) -> None:
         if cfg is None:
             return
+        # The risk scan can pull a model or call a judge — run off the UI thread so the
+        # TUI doesn't freeze. Errors/warnings are surfaced from the worker.
+        self._installing = (qualified_name, cfg)
+        self._status(f"scanning {qualified_name}…")
+        self.run_worker(self._do_install_thread, exclusive=True, thread=True)
+
+    def _do_install_thread(self) -> None:
+        if self._installing is None:
+            return
+        qualified_name, cfg = self._installing
         try:
             result = install.install(cfg.project_root, qualified_name, pin=cfg.pin, track=cfg.track)
         except _SKILL_DEPLOY_ERRORS as exc:
-            self.app.notify(f"install failed: {exc}", severity="error")
+            self.app.call_from_thread(self.app.notify, f"install failed: {exc}", severity="error")
+            self.app.call_from_thread(self._status, f"install failed: {exc}")
             return
-        self.app.notify(
+        self.app.call_from_thread(
+            self.app.notify,
             f"installed {qualified_name} {result.current.identifier()} -> {result.target_dir}",
             title="Skill installed",
         )
+        self.app.call_from_thread(self._status, f"installed {qualified_name}")
         for warn in risk.take_risk_warnings():
-            self.app.notify(warn, severity="warning", title="risk")
+            self.app.call_from_thread(self.app.notify, warn, severity="warning", title="risk")
 
     def _status(self, msg: str) -> None:
         self.query_one("#status", Static).update(msg)

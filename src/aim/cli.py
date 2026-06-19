@@ -1333,6 +1333,7 @@ def rule_add(
 ) -> None:
     """Add a rule from a git repository, registering the repo if needed."""
     qualified_name = _qualified_for_add(ctx, url, name, alias, "rule", assume_yes=yes)
+    risk_mod.prewarm(_here(project))  # overlap model load with the clone below
     with _scanning(f"Scanning {qualified_name}…"):
         installed = rule_install_mod.install(
             _here(project), qualified_name, pin=pin, track=track, override_risk=override_risk
@@ -1457,10 +1458,18 @@ def repo_list(ctx: typer.Context) -> None:
 
 @repo_app.command("remove")
 @_friendly
-def repo_remove(alias: str) -> None:
-    """Unregister a source repo and delete its local clone."""
+def repo_remove(
+    alias: str,
+    project: Path | None = typer.Argument(None, help="Project root (defaults to cwd)."),
+) -> None:
+    """Unregister a source repo, delete its local clone, and remove any of its
+    skills/agents/rules installed in the current project."""
+    repos_mod.get(alias)  # fail before deleting anything if the repo isn't registered
+    removed = repos_mod.remove_project_artifacts(_here(project), alias)
     repos_mod.remove(alias)
     typer.echo(f"removed repo {alias}")
+    for qualified_name in removed:
+        typer.echo(f"  removed {qualified_name}")
 
 
 @repo_app.command("rename")
@@ -1475,12 +1484,33 @@ def repo_rename(old: str, new: str) -> None:
 @_friendly
 def repo_refresh(
     ctx: typer.Context,
-    alias: str,
+    alias: str | None = typer.Argument(
+        None, help="Repo alias to refresh. Omit to refresh every registered repo."
+    ),
 ) -> None:
-    """Fetch the latest commits for a registered repo and re-index its artifacts."""
-    repo = repos_mod.refresh(alias, allow_insecure=_get_allow_insecure(ctx))
-    sha = repo.last_sha[:12] if repo.last_sha else "?"
-    typer.echo(f"refreshed {alias}: HEAD={sha}")
+    """Fetch the latest commits for a registered repo (or all repos) and re-index."""
+    allow_insecure = _get_allow_insecure(ctx)
+    if alias is not None:
+        repo = repos_mod.refresh(alias, allow_insecure=allow_insecure)
+        sha = repo.last_sha[:12] if repo.last_sha else "?"
+        typer.echo(f"refreshed {alias}: HEAD={sha}")
+        return
+    aliases = [r.alias for r in repos_mod.list_repos()]
+    if not aliases:
+        typer.echo("no repos registered")
+        return
+    failures = 0
+    for a in aliases:
+        try:
+            repo = repos_mod.refresh(a, allow_insecure=allow_insecure)
+        except _FRIENDLY_ERRORS as exc:
+            failures += 1
+            typer.echo(f"  {a}: {exc}", err=True)
+            continue
+        sha = repo.last_sha[:12] if repo.last_sha else "?"
+        typer.echo(f"refreshed {a}: HEAD={sha}")
+    if failures:
+        raise typer.Exit(code=1)
 
 
 # ---------- skill ----------
@@ -1554,6 +1584,7 @@ def skill_add(
 ) -> None:
     """Add a skill from a git repository, registering the repo if needed."""
     qualified_name = _qualified_for_add(ctx, url, name, alias, "skill", assume_yes=yes)
+    risk_mod.prewarm(_here(project))  # overlap model load with the clone below
     with _scanning(f"Scanning {qualified_name}…"):
         installed = install_mod.install(
             _here(project), qualified_name, pin=pin, track=track, override_risk=override_risk
@@ -1768,6 +1799,7 @@ def agent_add(
 ) -> None:
     """Add a sub-agent from a git repository, registering the repo if needed."""
     qualified_name = _qualified_for_add(ctx, url, name, alias, "sub-agent", assume_yes=yes)
+    risk_mod.prewarm(_here(project))  # overlap model load with the clone below
     with _scanning(f"Scanning {qualified_name}…"):
         installed = agent_install_mod.install(
             _here(project), qualified_name, pin=pin, track=track, override_risk=override_risk

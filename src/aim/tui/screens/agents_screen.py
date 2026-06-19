@@ -34,6 +34,7 @@ class AgentsScreen(Screen[None]):
     def __init__(self) -> None:
         super().__init__()
         self._repo_filter: str | None = None
+        self._installing: tuple[str, AgentInstallConfig] | None = None
 
     def compose(self) -> ComposeResult:
         yield Static("Subagents", id="title", markup=False)
@@ -151,21 +152,33 @@ class AgentsScreen(Screen[None]):
     def _install(self, qualified_name: str, cfg: AgentInstallConfig | None) -> None:
         if cfg is None:
             return
+        # Run off the UI thread: the risk scan can pull a model or call a judge.
+        self._installing = (qualified_name, cfg)
+        self._status(f"scanning {qualified_name}…")
+        self.run_worker(self._do_install_thread, exclusive=True, thread=True)
+
+    def _do_install_thread(self) -> None:
+        if self._installing is None:
+            return
+        qualified_name, cfg = self._installing
         try:
             result = install_mod.install(
                 cfg.project_root, qualified_name, pin=cfg.pin, track=cfg.track
             )
         except _AGENT_DEPLOY_ERRORS as exc:
-            self.app.notify(f"install failed: {exc}", severity="error")
+            self.app.call_from_thread(self.app.notify, f"install failed: {exc}", severity="error")
+            self.app.call_from_thread(self._status, f"install failed: {exc}")
             return
-        self.app.notify(
+        self.app.call_from_thread(
+            self.app.notify,
             f"installed {qualified_name} {result.current.identifier()} -> {result.target_path}",
             title="Agent installed",
         )
+        self.app.call_from_thread(self._status, f"installed {qualified_name}")
         for warn in install_mod.take_install_warnings():
-            self.app.notify(warn, severity="warning")
+            self.app.call_from_thread(self.app.notify, warn, severity="warning")
         for warn in risk.take_risk_warnings():
-            self.app.notify(warn, severity="warning", title="risk")
+            self.app.call_from_thread(self.app.notify, warn, severity="warning", title="risk")
 
     def _status(self, msg: str) -> None:
         self.query_one("#status", Static).update(msg)

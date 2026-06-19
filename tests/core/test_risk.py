@@ -111,6 +111,21 @@ def test_verdict_cached_by_content_hash(home: Path) -> None:
     assert fake.calls == 2  # new content reclassifies
 
 
+def test_cache_invalidated_when_config_changes(home: Path) -> None:
+    fake = FakeClassifier(risk.RiskLevel.LOW)
+    risk.set_classifier(fake)
+    cfg1 = _enabled_config()
+    risk.assert_acceptable_risk("same", source="a/b", config=cfg1)
+    risk.assert_acceptable_risk("same", source="a/b", config=cfg1)
+    assert fake.calls == 1  # same content + config -> cached
+    # Add a custom rule -> different config fingerprint -> must reclassify.
+    pol = policy.Policy(name="local")
+    pol.risk.enabled = True
+    pol.custom_rules = [policy.RiskRule(id="extra", severity="high", prompt="p")]
+    risk.assert_acceptable_risk("same", source="a/b", config=risk.config_from_policy(pol))
+    assert fake.calls == 2
+
+
 def test_history_capped_at_three(home: Path) -> None:
     risk.set_classifier(FakeClassifier(risk.RiskLevel.LOW))
     cfg = _enabled_config()
@@ -120,15 +135,22 @@ def test_history_capped_at_three(home: Path) -> None:
     assert len(history) == 3
 
 
-def test_dependency_unavailable_degrades_to_low(home: Path) -> None:
-    class Missing:
-        def classify(self, text: str, *, source: str | None = None) -> risk.RiskVerdict:
-            raise risk.RiskDependencyError("not installed")
+class _MissingDep:
+    def classify(self, text: str, *, source: str | None = None) -> risk.RiskVerdict:
+        raise risk.RiskDependencyError("not installed")
 
-    risk.set_classifier(Missing())
-    verdict = risk.assert_acceptable_risk("x", source="a/b", config=_enabled_config(mode="block"))
-    assert verdict.level is risk.RiskLevel.LOW  # never blocks on a missing dependency
+
+def test_dependency_unavailable_warn_mode_degrades_to_low(home: Path) -> None:
+    risk.set_classifier(_MissingDep())
+    verdict = risk.assert_acceptable_risk("x", source="a/b", config=_enabled_config(mode="warn"))
+    assert verdict.level is risk.RiskLevel.LOW  # advisory mode degrades gracefully
     assert any("skipped" in w for w in risk.take_risk_warnings())
+
+
+def test_dependency_unavailable_block_mode_fails_closed(home: Path) -> None:
+    risk.set_classifier(_MissingDep())
+    with pytest.raises(risk.RiskBlockedError, match="unavailable"):
+        risk.assert_acceptable_risk("x", source="a/b", config=_enabled_config(mode="block"))
 
 
 # ---------------------------------------------------------------------------

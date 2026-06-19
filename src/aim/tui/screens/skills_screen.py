@@ -6,9 +6,17 @@ from textual.app import ComposeResult
 from textual.screen import Screen
 from textual.widgets import DataTable, Input, Static
 
-from aim.core import git, install, manifest, repos, skills
+from aim.core import git, install, manifest, repos, risk, skills
+from aim.tui import errors as tui_errors
 from aim.tui.modals.skill_install import SkillInstallConfig, SkillInstallModal
 from aim.tui.modals.skill_view import SkillViewModal
+
+_SKILL_DEPLOY_ERRORS: tuple[type[BaseException], ...] = (  # noqa: RUF005
+    install.SkillNotIndexedError,
+    install.RollbackUnavailableError,
+    manifest.ManifestNotFoundError,
+    git.GitError,
+) + tui_errors.GOVERNANCE_ERRORS
 
 
 class SkillsScreen(Screen[None]):
@@ -144,18 +152,15 @@ class SkillsScreen(Screen[None]):
             return
         try:
             result = install.install(cfg.project_root, qualified_name, pin=cfg.pin, track=cfg.track)
-        except (
-            install.SkillNotIndexedError,
-            install.RollbackUnavailableError,
-            manifest.ManifestNotFoundError,
-            git.GitError,
-        ) as exc:
+        except _SKILL_DEPLOY_ERRORS as exc:
             self.app.notify(f"install failed: {exc}", severity="error")
             return
         self.app.notify(
             f"installed {qualified_name} {result.current.identifier()} -> {result.target_dir}",
             title="Skill installed",
         )
+        for warn in risk.take_risk_warnings():
+            self.app.notify(warn, severity="warning", title="risk")
 
     def _status(self, msg: str) -> None:
         self.query_one("#status", Static).update(msg)

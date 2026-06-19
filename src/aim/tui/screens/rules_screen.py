@@ -6,8 +6,15 @@ from textual.app import ComposeResult
 from textual.screen import Screen
 from textual.widgets import DataTable, Input, Static
 
-from aim.core import git, manifest, repo_rules, repos, rule_install
+from aim.core import git, manifest, repo_rules, repos, risk, rule_install
+from aim.tui import errors as tui_errors
 from aim.tui.modals.rule_install import RuleInstallConfig, RuleInstallModal
+
+_RULE_DEPLOY_ERRORS: tuple[type[BaseException], ...] = (  # noqa: RUF005
+    rule_install.RuleNotIndexedError,
+    manifest.ManifestNotFoundError,
+    git.GitError,
+) + tui_errors.GOVERNANCE_ERRORS
 
 
 class RulesScreen(Screen[None]):
@@ -129,17 +136,15 @@ class RulesScreen(Screen[None]):
             result = rule_install.install(
                 cfg.project_root, qualified_name, pin=cfg.pin, track=cfg.track
             )
-        except (
-            rule_install.RuleNotIndexedError,
-            manifest.ManifestNotFoundError,
-            git.GitError,
-        ) as exc:
+        except _RULE_DEPLOY_ERRORS as exc:
             self.app.notify(f"add failed: {exc}", severity="error")
             return
         self.app.notify(
             f"added {qualified_name} {result.current.identifier()}",
             title="Rule added",
         )
+        for warn in risk.take_risk_warnings():
+            self.app.notify(warn, severity="warning", title="risk")
 
     def _status(self, msg: str) -> None:
         self.query_one("#status", Static).update(msg)

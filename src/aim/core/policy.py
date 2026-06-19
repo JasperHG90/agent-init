@@ -25,7 +25,7 @@ from pathlib import Path
 import tomli_w
 from pydantic import BaseModel, ConfigDict, Field
 
-from aim.core import db, git, paths
+from aim.core import content_guard, db, git, paths
 from aim.core.models import GlobalSetting
 
 DEFAULT_MODEL_ID = "protectai/deberta-v3-base-prompt-injection-v2"
@@ -338,10 +338,14 @@ def _policy_clone_dir(repo_url: str) -> Path:
     return paths.user_cache_dir() / "policy" / key
 
 
-def fetch_org_policy(repo_url: str, ref: str = "HEAD") -> tuple[Policy, str]:
+def fetch_org_policy(
+    repo_url: str, ref: str = "HEAD", *, allow_insecure: bool = False
+) -> tuple[Policy, str]:
     """Bare-clone/fetch the policy repo and read `policy.toml` (+ optional
     `aim.rules.toml`) at the resolved commit. Returns (Policy, sha). Network op:
     call only from bind/refresh/validate, never from the lock/deploy hot path."""
+    # The policy repo is the trust root — never fetch it over plaintext http.
+    content_guard.require_secure_url(repo_url, allow_insecure=allow_insecure)
     paths.ensure_global_dirs()
     dest = _policy_clone_dir(repo_url)
     backend = git.get_backend()
@@ -352,14 +356,19 @@ def fetch_org_policy(repo_url: str, ref: str = "HEAD") -> tuple[Policy, str]:
     sha = backend.resolve_ref(dest, ref)
     pol = from_toml(backend.cat_file(dest, sha, "policy.toml"))
     try:
-        pol.custom_rules = parse_rules_toml(backend.cat_file(dest, sha, "aim.rules.toml"))
+        rules_text = backend.cat_file(dest, sha, "aim.rules.toml")
     except git.GitError:
-        pass  # aim.rules.toml is optional
+        rules_text = None  # aim.rules.toml is optional
+    if rules_text is not None:
+        pol.custom_rules = parse_rules_toml(rules_text)
     return pol, sha
 
 
-def _save_org_snapshot(repo_url: str, ref: str, sha: str, pol: Policy) -> None:
-    blob = json.dumps(
+def _save_binding_and_snapshot(repo_url: str, ref: str, sha: str, pol: Policy) -> None:
+    """Upsert the binding pointer AND the policy snapshot in ONE transaction, so a
+    crash can never leave a binding without a snapshot (which would fail open)."""
+    binding_blob = json.dumps({"repo": repo_url, "ref": ref})
+    snapshot_blob = json.dumps(
         {
             "repo": repo_url,
             "ref": ref,
@@ -369,11 +378,12 @@ def _save_org_snapshot(repo_url: str, ref: str, sha: str, pol: Policy) -> None:
         }
     )
     with db.session() as session:
-        row = session.get(GlobalSetting, _ORG_SNAPSHOT_KEY)
-        if row is None:
-            session.add(GlobalSetting(key=_ORG_SNAPSHOT_KEY, value=blob))
-        else:
-            row.value = blob
+        for key, value in ((_BINDING_KEY, binding_blob), (_ORG_SNAPSHOT_KEY, snapshot_blob)):
+            row = session.get(GlobalSetting, key)
+            if row is None:
+                session.add(GlobalSetting(key=key, value=value))
+            else:
+                row.value = value
         session.commit()
 
 
@@ -386,23 +396,26 @@ def _clear_org_snapshot() -> None:
 
 
 def load_org_snapshot() -> ResolvedPolicy | None:
-    """The last-fetched org policy, read from the DB (no network). Used by
-    resolution so `lock` stays offline."""
+    """The last-fetched org policy, read from the DB (no network). Returns None if
+    no snapshot exists OR the stored snapshot is unusable (corrupt). A corrupt
+    snapshot is treated as 'no usable policy' so resolution can fail closed."""
     with db.session() as session:
         row = session.get(GlobalSetting, _ORG_SNAPSHOT_KEY)
     if row is None:
         return None
-    data = json.loads(row.value)
-    pol = Policy.model_validate(data["policy"])
-    return ResolvedPolicy(pol, "org", data["repo"], data["hash"])
+    try:
+        data = json.loads(row.value)
+        pol = Policy.model_validate(data["policy"])
+        return ResolvedPolicy(pol, "org", data["repo"], data["hash"])
+    except (json.JSONDecodeError, KeyError, ValueError):
+        return None
 
 
-def bind(repo_url: str, ref: str = "HEAD") -> ResolvedPolicy:
-    """Bind to an org policy repo: fetch it, pin a snapshot, and record the
-    binding. The org policy then replaces the local one for this machine."""
-    pol, sha = fetch_org_policy(repo_url, ref)
-    set_binding(repo_url, ref)
-    _save_org_snapshot(repo_url, ref, sha, pol)
+def bind(repo_url: str, ref: str = "HEAD", *, allow_insecure: bool = False) -> ResolvedPolicy:
+    """Bind to an org policy repo: fetch it, then pin the snapshot and binding in a
+    single transaction. The org policy then replaces the local one for this machine."""
+    pol, sha = fetch_org_policy(repo_url, ref, allow_insecure=allow_insecure)
+    _save_binding_and_snapshot(repo_url, ref, sha, pol)
     return ResolvedPolicy(pol, "org", repo_url, compute_hash(pol))
 
 
@@ -430,14 +443,30 @@ class ResolvedPolicy:
     hash: str | None  # org policy hash, or local snapshot hash, else None
 
 
+def _bound_snapshot_or_fail() -> ResolvedPolicy | None:
+    """If an org policy is bound, return its snapshot — failing CLOSED if the
+    snapshot is missing or corrupt (rather than silently downgrading governance to
+    the permissive built-in). Returns None when nothing is bound."""
+    binding = get_binding()
+    if binding is None:
+        return None
+    snapshot = load_org_snapshot()
+    if snapshot is None:
+        raise PolicyError(
+            f"policy is bound to {binding.get('repo')!r} but no usable snapshot is "
+            "cached (missing or corrupt). Run `aim policy refresh` to re-fetch it, or "
+            "`aim policy unbind` to remove the binding."
+        )
+    return snapshot
+
+
 def resolve_effective(project_root: Path | None = None) -> ResolvedPolicy:
     """Resolve the effective policy: built-in default < local (DB) < org (bound).
     A bound org policy replaces local. Offline: reads the cached org snapshot,
-    never fetches (bind/refresh do that)."""
-    if get_binding() is not None:
-        snapshot = load_org_snapshot()
-        if snapshot is not None:
-            return snapshot
+    never fetches (bind/refresh do that). Fails closed if a binding has no snapshot."""
+    bound = _bound_snapshot_or_fail()
+    if bound is not None:
+        return bound
     local = load_local_policy()
     if local is not None:
         return ResolvedPolicy(local, "local", None, compute_hash(local))
@@ -446,11 +475,11 @@ def resolve_effective(project_root: Path | None = None) -> ResolvedPolicy:
 
 def effective_policy(project_root: Path | None = None) -> Policy:
     """The resolved policy without computing a hash — the cheap path used by the
-    per-artifact deploy gates (which only need the policy, not its hash)."""
-    if get_binding() is not None:
-        snapshot = load_org_snapshot()
-        if snapshot is not None:
-            return snapshot.policy
+    per-artifact deploy gates (which only need the policy, not its hash). Fails
+    closed if a binding has no usable snapshot."""
+    bound = _bound_snapshot_or_fail()
+    if bound is not None:
+        return bound.policy
     return load_local_policy() or builtin_policy()
 
 

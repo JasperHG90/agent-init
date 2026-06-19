@@ -119,6 +119,17 @@ def _friendly(fn: Callable[..., Any]) -> Callable[..., Any]:
         except _FRIENDLY_ERRORS as exc:
             typer.echo(f"error: {exc}", err=True)
             raise typer.Exit(code=1) from exc
+        finally:
+            # Surface buffered warnings from any deploy path (add/update/rollback/
+            # sync) so they are never silently dropped — even when the command
+            # raised before its own inline drain. Buffers are emptied by the drain,
+            # so commands that already drained inline print nothing twice.
+            for warn in install_mod.take_install_warnings():
+                typer.echo(f"  warning: {warn}", err=True)
+            for warn in agent_install_mod.take_install_warnings():
+                typer.echo(f"  warning: {warn}", err=True)
+            for warn in risk_mod.take_risk_warnings():
+                typer.echo(f"  risk: {warn}", err=True)
 
     return wrapper
 

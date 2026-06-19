@@ -255,17 +255,26 @@ def _ensure_symlinks_safe(snap: Path) -> None:
             )
 
 
+_RISK_TEXT_CAP = 256 * 1024  # bytes; bound the text fed to the classifier
+
+
 def _gather_skill_text(snap: Path) -> str:
-    """Concatenate the UTF-8 text of a skill snapshot for risk classification.
-    Only called when a policy enables risk scanning."""
+    """Concatenate the UTF-8 text of a skill snapshot for risk classification,
+    capped so a large/hostile tree can't exhaust memory. Only called when a policy
+    enables risk scanning."""
     parts: list[str] = []
+    total = 0
     for path in sorted(snap.rglob("*")):
+        if total >= _RISK_TEXT_CAP:
+            break
         if not path.is_file() or path.is_symlink():
             continue
         try:
-            parts.append(path.read_text(encoding="utf-8"))
+            text = path.read_text(encoding="utf-8")
         except (UnicodeDecodeError, OSError):
             continue
+        parts.append(text[: _RISK_TEXT_CAP - total])
+        total += len(text)
     return "\n".join(parts)
 
 

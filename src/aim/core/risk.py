@@ -18,7 +18,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
+import threading
 from dataclasses import dataclass, field
 from enum import IntEnum
 from pathlib import Path
@@ -218,37 +220,77 @@ def _load_history(qualified_name: str) -> list[dict]:
         return []
 
 
-def verdict_cache_get(qualified_name: str, content_hash: str) -> RiskVerdict | None:
+def config_fingerprint(config: RiskConfig) -> str:
+    """Identity of the classifier configuration: a cached verdict is only valid for
+    the same fingerprint, so changing the rules/backend/judge/thresholds correctly
+    invalidates stale verdicts instead of reusing a level computed under old rules."""
+    payload = json.dumps(
+        {
+            "backend": config.backend,
+            "model_id": config.model_id,
+            "judge": config.judge,
+            "escalate": int(config.escalate_threshold),
+            "rules": sorted((r.id, r.severity, r.prompt) for r in config.rules),
+        },
+        sort_keys=True,
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
+
+
+def verdict_cache_get(
+    qualified_name: str, content_hash: str, fingerprint: str
+) -> RiskVerdict | None:
     for entry in _load_history(qualified_name):
-        if entry.get("content_hash") == content_hash:
+        if entry.get("content_hash") == content_hash and entry.get("fingerprint") == fingerprint:
             return RiskVerdict(RiskLevel(entry["level"]), list(entry.get("reasons", [])), "cache")
     return None
 
 
-def verdict_cache_put(qualified_name: str, content_hash: str, verdict: RiskVerdict) -> None:
-    history = [e for e in _load_history(qualified_name) if e.get("content_hash") != content_hash]
-    history.append(
-        {
-            "content_hash": content_hash,
-            "level": int(verdict.level),
-            "reasons": verdict.reasons,
-            "source": verdict.source,
-        }
-    )
-    history = history[-_HISTORY:]
+_store_lock = threading.Lock()
+
+
+def verdict_cache_put(
+    qualified_name: str, content_hash: str, fingerprint: str, verdict: RiskVerdict
+) -> None:
     path = _verdict_store_path(qualified_name)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(history), encoding="utf-8")
+    key = (content_hash, fingerprint)
+    with _store_lock:  # sync fans gates out across threads; serialize the RMW + write
+        history = [
+            e
+            for e in _load_history(qualified_name)
+            if (e.get("content_hash"), e.get("fingerprint")) != key
+        ]
+        history.append(
+            {
+                "content_hash": content_hash,
+                "fingerprint": fingerprint,
+                "level": int(verdict.level),
+                "reasons": verdict.reasons,
+                "source": verdict.source,
+            }
+        )
+        history = history[-_HISTORY:]
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(history), encoding="utf-8")
+        os.replace(tmp, path)  # atomic publish (intra-process lock only)
 
 
 # ---------- advisory warnings buffer (drained by the CLI/TUI) ----------
 
 _risk_warnings: list[str] = []
+_warnings_lock = threading.Lock()
+
+
+def _warn(message: str) -> None:
+    with _warnings_lock:
+        _risk_warnings.append(message)
 
 
 def take_risk_warnings() -> list[str]:
-    out = list(_risk_warnings)
-    _risk_warnings.clear()
+    with _warnings_lock:
+        out = list(_risk_warnings)
+        _risk_warnings.clear()
     return out
 
 
@@ -270,14 +312,22 @@ def assert_acceptable_risk(
         return RiskVerdict(RiskLevel.LOW, [], "disabled")
 
     content_hash = hashlib.sha256(text.encode("utf-8")).hexdigest()
-    verdict = verdict_cache_get(source, content_hash)
+    fingerprint = config_fingerprint(config)
+    verdict = verdict_cache_get(source, content_hash, fingerprint)
     if verdict is None:
         try:
             verdict = get_classifier(config).classify(text, source=source)
         except RiskDependencyError as exc:
-            _risk_warnings.append(f"{source}: risk scan skipped ({exc})")
+            # In block mode the policy demands enforcement, so an unavailable
+            # classifier must fail CLOSED — otherwise block mode is silently vacuous.
+            if config.mode == "block" and not allow_risky:
+                raise RiskBlockedError(
+                    f"{source}: policy requires risk blocking but the classifier is "
+                    f"unavailable ({exc}); install the risk extra or pass --allow-risky"
+                ) from exc
+            _warn(f"{source}: risk scan skipped ({exc})")
             return RiskVerdict(RiskLevel.LOW, [], "unavailable")
-        verdict_cache_put(source, content_hash, verdict)
+        verdict_cache_put(source, content_hash, fingerprint, verdict)
 
     if verdict.level >= config.block_threshold:
         detail = "; ".join(verdict.reasons) or "no detail"
@@ -286,11 +336,9 @@ def assert_acceptable_risk(
                 f"{source}: risk {verdict.level.name} >= {config.block_threshold.name}: {detail}"
                 " (pass --allow-risky to override)"
             )
-        _risk_warnings.append(f"{source}: risk {verdict.level.name}: {detail}")
+        _warn(f"{source}: risk {verdict.level.name}: {detail}")
     elif verdict.level >= RiskLevel.MEDIUM:
-        _risk_warnings.append(
-            f"{source}: risk {verdict.level.name}: {'; '.join(verdict.reasons) or 'no detail'}"
-        )
+        _warn(f"{source}: risk {verdict.level.name}: {'; '.join(verdict.reasons) or 'no detail'}")
     return verdict
 
 

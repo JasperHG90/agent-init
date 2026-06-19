@@ -7,9 +7,16 @@ from textual.screen import Screen
 from textual.widgets import DataTable, Input, Static
 
 from aim.core import agent_install as install_mod
-from aim.core import agents, git, manifest, repos
+from aim.core import agents, git, manifest, repos, risk
+from aim.tui import errors as tui_errors
 from aim.tui.modals.agent_install import AgentInstallConfig, AgentInstallModal
 from aim.tui.modals.agent_view import AgentViewModal
+
+_AGENT_DEPLOY_ERRORS: tuple[type[BaseException], ...] = (  # noqa: RUF005
+    install_mod.AgentNotIndexedError,
+    manifest.ManifestNotFoundError,
+    git.GitError,
+) + tui_errors.GOVERNANCE_ERRORS
 
 
 class AgentsScreen(Screen[None]):
@@ -148,11 +155,7 @@ class AgentsScreen(Screen[None]):
             result = install_mod.install(
                 cfg.project_root, qualified_name, pin=cfg.pin, track=cfg.track
             )
-        except (
-            install_mod.AgentNotIndexedError,
-            manifest.ManifestNotFoundError,
-            git.GitError,
-        ) as exc:
+        except _AGENT_DEPLOY_ERRORS as exc:
             self.app.notify(f"install failed: {exc}", severity="error")
             return
         self.app.notify(
@@ -161,6 +164,8 @@ class AgentsScreen(Screen[None]):
         )
         for warn in install_mod.take_install_warnings():
             self.app.notify(warn, severity="warning")
+        for warn in risk.take_risk_warnings():
+            self.app.notify(warn, severity="warning", title="risk")
 
     def _status(self, msg: str) -> None:
         self.query_one("#status", Static).update(msg)

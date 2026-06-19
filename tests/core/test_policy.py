@@ -439,6 +439,36 @@ def test_resolve_offline_uses_snapshot_after_remote_gone(home: Path, tmp_path: P
     assert resolved.policy.name == "acme"
 
 
+def test_bound_without_snapshot_fails_closed(home: Path) -> None:
+    # A binding with no/corrupt snapshot must NOT silently downgrade to permissive.
+    policy.set_binding("https://example.com/policy.git", "main")
+    with pytest.raises(policy.PolicyError, match="refresh"):
+        policy.resolve_effective()
+    with pytest.raises(policy.PolicyError):
+        policy.effective_policy()
+
+
+def test_corrupt_snapshot_fails_closed(home: Path, tmp_path: Path) -> None:
+    url = _make_policy_repo(tmp_path, 'version = 1\nname = "acme"\n')
+    policy.bind(url)
+    # Corrupt the stored snapshot row.
+    from aim.core import db
+    from aim.core.models import GlobalSetting
+
+    with db.session() as s:
+        row = s.get(GlobalSetting, "policy:org_snapshot")
+        row.value = "{not json"
+        s.commit()
+    assert policy.load_org_snapshot() is None
+    with pytest.raises(policy.PolicyError):
+        policy.resolve_effective()
+
+
+def test_bind_rejects_insecure_http(home: Path) -> None:
+    with pytest.raises(content_guard.InsecureTransportError):
+        policy.bind("http://insecure/policy.git")
+
+
 def test_unbind_falls_back_to_local(home: Path, tmp_path: Path) -> None:
     policy.save_local_policy(policy.Policy(name="local"))
     url = _make_policy_repo(tmp_path, 'version = 1\nname = "acme"\n')
@@ -486,3 +516,8 @@ def test_validate_against_remote_policy_cli(home: Path, project_root: Path, tmp_
     )
     # No local/org binding; --policy fetches the remote fresh (the out-of-band gate).
     assert _validate(project_root, "--policy", url) == 1
+
+
+def test_validate_remote_rejects_insecure_http(home: Path, project_root: Path) -> None:
+    _write_declarations(project_root)
+    assert _validate(project_root, "--policy", "http://insecure/policy.git") == 1

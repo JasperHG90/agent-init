@@ -16,6 +16,7 @@ in the policy (intended only once a model is measured against a labeled corpus).
 
 from __future__ import annotations
 
+import functools
 import hashlib
 import json
 import os
@@ -24,7 +25,7 @@ import threading
 from dataclasses import dataclass, field
 from enum import IntEnum
 from pathlib import Path
-from typing import Protocol
+from typing import Any, Protocol
 
 from aim.core import paths, policy
 
@@ -100,28 +101,128 @@ def risk_model_dir() -> Path:
     return paths.user_cache_dir() / "risk-model"
 
 
+def _injection_label_index(config_path: Path) -> int:
+    """Which output index means 'injection/unsafe', read from the model config.
+    Defaults to 1 (ProtectAI convention: 0=SAFE, 1=INJECTION)."""
+    try:
+        id2label = json.loads(config_path.read_text(encoding="utf-8")).get("id2label", {})
+    except (OSError, json.JSONDecodeError):
+        return 1
+    for idx, label in id2label.items():
+        if any(k in str(label).lower() for k in ("inject", "unsafe", "jailbreak", "malicious")):
+            return int(idx)
+    return 1
+
+
+def _injection_score_to_level(score: float) -> RiskLevel:
+    if score >= 0.9:
+        return RiskLevel.HIGH
+    if score >= 0.5:
+        return RiskLevel.MEDIUM
+    return RiskLevel.LOW
+
+
+@functools.lru_cache(maxsize=4)
+def _load_onnx_model(model_id: str) -> tuple[Any, Any, int, tuple[str, ...]]:
+    """Download (to platformdirs) and load an ONNX text-classification model once.
+    Returns (session, tokenizer, injection_index, input_names). Cached per model_id."""
+    try:
+        import onnxruntime as ort
+        from huggingface_hub import snapshot_download
+        from tokenizers import Tokenizer
+    except ImportError as exc:
+        raise RiskDependencyError(
+            "local risk model needs the 'risk' extra: pip install 'agent-init[risk]'"
+        ) from exc
+    local_dir = Path(
+        snapshot_download(
+            model_id,
+            cache_dir=str(risk_model_dir()),
+            # Pull only what inference needs — never the torch/tf weights.
+            allow_patterns=["*.onnx", "*.json", "tokenizer*", "spm.model", "*.txt"],
+        )
+    )
+    onnx_files = sorted(local_dir.rglob("*.onnx"))
+    if not onnx_files:
+        raise RiskDependencyError(f"no .onnx file found in {model_id}")
+    # Prefer the full-precision model.onnx over quantized variants for accuracy.
+    model_path = next((p for p in onnx_files if p.name == "model.onnx"), onnx_files[0])
+    tok_path = local_dir / "tokenizer.json"
+    if not tok_path.exists():
+        raise RiskDependencyError(
+            f"{model_id} has no tokenizer.json (a fast tokenizer is required)"
+        )
+    tokenizer = Tokenizer.from_file(str(tok_path))
+    tokenizer.enable_truncation(max_length=512)
+    session = ort.InferenceSession(str(model_path), providers=["CPUExecutionProvider"])
+    input_names = tuple(i.name for i in session.get_inputs())
+    return session, tokenizer, _injection_label_index(local_dir / "config.json"), input_names
+
+
 @dataclass
 class LocalOnnxClassifier:
-    """Cheap injection/jailbreak screen. Lazily loads an ONNX text-classification
-    model; raises RiskDependencyError if the `risk` extra is not installed."""
+    """Cheap injection/jailbreak screen backed by a local ONNX text-classification
+    model (default deberta-v3-base-prompt-injection-v2). On-device, no egress.
+    Raises RiskDependencyError if the `risk` extra is not installed."""
 
     model_id: str
 
     def classify(self, text: str, *, source: str | None = None) -> RiskVerdict:
-        try:
-            import onnxruntime  # noqa: F401
-            from huggingface_hub import snapshot_download  # noqa: F401
-            from tokenizers import Tokenizer  # noqa: F401
-        except ImportError as exc:
-            raise RiskDependencyError(
-                "local risk model needs the 'risk' extra: pip install agent-init[risk]"
-            ) from exc
-        cache_dir = risk_model_dir()
-        cache_dir.mkdir(parents=True, exist_ok=True)
-        # Real inference is wired once a measured model is pinned. When enabled it
-        # downloads into the platformdirs cache and loads the session/tokenizer from
-        # there: snapshot_download(self.model_id, cache_dir=str(cache_dir)).
-        raise RiskDependencyError("local risk model inference not yet enabled")
+        import numpy as np
+
+        session, tokenizer, injection_index, input_names = _load_onnx_model(self.model_id)
+        enc = tokenizer.encode(text)
+        ids = list(enc.ids)
+        feed: dict[str, Any] = {}
+        if "input_ids" in input_names:
+            feed["input_ids"] = np.array([ids], dtype=np.int64)
+        if "attention_mask" in input_names:
+            feed["attention_mask"] = np.array([list(enc.attention_mask)], dtype=np.int64)
+        if "token_type_ids" in input_names:
+            feed["token_type_ids"] = np.zeros((1, len(ids)), dtype=np.int64)
+        logits = np.asarray(session.run(None, feed)[0])[0]
+        exp = np.exp(logits - np.max(logits))
+        probs = exp / exp.sum()
+        score = float(probs[injection_index])
+        return RiskVerdict(
+            _injection_score_to_level(score),
+            [f"prompt-injection/jailbreak likelihood {score:.2f}"],
+            "local:onnx",
+        )
+
+
+def _parse_findings(raw: str) -> list[dict]:
+    """Tolerantly parse the judge's findings JSON (strip code fences / surrounding prose)."""
+    text = raw.strip()
+    if text.startswith("```"):
+        text = text.strip("`")
+        text = text[text.find("\n") + 1 :] if "\n" in text else text
+    start, end = text.find("["), text.rfind("]")
+    if start != -1 and end > start:
+        text = text[start : end + 1]
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError:
+        return []
+    return [f for f in data if isinstance(f, dict)] if isinstance(data, list) else []
+
+
+def _judge_verdict(findings: list[dict], rules: list[policy.RiskRule]) -> RiskVerdict:
+    """Fold per-rule findings into one verdict: level = max severity among violated
+    rules; reasons name the rule that fired and its evidence."""
+    severity_by_id = {r.id: r.severity for r in rules}
+    violated = [f for f in findings if f.get("violated") in (True, "true", "True", 1)]
+    if not violated:
+        return RiskVerdict(RiskLevel.LOW, [], "judge")
+    level = max(
+        (
+            RiskLevel.from_severity(severity_by_id.get(str(f.get("rule_id")), "high"))
+            for f in violated
+        ),
+        default=RiskLevel.LOW,
+    )
+    reasons = [f"{f.get('rule_id')}: {f.get('evidence', '')}".strip().rstrip(":") for f in violated]
+    return RiskVerdict(level, reasons, "judge")
 
 
 @dataclass
@@ -131,20 +232,49 @@ class JudgeClassifier:
     the `risk-judge` extra is not installed.
 
     aim only needs DSPy here — DSPy accesses the configured language model on its
-    own. How that model is hosted (a local server, a remote endpoint) and which
-    model the `judge` setting names is the user's concern, configured through DSPy,
-    not something aim manages."""
+    own via the model string in `[risk].judge` (e.g. "ollama_chat/llama3" or
+    "openai/gpt-4o"). How that model is hosted and authenticated (local server,
+    remote endpoint, env credentials) is the user's concern, not aim's."""
 
     config: RiskConfig
+    lm: Any = None  # pre-built DSPy LM; tests/advanced users inject one here
 
     def classify(self, text: str, *, source: str | None = None) -> RiskVerdict:
         try:
-            import dspy  # noqa: F401
+            import dspy
         except ImportError as exc:
             raise RiskDependencyError(
-                "risk judge needs the 'risk-judge' extra: pip install agent-init[risk-judge]"
+                "risk judge needs the 'risk-judge' extra: pip install 'agent-init[risk-judge]'"
             ) from exc
-        raise RiskDependencyError("risk judge inference not yet enabled")
+        lm = self.lm if self.lm is not None else dspy.settings.lm
+        if lm is None:
+            if not self.config.judge:
+                raise RiskDependencyError(
+                    "no judge model configured; set [risk].judge in the policy"
+                )
+            lm = dspy.LM(self.config.judge)
+        rules = self.config.rules
+        if not rules:
+            return RiskVerdict(RiskLevel.LOW, [], "judge")
+
+        class _RuleJudge(dspy.Signature):
+            """Assess an AI agent artifact (skill/rule/subagent instructions) against
+            each risk rule. Judge execution-time intent — data exfiltration, destructive
+            operations, remote code execution, privilege escalation, obfuscation — not
+            mere mention. Mark `violated` true only with concrete evidence in the text."""
+
+            artifact: str = dspy.InputField(desc="the artifact text to assess")
+            rules: str = dspy.InputField(desc="JSON list of rules [{id, severity, guidance}]")
+            findings: str = dspy.OutputField(
+                desc='JSON list [{"rule_id": str, "violated": bool, "evidence": str}]'
+            )
+
+        payload = json.dumps(
+            [{"id": r.id, "severity": r.severity, "guidance": r.prompt} for r in rules]
+        )
+        with dspy.context(lm=lm):
+            out = dspy.Predict(_RuleJudge)(artifact=text, rules=payload)
+        return _judge_verdict(_parse_findings(out.findings), rules)
 
 
 @dataclass

@@ -1,0 +1,111 @@
+{
+  "version": 1,
+  "manifesto_path": "MANIFESTO.md",
+  "enforcers": [
+    {
+      "id": "I1",
+      "title": "Persisted schemas reject unknown fields",
+      "path": "tests/core/test_manifest.py",
+      "anchor": "def test_manifest_rejects_unknown_fields",
+      "resolved_line": 77,
+      "file_sha256": "c349f9869089f807747ff8b0d2a167335329d9081cde67a6fca806888df746ae"
+    },
+    {
+      "id": "I2",
+      "title": "Forward-only manifest migration",
+      "path": "src/aim/core/manifest_migrate.py",
+      "anchor": "if version > CURRENT_MANIFEST_VERSION:",
+      "resolved_line": 114,
+      "file_sha256": "5dd7ab4e30c535233b504d5a093878c9321f76061295fa3b07252aaf97218ef8"
+    },
+    {
+      "id": "I3",
+      "title": "Install targets cannot escape project root",
+      "path": "src/aim/core/layout_profiles.py",
+      "anchor": "def _validate_relative_path",
+      "resolved_line": 86,
+      "file_sha256": "76e1205cda70254a9cc680b2e0653ed0fd64f18aeae0cc72b84dc23a54bdcc63"
+    },
+    {
+      "id": "I4",
+      "title": "Repo authoritative; DB is cache",
+      "path": "src/aim/core/layout_profiles.py",
+      "anchor": "def sync_profiles",
+      "resolved_line": 489,
+      "file_sha256": "76e1205cda70254a9cc680b2e0653ed0fd64f18aeae0cc72b84dc23a54bdcc63"
+    },
+    {
+      "id": "I5",
+      "title": "Content-hash pinning of artifacts",
+      "path": "src/aim/core/hashing.py",
+      "anchor": "def hash_tree",
+      "resolved_line": 18,
+      "file_sha256": "ba8afa446aaf0d3d1d0eff2cb510aad06612a20b71a10e3766430a6babd34bd6"
+    },
+    {
+      "id": "I6",
+      "title": "Secure transport for sources",
+      "path": "src/aim/core/content_guard.py",
+      "anchor": "def require_secure_url",
+      "resolved_line": 135,
+      "file_sha256": "4b7ada792bcb87e26abe08f8fef975827e423d9ac26a441cdf864956652a87dc"
+    },
+    {
+      "id": "I7",
+      "title": "Bounded version history",
+      "path": "src/aim/core/models.py",
+      "anchor": "HISTORY_CAP = 10",
+      "resolved_line": 176,
+      "file_sha256": "762a20951faebbe899b05a3fc03d73e9951537c3f659d99a042c911d18919d1b"
+    },
+    {
+      "id": "I8",
+      "title": "Docs never installable as rules",
+      "path": "src/aim/core/repo_rules.py",
+      "anchor": "_RULE_DENYLIST = {",
+      "resolved_line": 33,
+      "file_sha256": "48c4b7aa4742968aea3d2b64c98dba8bb4506adeff06873930a749b7fb291ed4"
+    }
+  ],
+  "tracked_globs": [
+    "src/aim/core/**/*.py"
+  ],
+  "tracked_files": {
+    "src/aim/core/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "src/aim/core/agent_files.py": "9bcf01e172c1fd9828067eba4f83327e7452a6180085b6b45ed4626e94014249",
+    "src/aim/core/agent_install.py": "5d3dbcfdf24bba689f8df3d2ecb8dadd94a0cb3e018eaed1fbd073b5b8dc6b8b",
+    "src/aim/core/agents.py": "50da7643fb0265698036d4a24b9e386ab20305d8569917cbe316ff3cb952a9e7",
+    "src/aim/core/agents_md.py": "1d256bf266f561b098e459b02a93b9c384416526297f857dfa0fa0a8c05b673a",
+    "src/aim/core/content_guard.py": "4b7ada792bcb87e26abe08f8fef975827e423d9ac26a441cdf864956652a87dc",
+    "src/aim/core/db.py": "b7412b1c3532c62542a7108a96087de9ff8c18adf2721fde53b666244cbeb2a9",
+    "src/aim/core/declarations.py": "d75770c2e8ee19ebf37a342d312899bb027787c3e35507b841d9b5a703537d0e",
+    "src/aim/core/default_mcp_servers.py": "d393b56899decf28fc10472833b148c8906a0afcc18ad61a81d99664de161ef9",
+    "src/aim/core/doctor.py": "c6d44df5619861182b664ed9bd983d629c5a253b2c02010856b581017408bd8d",
+    "src/aim/core/format.py": "d977edfff608ee3310106c28db2b6f6255db6e341b8bf5f5d55448b883abc457",
+    "src/aim/core/git.py": "5d2bd9001ec423b18a57ba246a6fd4ac92aa0d9e4e72456a1bf02840b128197d",
+    "src/aim/core/hashing.py": "ba8afa446aaf0d3d1d0eff2cb510aad06612a20b71a10e3766430a6babd34bd6",
+    "src/aim/core/init.py": "2051c3dbf25b96b39b4ced154ff1149c7c6b1632a08b70c248bcc529d314456b",
+    "src/aim/core/install.py": "84cc8bdda7dfbfc7c1fa7bafd95f20e73d76e528a6bd46079a3080fbb1dd94d3",
+    "src/aim/core/layout_profiles.py": "76e1205cda70254a9cc680b2e0653ed0fd64f18aeae0cc72b84dc23a54bdcc63",
+    "src/aim/core/lock.py": "c94ce9e8aee7529383f490f98e377e61bca9fbc79875472979cfcf5698baee9f",
+    "src/aim/core/managed_regions.py": "bc4a45c50c9aa3ea42130120634a7b23c3b8074c6efd5626891ac26e8c33107f",
+    "src/aim/core/manifest.py": "9403811a627d493a442be1b5cdbabf875ab23173b396c7a46d9f70c90bffc32a",
+    "src/aim/core/manifest_migrate.py": "5dd7ab4e30c535233b504d5a093878c9321f76061295fa3b07252aaf97218ef8",
+    "src/aim/core/mcp_install.py": "dda154825a56fcaeed9072399da59693168304ba051b5a38f769277139035e1c",
+    "src/aim/core/mcp_registry.py": "3852b5519471efc7f61cb13b4573cf90f5d9f3cac2f4e2d3ad3fcde93159ad48",
+    "src/aim/core/models.py": "762a20951faebbe899b05a3fc03d73e9951537c3f659d99a042c911d18919d1b",
+    "src/aim/core/paths.py": "62688c9b7a0bb8c619f01355758e6270387adb4320cbd1f9956ac145e22e96f1",
+    "src/aim/core/policy.py": "24484a07e1c4099fb70e15ba0feb484002dfa5d44deee3829100138e23e32690",
+    "src/aim/core/profiles.py": "807f58bce3979fd64ae446d4e6be60c36563e0b523a735c41a8d243a2e3cec5b",
+    "src/aim/core/prune.py": "87a52cc84b8371062ad6f760319e656cd55621538e6b8766f50b496e14b65824",
+    "src/aim/core/repo_rules.py": "48c4b7aa4742968aea3d2b64c98dba8bb4506adeff06873930a749b7fb291ed4",
+    "src/aim/core/repos.py": "2ad40889f1d7161475804162649ff54f2421bca87a2e41549bcb502b3ea559d1",
+    "src/aim/core/roots.py": "00b6a8b129398722ad4a89be84aaf86061ae118db1bbc4a94616728cd046ad2c",
+    "src/aim/core/rule_install.py": "c5caba52d4b11bdfdf0455ab7fbd14a6d28d7615c936bbe0b949cfdfe40e5ba0",
+    "src/aim/core/skills.py": "a8934fac27a6f01b9c8a1553c883f07690067499156e49761c008f7273f431c5",
+    "src/aim/core/sync.py": "9363887392c497712b66e698c78af22c08379cf754438d58a6b0e9e7512891b2",
+    "src/aim/core/templates.py": "44dc8db520be4320703266327e455f3a7618406c770caa43a66197b02ef4ebe4",
+    "src/aim/core/validation.py": "b7a371bf719f1255bcfada70c13e33cf7b4ac408e3cf4d8aa44732b041a5b7b1",
+    "tests/core/test_manifest.py": "c349f9869089f807747ff8b0d2a167335329d9081cde67a6fca806888df746ae"
+  }
+}

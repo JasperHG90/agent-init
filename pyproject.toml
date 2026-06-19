@@ -23,6 +23,7 @@ dependencies = [
 
 [project.optional-dependencies]
 # Cheap local injection/jailbreak screen (ONNX encoder) that aim runs in-process.
+# (numpy comes transitively with onnxruntime.)
 risk = ["onnxruntime>=1.18", "tokenizers>=0.20", "huggingface-hub>=0.25"]
 # Rule-evaluating judge. aim only needs DSPy (structured output); the LM behind it
 # is the user's responsibility to host and configure (local server, remote endpoint,

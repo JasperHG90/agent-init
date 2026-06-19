@@ -24,6 +24,7 @@ from aim.core import (
     layout_profiles,
     manifest,
     paths,
+    policy,
     repo_rules,
     repos,
     validation,
@@ -112,12 +113,21 @@ def _check_local_edits(project_root: Path, installed: InstalledRule, *, force: b
         )
 
 
-def _deploy(project_root: Path, rule_name: str, content: str, *, source: str) -> None:
-    """Write the rule body to its files-mode target. No-op in inline mode."""
+def _gate_rule(qualified_name: str, content: str) -> None:
+    """Single content gate for rules: every deploy path (install/update/rollback/
+    sync, files and inline mode) funnels through here, so security/policy/risk
+    checks live in one place."""
+    policy.assert_artifact_allowed(policy.effective_policy(), "rule", qualified_name)
+    content_guard.assert_no_hidden_unicode(content, source=f"rule {qualified_name}")
+
+
+def _deploy(project_root: Path, rule_name: str, content: str, *, qualified_name: str) -> None:
+    """Gate then write the rule body to its files-mode target. The gate runs above
+    the inline-mode early return, so inline rules are gated too."""
+    _gate_rule(qualified_name, content)
     target = _target_path(project_root, rule_name)
     if target is None:
         return
-    content_guard.assert_no_hidden_unicode(content, source=source)
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(content, encoding="utf-8")
 
@@ -139,8 +149,7 @@ def install(
         artifact_name=Path(row.rule_md_path).name,
     )
     content = repo_rules.read_rule_content(qualified_name)
-    content_guard.assert_no_hidden_unicode(content, source=f"rule {qualified_name}")
-    _deploy(project_root, row.rule_name, content, source=f"rule {qualified_name}")
+    _deploy(project_root, row.rule_name, content, qualified_name=qualified_name)
     content_hash = hashing.hash_text(content)
 
     m = _load_manifest(project_root)
@@ -203,8 +212,7 @@ def update(
 
     _check_local_edits(project_root, existing, force=force)
     content = repo_rules.read_rule_content(qualified_name)
-    content_guard.assert_no_hidden_unicode(content, source=f"rule {qualified_name}")
-    _deploy(project_root, _rule_name(qualified_name), content, source=f"rule {qualified_name}")
+    _deploy(project_root, _rule_name(qualified_name), content, qualified_name=qualified_name)
     existing.push_history(new_version)
     existing.content_hash = hashing.hash_text(content)
     manifest.save(project_root, m)
@@ -283,8 +291,7 @@ def rollback(project_root: Path, qualified_name: str, *, force: bool = False) ->
     target_version = existing.history[0]
 
     content = _read_at_sha(existing.source_path, existing.repo_alias, target_version.sha)
-    content_guard.assert_no_hidden_unicode(content, source=f"rule {qualified_name}")
-    _deploy(project_root, _rule_name(qualified_name), content, source=f"rule {qualified_name}")
+    _deploy(project_root, _rule_name(qualified_name), content, qualified_name=qualified_name)
     existing.push_history(
         SkillVersion(
             tag=target_version.tag,

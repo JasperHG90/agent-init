@@ -24,7 +24,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from sqlmodel import select
 
-from aim.core import db, manifest, paths
+from aim.core import db, manifest, paths, policy
 from aim.core.models import GlobalSetting
 from aim.core.models import LayoutProfile as LayoutProfileRow
 from aim.core.validation import is_valid_mirror_name
@@ -439,6 +439,7 @@ def delete_global_profile(project_root: Path, name: str) -> bool:
 
 def set_active(project_root: Path, name: str) -> None:
     """Set the active layout profile for a project."""
+    policy.assert_profile_allowed(policy.effective_policy(project_root), name)
     # Validate the profile exists.
     get_profile(project_root, name)
     m = manifest.load_or_default(project_root)

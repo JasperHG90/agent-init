@@ -85,6 +85,15 @@ def _v7_to_v8(raw: dict[str, Any]) -> dict[str, Any]:
     return raw
 
 
+def _v8_to_v9(raw: dict[str, Any]) -> dict[str, Any]:
+    """v9 adds optional `policy_repo`/`policy_hash` pinning the governing policy.
+    Additive only."""
+    raw.setdefault("policy_repo", None)
+    raw.setdefault("policy_hash", None)
+    raw["manifest_version"] = 9
+    return raw
+
+
 MIGRATIONS: dict[int, Callable[[dict[str, Any]], dict[str, Any]]] = {
     0: _v0_to_v1,
     1: _v1_to_v2,
@@ -94,6 +103,7 @@ MIGRATIONS: dict[int, Callable[[dict[str, Any]], dict[str, Any]]] = {
     5: _v5_to_v6,
     6: _v6_to_v7,
     7: _v7_to_v8,
+    8: _v8_to_v9,
 }
 
 

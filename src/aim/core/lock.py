@@ -31,6 +31,7 @@ from aim.core import (
     manifest,
     mcp_install,
     mcp_registry,
+    policy,
     repo_rules,
     repos,
     skills,
@@ -516,6 +517,8 @@ def _top_level_key(m: Manifest) -> tuple:
         tuple(m.symlinks),
         tuple(m.managed_files),
         tuple(sorted(m.managed_region_hashes.items())),
+        m.policy_repo,
+        m.policy_hash,
     )
 
 
@@ -570,12 +573,35 @@ def _preserve_unchanged_metadata(existing: Manifest | None, new: Manifest) -> No
             r.history = list(prev_rule.history)
 
 
+def _enforce_policy(
+    decl: ProjectDeclarations, resolved: policy.ResolvedPolicy, *, effective_profile: str
+) -> None:
+    """Refuse to lock declarations that the governing policy disallows."""
+    pol = resolved.policy
+    for alias, url in decl.repos.items():
+        policy.assert_repo_allowed(pol, alias, url)
+    for s in decl.skills:
+        policy.assert_artifact_allowed(pol, "skill", s.qualified_name)
+    for a in decl.agents:
+        policy.assert_artifact_allowed(pol, "agent", a.qualified_name)
+    for r in decl.rules:
+        policy.assert_artifact_allowed(pol, "rule", r.qualified_name)
+    for mcp in decl.mcp_servers:
+        policy.assert_mcp_allowed(pol, mcp.alias, mcp.registry_name)
+    # Check the EFFECTIVE profile (the one the lockfile records), never the raw
+    # possibly-None declaration, so an allow-list isn't bypassed by relying on the default.
+    policy.assert_profile_allowed(pol, effective_profile)
+
+
 async def run(options: LockOptions) -> LockResult:
     with _ref_cache_lock:
         _ref_cache.clear()
     project_root = options.project_root.resolve()
     decl = _load_declarations(project_root)
     profile = _resolve_profile(project_root, decl)
+
+    resolved_policy = policy.resolve_effective(project_root)
+    _enforce_policy(decl, resolved_policy, effective_profile=decl.layout_profile or profile.name)
 
     result = LockResult(project_root=project_root)
 
@@ -641,6 +667,8 @@ async def run(options: LockOptions) -> LockResult:
         skills=skills_locked,
         agents=agents_locked,
         mcp_servers=mcps_locked,
+        policy_repo=resolved_policy.repo,
+        policy_hash=resolved_policy.hash,
     )
 
     if not options.force:

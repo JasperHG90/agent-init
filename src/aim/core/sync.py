@@ -18,8 +18,8 @@ from pathlib import Path
 
 from aim.core import (
     agent_files,
+    agent_install,
     agents,
-    content_guard,
     git,
     hashing,
     layout_profiles,
@@ -27,7 +27,9 @@ from aim.core import (
     mcp_install,
     mcp_registry,
     paths,
+    policy,
     repos,
+    rule_install,
     skills,
 )
 from aim.core import (
@@ -276,9 +278,7 @@ def _sync_agent(
             )
 
     try:
-        content_guard.assert_no_hidden_unicode(
-            expected_content, source=f"agent {installed.qualified_name}"
-        )
+        agent_install._gate_agent(installed.qualified_name, expected_content)
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(expected_content, encoding="utf-8")
     except Exception as exc:
@@ -362,9 +362,7 @@ def _sync_rule(
             )
 
     try:
-        content_guard.assert_no_hidden_unicode(
-            expected_content, source=f"rule {installed.qualified_name}"
-        )
+        rule_install._gate_rule(installed.qualified_name, expected_content)
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(expected_content, encoding="utf-8")
     except Exception as exc:
@@ -414,6 +412,12 @@ def _sync_mcp(
     force: bool,
 ) -> tuple[str | None, str | None]:
     """Reconcile a single MCP entry. Returns (synced_alias or None, error or None)."""
+    try:
+        policy.assert_mcp_allowed(
+            policy.effective_policy(), installed.alias, installed.registry_name
+        )
+    except policy.PolicyViolationError as exc:
+        return None, str(exc)
     try:
         mcp_install._check_local_edits(project_root, installed, force=force)
     except mcp_install.McpLocalEditsError as exc:

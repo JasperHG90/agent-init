@@ -172,7 +172,7 @@ class ProjectDeclarations(BaseModel):
 
 # ---------- Manifest (per-project lockfile, committed) ----------
 
-CURRENT_MANIFEST_VERSION = 8  # v8: rules are repo-sourced, SHA-pinned artifacts
+CURRENT_MANIFEST_VERSION = 9  # v9: pin the governing policy (policy_repo/policy_hash)
 HISTORY_CAP = 10
 
 
@@ -328,3 +328,7 @@ class Manifest(BaseModel):
     layout_profile: str | None = None
     # Explicit list of symlinks so sync can recreate them.
     symlinks: list[str] = Field(default_factory=list)
+    # Governing policy pinned at lock time: org repo url (None for a local policy) and
+    # a content hash of the resolved policy. Lets review/CI detect a disallowed policy.
+    policy_repo: str | None = None
+    policy_hash: str | None = None

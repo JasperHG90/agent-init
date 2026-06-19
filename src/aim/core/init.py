@@ -13,6 +13,7 @@ from aim.core import (
     declarations,
     layout_profiles,
     paths,
+    policy,
     templates,
 )
 from aim.core.models import ProjectDeclarations
@@ -68,6 +69,8 @@ def run(options: InitOptions) -> InitResult:
         if active_profile_name
         else layout_profiles.BUILTIN_CLAUDE
     )
+    # Check the EFFECTIVE profile name (never None) against the allow-list.
+    policy.assert_profile_allowed(policy.effective_policy(proj), active_profile.name)
 
     # Symlink semantics: on first init fall back to profile defaults.
     requested_symlinks = list(options.symlinks)

@@ -16,6 +16,7 @@ from aim.core import (
     layout_profiles,
     manifest,
     paths,
+    policy,
     validation,
 )
 from aim.core.install import resolve_install_version
@@ -121,6 +122,21 @@ def _check_local_edits(project_root: Path, installed: InstalledAgent, *, force: 
         )
 
 
+def _gate_agent(qualified_name: str, content: str) -> None:
+    """Single content gate for agents: every deploy path (install/update/rollback/
+    sync) funnels through here, so security/policy/risk checks live in one place."""
+    policy.assert_artifact_allowed(policy.effective_policy(), "agent", qualified_name)
+    content_guard.assert_no_hidden_unicode(content, source=f"agent {qualified_name}")
+
+
+def _write_agent(qualified_name: str, content: str, target: Path) -> str:
+    """Gate then write the agent file; return its content hash."""
+    _gate_agent(qualified_name, content)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(content, encoding="utf-8")
+    return hashing.hash_text(content)
+
+
 def install(
     project_root: Path,
     qualified_name: str,
@@ -144,10 +160,7 @@ def install(
         )
 
     target = _target_path(project_root, row.agent_name)
-    content_guard.assert_no_hidden_unicode(content, source=f"agent {qualified_name}")
-    target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(content, encoding="utf-8")
-    content_hash = hashing.hash_text(content)
+    content_hash = _write_agent(qualified_name, content, target)
 
     m = _load_manifest(project_root)
     existing = _find_installed(m, qualified_name)
@@ -211,12 +224,9 @@ def update(
 
     _check_local_edits(project_root, existing, force=force)
     content = agents.read_agent_content(qualified_name)
-    content_guard.assert_no_hidden_unicode(content, source=f"agent {qualified_name}")
     target = _resolve_target_path(project_root, existing.target_path)
-    target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(content, encoding="utf-8")
     existing.push_history(new_version)
-    existing.content_hash = hashing.hash_text(content)
+    existing.content_hash = _write_agent(qualified_name, content, target)
     manifest.save(project_root, m)
     declarations._update_agent(project_root, existing)
     return existing
@@ -298,11 +308,8 @@ def rollback(project_root: Path, qualified_name: str, *, force: bool = False) ->
     else:
         artifact_path = f"{existing.source_path}/AGENT.md"
     content = agents.git.get_backend().cat_file(repo_dir, target_version.sha, artifact_path)
-    content_guard.assert_no_hidden_unicode(content, source=f"agent {qualified_name}")
 
     target = _resolve_target_path(project_root, existing.target_path)
-    target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(content, encoding="utf-8")
     existing.push_history(
         SkillVersion(
             tag=target_version.tag,
@@ -310,7 +317,7 @@ def rollback(project_root: Path, qualified_name: str, *, force: bool = False) ->
             installed_at=target_version.installed_at,
         )
     )
-    existing.content_hash = hashing.hash_text(content)
+    existing.content_hash = _write_agent(qualified_name, content, target)
     manifest.save(project_root, m)
     declarations._update_agent(project_root, existing)
     return existing

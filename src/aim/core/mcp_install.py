@@ -11,7 +11,15 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict
 
-from aim.core import content_guard, declarations, hashing, manifest, mcp_registry, validation
+from aim.core import (
+    content_guard,
+    declarations,
+    hashing,
+    manifest,
+    mcp_registry,
+    policy,
+    validation,
+)
 from aim.core.models import InstalledMcpServer, Manifest, McpClaudeEntry
 
 
@@ -162,6 +170,7 @@ def install(
       values (`command`, `args`, `env`, `url`, `headers`).
     """
     _check_alias_available(project_root, alias, registry_name, force=force)
+    policy.assert_mcp_allowed(policy.effective_policy(), alias, registry_name)
 
     m = _load_manifest(project_root)
     existing = _find_installed(m, alias)

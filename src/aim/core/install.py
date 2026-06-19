@@ -35,6 +35,7 @@ from aim.core import (
     layout_profiles,
     manifest,
     paths,
+    policy,
     repos,
 )
 from aim.core.models import InstalledSkill, Manifest, SkillIndex, SkillVersion
@@ -258,6 +259,7 @@ def _deploy(plan: InstallPlan) -> str:
     content hash of the deployed tree."""
     snap = _ensure_snapshot(plan.repo_alias, plan.version.sha, plan.source_path, plan.skill_name)
     _ensure_symlinks_safe(snap)
+    policy.assert_artifact_allowed(policy.effective_policy(), "skill", plan.qualified_name)
     hidden = content_guard.scan_directory(snap)
     if hidden:
         raise content_guard.HiddenUnicodeError(

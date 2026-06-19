@@ -22,7 +22,7 @@ from pathlib import Path
 
 from sqlmodel import select
 
-from aim.core import content_guard, db, git, paths
+from aim.core import content_guard, db, git, paths, policy
 from aim.core.models import AgentIndex, RegisteredRepo, RuleIndex, SkillIndex
 
 _ALIAS_RE = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
@@ -132,6 +132,7 @@ def add(
     """
     _validate_alias(alias)
     content_guard.require_secure_url(url, allow_insecure=allow_insecure)
+    policy.assert_repo_allowed(policy.effective_policy(), alias, url)
     paths.ensure_global_dirs()
     with db.session() as session:
         existing = session.get(RegisteredRepo, alias)
@@ -404,6 +405,7 @@ class RefDisappearedError(RuntimeError):
 def refresh(alias: str, *, allow_insecure: bool = False) -> RegisteredRepo:
     row = get(alias)
     content_guard.require_secure_url(row.url, allow_insecure=allow_insecure)
+    policy.assert_repo_allowed(policy.effective_policy(), alias, row.url)
     previous_sha = row.last_sha
     repo_dir = clone_dir(alias)
     try:

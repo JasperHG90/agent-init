@@ -19,14 +19,17 @@ from aim.core import agent_install as agent_install_mod
 from aim.core import agents as agents_mod
 from aim.core import agents_md as agents_md_mod
 from aim.core import content_guard as content_guard_mod
+from aim.core import declarations as declarations_mod
 from aim.core import doctor as doctor_mod
 from aim.core import format as format_mod
 from aim.core import git, hashing
 from aim.core import init as init_mod
 from aim.core import install as install_mod
+from aim.core import layout_profiles as layout_profiles_mod
 from aim.core import lock as lock_mod
 from aim.core import mcp_install as mcp_install_mod
 from aim.core import mcp_registry as mcp_registry_mod
+from aim.core import policy as policy_mod
 from aim.core import profiles as profiles_mod
 from aim.core import prune as prune_mod
 from aim.core import repo_rules as repo_rules_mod
@@ -73,6 +76,8 @@ _FRIENDLY_ERRORS: tuple[type[Exception], ...] = (
     repo_rules_mod.RuleNotIndexedError,
     content_guard_mod.InsecureTransportError,
     content_guard_mod.HiddenUnicodeError,
+    policy_mod.PolicyViolationError,
+    policy_mod.PolicyError,
     install_mod.SkillNotIndexedError,
     install_mod.SkillNotInstalledError,
     install_mod.SkillSourcePathChangedError,
@@ -617,6 +622,134 @@ def profile_apply(
         typer.echo(f"  installed MCP server: {alias}")
     for alias in result.skipped_mcp:
         typer.echo(f"  skipped MCP server (unavailable): {alias}", err=True)
+
+
+policy_app = typer.Typer(
+    no_args_is_help=True,
+    help="Inspect and enforce the governance policy (blocked repos/artifacts, risk rules).",
+)
+app.add_typer(policy_app, name="policy")
+
+
+@policy_app.command("show")
+@_friendly
+def policy_show(project: Path | None = typer.Argument(None, help="Project root.")) -> None:
+    """Print the resolved effective policy."""
+    resolved = policy_mod.resolve_effective(_here(project))
+    typer.echo(f"# source: {resolved.source}")
+    if resolved.repo:
+        typer.echo(f"# repo: {resolved.repo}")
+    if resolved.hash:
+        typer.echo(f"# hash: {resolved.hash}")
+    typer.echo(policy_mod.to_toml(resolved.policy))
+
+
+@policy_app.command("init-local")
+@_friendly
+def policy_init_local(
+    force: bool = typer.Option(False, "--force", help="Overwrite an existing local policy."),
+) -> None:
+    """Create an editable local policy (stored in the global DB) seeded with presets."""
+    if policy_mod.load_local_policy() is not None and not force:
+        typer.echo("error: a local policy already exists; pass --force to overwrite", err=True)
+        raise typer.Exit(code=1)
+    policy_mod.save_local_policy(policy_mod.Policy(name="local"))
+    typer.echo("created local policy. Edit it via `aim policy import` or export/edit/import.")
+
+
+@policy_app.command("import")
+@_friendly
+def policy_import(
+    rules_file: Path = typer.Argument(..., help="aim.rules.toml with custom [[rule]] entries."),
+) -> None:
+    """Load custom rules from an aim.rules.toml into the local policy."""
+    rules = policy_mod.parse_rules_toml(rules_file.read_text(encoding="utf-8"))
+    pol = policy_mod.load_local_policy() or policy_mod.Policy(name="local")
+    pol.custom_rules = rules
+    policy_mod.save_local_policy(pol)
+    typer.echo(f"imported {len(rules)} custom rule(s) into the local policy")
+
+
+@policy_app.command("export")
+@_friendly
+def policy_export(
+    rules_file: Path = typer.Argument(
+        Path("aim.rules.toml"), help="Destination for the custom-rule file."
+    ),
+) -> None:
+    """Write the local policy's custom rules out to an aim.rules.toml."""
+    pol = policy_mod.load_local_policy()
+    if pol is None:
+        typer.echo("error: no local policy to export", err=True)
+        raise typer.Exit(code=1)
+    rules_file.write_text(policy_mod.render_rules_toml(pol.custom_rules), encoding="utf-8")
+    typer.echo(f"exported {len(pol.custom_rules)} custom rule(s) to {rules_file}")
+
+
+@policy_app.command("validate")
+@_friendly
+def policy_validate(project: Path | None = typer.Argument(None, help="Project root.")) -> None:
+    """Validate a project's declarations + lockfile against the effective policy.
+
+    Exits non-zero on any blocked repo/artifact/profile, or on drift between the
+    committed lockfile's pinned policy and the current local policy. Note: with a
+    local policy both sides derive from the same machine, so this catches accidental
+    drift, not adversarial weakening — true org enforcement (validating against a
+    remote, out-of-band-mandated policy) arrives with `--policy` in a later phase.
+    """
+    root = _here(project)
+    resolved = policy_mod.resolve_effective(root)
+    pol = resolved.policy
+
+    try:
+        decl = declarations_mod.load(root)
+    except declarations_mod.DeclarationsNotFoundError:
+        typer.echo("no aim.toml found; nothing to validate")
+        return
+
+    problems: list[str] = []
+    for alias, url in decl.repos.items():
+        try:
+            policy_mod.assert_repo_allowed(pol, alias, url)
+        except policy_mod.PolicyViolationError as exc:
+            problems.append(str(exc))
+    for kind, items in (("skill", decl.skills), ("agent", decl.agents), ("rule", decl.rules)):
+        for item in items:
+            try:
+                policy_mod.assert_artifact_allowed(pol, kind, item.qualified_name)
+            except policy_mod.PolicyViolationError as exc:
+                problems.append(str(exc))
+    for mcp in decl.mcp_servers:
+        try:
+            policy_mod.assert_mcp_allowed(pol, mcp.alias, mcp.registry_name)
+        except policy_mod.PolicyViolationError as exc:
+            problems.append(str(exc))
+    effective_profile = decl.layout_profile or layout_profiles_mod.resolve_active(root).name
+    try:
+        policy_mod.assert_profile_allowed(pol, effective_profile)
+    except policy_mod.PolicyViolationError as exc:
+        problems.append(str(exc))
+
+    try:
+        m = manifest_mod.load(root)
+        if (
+            m.policy_hash is not None
+            and resolved.hash is not None
+            and m.policy_hash != resolved.hash
+        ):
+            problems.append(
+                f"lockfile policy hash {m.policy_hash[:12]} does not match the effective "
+                f"policy hash {resolved.hash[:12]} (locked under a different policy)"
+            )
+    except manifest_mod.ManifestNotFoundError:
+        pass
+
+    if problems:
+        for p in problems:
+            typer.echo(f"violation: {p}", err=True)
+        raise typer.Exit(code=1)
+    n = len(decl.skills) + len(decl.agents) + len(decl.rules) + len(decl.mcp_servers)
+    typer.echo(f"policy OK (source: {resolved.source}; {n} artifact(s) checked)")
 
 
 mcp_app = typer.Typer(

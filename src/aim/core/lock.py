@@ -518,6 +518,7 @@ def _top_level_key(m: Manifest) -> tuple:
         tuple(m.managed_files),
         tuple(sorted(m.managed_region_hashes.items())),
         m.policy_repo,
+        m.policy_ref,
         m.policy_hash,
     )
 
@@ -668,6 +669,11 @@ async def run(options: LockOptions) -> LockResult:
         agents=agents_locked,
         mcp_servers=mcps_locked,
         policy_repo=resolved_policy.repo,
+        policy_ref=(
+            policy.org_snapshot_sha(resolved_policy.repo)
+            if resolved_policy.source == "org" and resolved_policy.repo
+            else None
+        ),
         policy_hash=resolved_policy.hash,
     )
 

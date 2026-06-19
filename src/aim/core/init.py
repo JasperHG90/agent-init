@@ -87,6 +87,10 @@ def run(options: InitOptions) -> InitResult:
     decl.instruction_template = options.instruction_template
     decl.layout_profile = options.layout_profile or decl.layout_profile
     decl.symlinks = requested_symlinks
+    # Seed a default (permissive) local policy on first init so governance is
+    # discoverable and editable in aim.toml; preserve any existing [policy].
+    if not decl.policy:
+        decl.policy = {"scope": "local"}
 
     declarations.save(proj, decl)
     return InitResult(

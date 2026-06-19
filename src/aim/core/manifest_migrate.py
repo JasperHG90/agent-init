@@ -94,6 +94,13 @@ def _v8_to_v9(raw: dict[str, Any]) -> dict[str, Any]:
     return raw
 
 
+def _v9_to_v10(raw: dict[str, Any]) -> dict[str, Any]:
+    """v10 adds the optional org policy commit SHA `policy_ref`. Additive only."""
+    raw.setdefault("policy_ref", None)
+    raw["manifest_version"] = 10
+    return raw
+
+
 MIGRATIONS: dict[int, Callable[[dict[str, Any]], dict[str, Any]]] = {
     0: _v0_to_v1,
     1: _v1_to_v2,
@@ -104,6 +111,7 @@ MIGRATIONS: dict[int, Callable[[dict[str, Any]], dict[str, Any]]] = {
     6: _v6_to_v7,
     7: _v7_to_v8,
     8: _v8_to_v9,
+    9: _v9_to_v10,
 }
 
 

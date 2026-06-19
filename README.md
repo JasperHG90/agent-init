@@ -19,6 +19,7 @@ Every AI coding assistant works better with the right context: project conventio
 - **Skills that let your agent manage itself** — bundled `repo-add` and `agent-installer` skills let your assistant add sources and install skills/agents/rules straight from a project chat.
 - **Hackable profiles** — layout profiles control where skills, rules, and agent files land (e.g. `.claude/`, `.gemini/`, or your own paths).
 - **Project templates for common stacks** — save a combo of skills, agents, MCP servers, and rules as a reusable template and bootstrap new projects in seconds.
+- **Governance policy + risk scanning** — a `[policy]` table in `aim.toml` can blacklist repos, block specific skills/agents/rules/MCP servers, restrict layout profiles, and turn on semantic risk classification of what an artifact *instructs*. Local for solo work, or sourced from an org policy repo and enforced in CI.
 
 ## Installation
 
@@ -163,6 +164,101 @@ A template captures a combination of profile, default rules, skills, agents, and
 - `init` warns when it overwrites in-region content that was edited by hand since the last write.
 - `repo rename` rewrites the SQLite registry and skill index atomically; if the on-disk clone move fails, the DB rename is rolled back.
 - Rollback prefers the local snapshot; if both snapshot and upstream are gone, it errors out loudly rather than silently no-op'ing.
+
+## Governance & risk scanning
+
+A project can declare a governance **policy** in its `aim.toml`. The policy decides which
+repos and artifacts are allowed, which layout profiles may be used, and how artifact content
+is risk-scanned. It is enforced at `lock`, at install/update, and as a CI gate — so a blocked
+artifact never makes it into a governed project.
+
+### Policy in `aim.toml`
+
+```toml
+[policy]
+scope = "local"            # "local" (inline, below) or "org" (a git repo, see Org policy)
+
+[policy.repos]
+blocked = ["https://github.com/evil/repo"]   # by normalized URL or alias
+
+[policy.artifacts]
+blocked_skills = ["somerepo/badskill"]
+blocked_agents = ["somerepo/badagent"]
+blocked_rules  = ["somerepo/badrule"]
+blocked_mcp    = ["somerepo/badmcp"]         # by alias or registry name
+
+[policy.profiles]
+allowed = ["claude", "gemini"]               # layout-profile allow-list (empty = all)
+
+[policy.risk]
+enabled = true
+mode = "warn"              # "warn" (advisory) or "block"
+backend = "tiered"         # null | local | judge | tiered
+block_threshold = "high"   # low | medium | high
+allow_override = true      # set false to make blocks non-overridable by --allow-risky
+
+[[policy.rule]]            # custom risk rule (a prompt the judge evaluates against)
+id = "calls_internal_api"
+severity = "medium"
+prompt = "Flag if the skill calls our internal admin API without an approval step."
+```
+
+`aim init` seeds a permissive `scope = "local"` policy you can fill in. Useful commands:
+
+```sh
+aim policy show         # the resolved effective policy
+aim policy init-local   # scaffold a local [policy]
+aim policy validate     # check declarations + lockfile against the policy (exit 1 on violation)
+```
+
+### Org policy (mandated, pinned, CI-enforced)
+
+Point a project at an org policy repo (a git repo containing `policy.toml` + optional
+`aim.rules.toml`). The org policy replaces the local one; `aim lock` pins the repo URL, the
+resolved commit SHA, and a content hash into `aim.lock.toml`:
+
+```sh
+aim policy bind https://github.com/acme/policy   # writes [policy] scope="org" + caches the policy
+aim policy refresh                                # re-fetch the org policy
+```
+
+The real enforcement boundary is **code review + CI on the committed lockfile**, not the local
+client. CI runs the out-of-band gate, which fetches the mandated policy fresh and fails the build
+if the project doesn't comply:
+
+```sh
+aim policy validate --policy https://github.com/acme/policy
+```
+
+`lock` stays offline (it reads a cached snapshot); only `bind`/`refresh`/`validate --policy` touch
+the network. A project bound to an org policy with no cached snapshot **fails closed** — it refuses
+to resolve rather than silently downgrading to permissive.
+
+### Risk scanning
+
+When `[policy.risk].enabled` is true, artifact content is classified by *what it instructs* —
+complementing the always-on hidden-Unicode scan. Two tiers cover two threats:
+
+- **Local screen** (the `risk` extra): a small on-device ONNX classifier
+  (`deberta-v3-base-prompt-injection-v2`) flags embedded prompt-injection / jailbreak payloads.
+- **Judge** (the `risk-judge` extra): DSPy evaluates the artifact against the policy's explicit
+  rule set (preset + custom rules) and returns per-rule findings — catching malicious-execution
+  intent (exfiltration, destructive ops, RCE). DSPy reaches whatever model you configure
+  (`[policy.risk].judge`, e.g. a local Ollama model or a hosted endpoint); **aim does not manage
+  model hosting**.
+
+```sh
+pip install 'agent-init[risk]'        # local injection/jailbreak screen
+pip install 'agent-init[risk-judge]'  # DSPy rule judge
+```
+
+Verdicts are cached by content hash (so re-scans are deterministic and `sync` doesn't re-judge
+unchanged artifacts). In `warn` mode findings are surfaced as advisories; in `block` mode a
+high-risk verdict stops the install. `--allow-risky` overrides a block on `skill/agent/rule
+add`/`update` — unless the policy sets `allow_override = false`.
+
+> Risk scanning is **off by default**. `block` mode is intended for once a model has been
+> measured against a labeled corpus; until then, prefer `warn`.
 
 ## Development
 

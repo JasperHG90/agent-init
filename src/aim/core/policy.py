@@ -4,14 +4,18 @@ A policy blacklists repos, blocks specific skills/agents/rules, restricts which
 layout profiles are allowed, and configures risk scanning. There is one resolved
 policy per project.
 
-Sources & precedence: built-in permissive default < local policy (stored in the
-global SQLite DB) < org policy (a git repo, added in a later phase). An org policy
-replaces the local one — the org is the trust root.
+The policy lives in the project's `aim.toml` `[policy]` table:
+- `scope = "local"` — the policy is declared inline (repos/artifacts/profiles/risk
+  + custom rules) and travels with the project.
+- `scope = "org"`  — `repo`/`ref` point at an org policy git repo (containing
+  `policy.toml` + optional `aim.rules.toml`). The fetched policy is cached in the
+  global DB (a cache only) so resolution stays offline; a missing/corrupt snapshot
+  fails CLOSED rather than downgrading to permissive.
 
 The real enforcement boundary is the committed lockfile + review/CI (`aim policy
-validate`): the lockfile pins the policy repo + hash, so swapping in a weaker policy
-is a visible, checkable diff. The local client refusing on mismatch is early-warning
-UX, not the security boundary.
+validate`): `aim lock` pins the policy repo + commit SHA + content hash, so swapping
+in a weaker policy is a visible, checkable diff. The local client is early-warning UX,
+not the security boundary.
 """
 
 from __future__ import annotations
@@ -63,6 +67,9 @@ class RiskSettings(BaseModel):
     escalate_threshold: str = "medium"
     judge: str | None = None
     load_custom: bool = True  # also evaluate custom rules from aim.rules.toml
+    # When False, a `--allow-risky` override is refused — an org can make blocks
+    # non-bypassable. Default True (the developer can override their own policy).
+    allow_override: bool = True
     # preset rule id -> severity override (str) or False to disable.
     preset_overrides: dict[str, str | bool] = Field(default_factory=dict)
 
@@ -164,13 +171,10 @@ def normalize_repo_url(url: str) -> str:
 # ---------- (de)serialization ----------
 
 
-def from_toml(text: str) -> Policy:
-    """Parse a `policy.toml` document into a Policy."""
-    try:
-        data = tomllib.loads(text)
-    except tomllib.TOMLDecodeError as exc:
-        raise PolicyError(f"invalid policy.toml: {exc}") from exc
-
+def from_mapping(data: dict) -> Policy:
+    """Build a Policy from a parsed mapping (a `policy.toml` document or the inline
+    `[policy]` table from aim.toml). Recognized sections: [repos], [artifacts],
+    [profiles], [risk] (+ [risk.rules]), and [[rule]] custom rules."""
     repos_t = data.get("repos", {}) or {}
     artifacts_t = data.get("artifacts", {}) or {}
     profiles_t = data.get("profiles", {}) or {}
@@ -187,8 +191,15 @@ def from_toml(text: str) -> Policy:
         escalate_threshold=str(risk_t.get("escalate_threshold", "medium")),
         judge=risk_t.get("judge"),
         load_custom=bool(rules_t.get("custom", True)),
+        allow_override=bool(risk_t.get("allow_override", True)),
         preset_overrides=preset_overrides,
     )
+    custom_rules: list[RiskRule] = []
+    for raw in data.get("rule", []) or []:
+        try:
+            custom_rules.append(RiskRule(**raw))
+        except Exception as exc:
+            raise PolicyError(f"invalid custom rule: {exc}") from exc
     return Policy(
         version=int(data.get("version", 1)),
         name=str(data.get("name", "local")),
@@ -199,12 +210,21 @@ def from_toml(text: str) -> Policy:
         blocked_mcp=list(artifacts_t.get("blocked_mcp", [])),
         allowed_profiles=list(profiles_t.get("allowed", [])),
         risk=risk,
+        custom_rules=custom_rules,
     )
 
 
-def to_toml(policy: Policy) -> str:
-    """Serialize a Policy to a `policy.toml` document (custom rules excluded —
-    those live in aim.rules.toml)."""
+def from_toml(text: str) -> Policy:
+    """Parse a `policy.toml` document into a Policy."""
+    try:
+        return from_mapping(tomllib.loads(text))
+    except tomllib.TOMLDecodeError as exc:
+        raise PolicyError(f"invalid policy.toml: {exc}") from exc
+
+
+def to_mapping(policy: Policy, *, include_custom_rules: bool = False) -> dict:
+    """Build the policy mapping (the sections shared by policy.toml and aim.toml's
+    [policy] table). Custom rules are included only when asked (aim.toml inline)."""
     doc: dict = {"version": policy.version, "name": policy.name}
     if policy.blocked_repos:
         doc["repos"] = {"blocked": policy.blocked_repos}
@@ -228,6 +248,7 @@ def to_toml(policy: Policy) -> str:
         "model_id": policy.risk.model_id,
         "block_threshold": policy.risk.block_threshold,
         "escalate_threshold": policy.risk.escalate_threshold,
+        "allow_override": policy.risk.allow_override,
     }
     if policy.risk.judge is not None:
         risk["judge"] = policy.risk.judge
@@ -235,7 +256,15 @@ def to_toml(policy: Policy) -> str:
     rules["custom"] = policy.risk.load_custom
     risk["rules"] = rules
     doc["risk"] = risk
-    return tomli_w.dumps(doc)
+    if include_custom_rules and policy.custom_rules:
+        doc["rule"] = [r.model_dump() for r in policy.custom_rules]
+    return doc
+
+
+def to_toml(policy: Policy) -> str:
+    """Serialize a Policy to a `policy.toml` document (custom rules excluded —
+    those live in aim.rules.toml)."""
+    return tomli_w.dumps(to_mapping(policy))
 
 
 def parse_rules_toml(text: str) -> list[RiskRule]:
@@ -270,72 +299,25 @@ def compute_hash(policy: Policy) -> str:
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
-# ---------- local policy storage (global SQLite DB, GlobalSetting-style) ----------
-
-_LOCAL_POLICY_KEY = "policy:local"
-_BINDING_KEY = "policy:binding"
-_ORG_SNAPSHOT_KEY = "policy:org_snapshot"
-
-
-def load_local_policy() -> Policy | None:
-    with db.session() as session:
-        row = session.get(GlobalSetting, _LOCAL_POLICY_KEY)
-    if row is None:
-        return None
-    return Policy.model_validate_json(row.value)
+@dataclass(frozen=True)
+class ResolvedPolicy:
+    policy: Policy
+    source: str  # "builtin" | "local" | "org"
+    repo: str | None  # org policy repo url, else None
+    hash: str | None  # policy content hash, else None
 
 
-def save_local_policy(policy: Policy) -> None:
-    blob = policy.model_dump_json()
-    with db.session() as session:
-        row = session.get(GlobalSetting, _LOCAL_POLICY_KEY)
-        if row is None:
-            session.add(GlobalSetting(key=_LOCAL_POLICY_KEY, value=blob))
-        else:
-            row.value = blob
-        session.commit()
-
-
-def clear_local_policy() -> None:
-    with db.session() as session:
-        row = session.get(GlobalSetting, _LOCAL_POLICY_KEY)
-        if row is not None:
-            session.delete(row)
-            session.commit()
-
-
-def get_binding() -> dict | None:
-    """The optional org-policy binding pointer: {'repo': url, 'ref': ref} or None."""
-    with db.session() as session:
-        row = session.get(GlobalSetting, _BINDING_KEY)
-    return json.loads(row.value) if row is not None else None
-
-
-def set_binding(repo: str, ref: str = "HEAD") -> None:
-    blob = json.dumps({"repo": repo, "ref": ref})
-    with db.session() as session:
-        row = session.get(GlobalSetting, _BINDING_KEY)
-        if row is None:
-            session.add(GlobalSetting(key=_BINDING_KEY, value=blob))
-        else:
-            row.value = blob
-        session.commit()
-
-
-def clear_binding() -> None:
-    with db.session() as session:
-        row = session.get(GlobalSetting, _BINDING_KEY)
-        if row is not None:
-            session.delete(row)
-            session.commit()
-
-
-# ---------- org policy repo (fetched, pinned, replaces local when bound) ----------
+# ---------- org policy repo (fetched, cached per-repo for offline resolution) ----------
 
 
 def _policy_clone_dir(repo_url: str) -> Path:
     key = hashlib.sha256(normalize_repo_url(repo_url).encode("utf-8")).hexdigest()[:16]
     return paths.user_cache_dir() / "policy" / key
+
+
+def _org_snapshot_key(repo_url: str) -> str:
+    digest = hashlib.sha256(normalize_repo_url(repo_url).encode("utf-8")).hexdigest()[:16]
+    return f"policy:org_snapshot:{digest}"
 
 
 def fetch_org_policy(
@@ -364,11 +346,9 @@ def fetch_org_policy(
     return pol, sha
 
 
-def _save_binding_and_snapshot(repo_url: str, ref: str, sha: str, pol: Policy) -> None:
-    """Upsert the binding pointer AND the policy snapshot in ONE transaction, so a
-    crash can never leave a binding without a snapshot (which would fail open)."""
-    binding_blob = json.dumps({"repo": repo_url, "ref": ref})
-    snapshot_blob = json.dumps(
+def cache_org_snapshot(repo_url: str, ref: str, sha: str, pol: Policy) -> None:
+    """Pin a fetched org policy in the DB (a cache) so resolution stays offline."""
+    blob = json.dumps(
         {
             "repo": repo_url,
             "ref": ref,
@@ -378,29 +358,21 @@ def _save_binding_and_snapshot(repo_url: str, ref: str, sha: str, pol: Policy) -
         }
     )
     with db.session() as session:
-        for key, value in ((_BINDING_KEY, binding_blob), (_ORG_SNAPSHOT_KEY, snapshot_blob)):
-            row = session.get(GlobalSetting, key)
-            if row is None:
-                session.add(GlobalSetting(key=key, value=value))
-            else:
-                row.value = value
+        key = _org_snapshot_key(repo_url)
+        row = session.get(GlobalSetting, key)
+        if row is None:
+            session.add(GlobalSetting(key=key, value=blob))
+        else:
+            row.value = blob
         session.commit()
 
 
-def _clear_org_snapshot() -> None:
+def load_org_snapshot(repo_url: str) -> ResolvedPolicy | None:
+    """The cached org policy for `repo_url`, read from the DB (no network). Returns
+    None if absent OR corrupt — a corrupt snapshot is treated as 'no usable policy'
+    so resolution can fail closed."""
     with db.session() as session:
-        row = session.get(GlobalSetting, _ORG_SNAPSHOT_KEY)
-        if row is not None:
-            session.delete(row)
-            session.commit()
-
-
-def load_org_snapshot() -> ResolvedPolicy | None:
-    """The last-fetched org policy, read from the DB (no network). Returns None if
-    no snapshot exists OR the stored snapshot is unusable (corrupt). A corrupt
-    snapshot is treated as 'no usable policy' so resolution can fail closed."""
-    with db.session() as session:
-        row = session.get(GlobalSetting, _ORG_SNAPSHOT_KEY)
+        row = session.get(GlobalSetting, _org_snapshot_key(repo_url))
     if row is None:
         return None
     try:
@@ -411,76 +383,103 @@ def load_org_snapshot() -> ResolvedPolicy | None:
         return None
 
 
+def org_snapshot_sha(repo_url: str) -> str | None:
+    with db.session() as session:
+        row = session.get(GlobalSetting, _org_snapshot_key(repo_url))
+    if row is None:
+        return None
+    try:
+        return json.loads(row.value).get("sha")
+    except json.JSONDecodeError:
+        return None
+
+
 def bind(repo_url: str, ref: str = "HEAD", *, allow_insecure: bool = False) -> ResolvedPolicy:
-    """Bind to an org policy repo: fetch it, then pin the snapshot and binding in a
-    single transaction. The org policy then replaces the local one for this machine."""
+    """Fetch an org policy repo and pin its snapshot. The caller (CLI) writes
+    `[policy] scope = "org"` into the project's aim.toml; this only warms the cache."""
     pol, sha = fetch_org_policy(repo_url, ref, allow_insecure=allow_insecure)
-    _save_binding_and_snapshot(repo_url, ref, sha, pol)
+    cache_org_snapshot(repo_url, ref, sha, pol)
     return ResolvedPolicy(pol, "org", repo_url, compute_hash(pol))
 
 
-def refresh_org_policy() -> ResolvedPolicy | None:
-    """Re-fetch the bound org policy and update the cached snapshot."""
-    binding = get_binding()
-    if binding is None:
-        return None
-    return bind(binding["repo"], binding.get("ref", "HEAD"))
+# ---------- resolution from aim.toml [policy] ----------
+
+_INLINE_KEYS = ("repos", "artifacts", "profiles", "risk", "rule", "name", "version")
 
 
-def unbind() -> None:
-    clear_binding()
-    _clear_org_snapshot()
+def _read_policy_section(project_root: Path) -> dict:
+    """The project's `[policy]` table from aim.toml ({} if no aim.toml / no policy)."""
+    from aim.core import declarations
+
+    try:
+        decl = declarations.load(project_root)
+    except declarations.DeclarationsNotFoundError:
+        return {}
+    return decl.policy or {}
 
 
-# ---------- resolution ----------
+# Public read/write of the project's [policy] section (used by the CLI).
+project_policy_section = _read_policy_section
 
 
-@dataclass(frozen=True)
-class ResolvedPolicy:
-    policy: Policy
-    source: str  # "builtin" | "local" | "org"
-    repo: str | None  # org policy repo url, else None
-    hash: str | None  # org policy hash, or local snapshot hash, else None
+def set_project_policy(project_root: Path, section: dict) -> None:
+    """Write the `[policy]` table into the project's aim.toml."""
+    from aim.core import declarations
+
+    decl = declarations.load_or_default(project_root)
+    decl.policy = section
+    declarations.save(project_root, decl)
 
 
-def _bound_snapshot_or_fail() -> ResolvedPolicy | None:
-    """If an org policy is bound, return its snapshot — failing CLOSED if the
-    snapshot is missing or corrupt (rather than silently downgrading governance to
-    the permissive built-in). Returns None when nothing is bound."""
-    binding = get_binding()
-    if binding is None:
-        return None
-    snapshot = load_org_snapshot()
+def _resolve_org(section: dict) -> ResolvedPolicy:
+    repo = section.get("repo")
+    if not repo:
+        raise PolicyError("[policy] scope = 'org' requires a 'repo' URL")
+    snapshot = load_org_snapshot(repo)
     if snapshot is None:
+        # Fail CLOSED rather than silently fall back to permissive.
         raise PolicyError(
-            f"policy is bound to {binding.get('repo')!r} but no usable snapshot is "
-            "cached (missing or corrupt). Run `aim policy refresh` to re-fetch it, or "
-            "`aim policy unbind` to remove the binding."
+            f"project policy points at org repo {repo!r} but no usable snapshot is "
+            "cached (missing or corrupt). Run `aim policy refresh` to fetch it."
         )
     return snapshot
 
 
+def refresh_org_policy(project_root: Path) -> ResolvedPolicy | None:
+    """Re-fetch the project's org policy (if scope='org') and update the cache."""
+    section = _read_policy_section(project_root)
+    repo = section.get("repo")
+    if section.get("scope") != "org" or not repo:
+        return None
+    return bind(repo, section.get("ref", "HEAD"))
+
+
 def resolve_effective(project_root: Path | None = None) -> ResolvedPolicy:
-    """Resolve the effective policy: built-in default < local (DB) < org (bound).
-    A bound org policy replaces local. Offline: reads the cached org snapshot,
-    never fetches (bind/refresh do that). Fails closed if a binding has no snapshot."""
-    bound = _bound_snapshot_or_fail()
-    if bound is not None:
-        return bound
-    local = load_local_policy()
-    if local is not None:
-        return ResolvedPolicy(local, "local", None, compute_hash(local))
+    """Resolve the effective policy from the project's aim.toml `[policy]` table.
+    scope='org' uses the cached org snapshot (fails closed if missing); an inline
+    policy is built directly; absent/empty -> permissive built-in. Offline."""
+    if project_root is None:
+        return ResolvedPolicy(builtin_policy(), "builtin", None, None)
+    section = _read_policy_section(project_root)
+    if section.get("scope") == "org" or section.get("repo"):
+        return _resolve_org(section)
+    if section.get("scope") == "local" or any(k in section for k in _INLINE_KEYS):
+        pol = from_mapping(section)
+        return ResolvedPolicy(pol, "local", None, compute_hash(pol))
     return ResolvedPolicy(builtin_policy(), "builtin", None, None)
 
 
 def effective_policy(project_root: Path | None = None) -> Policy:
     """The resolved policy without computing a hash — the cheap path used by the
-    per-artifact deploy gates (which only need the policy, not its hash). Fails
-    closed if a binding has no usable snapshot."""
-    bound = _bound_snapshot_or_fail()
-    if bound is not None:
-        return bound.policy
-    return load_local_policy() or builtin_policy()
+    per-artifact deploy gates. Fails closed if a project's org policy has no snapshot."""
+    if project_root is None:
+        return builtin_policy()
+    section = _read_policy_section(project_root)
+    if section.get("scope") == "org" or section.get("repo"):
+        return _resolve_org(section).policy
+    if section.get("scope") == "local" or any(k in section for k in _INLINE_KEYS):
+        return from_mapping(section)
+    return builtin_policy()
 
 
 # ---------- enforcement predicates (mirror content_guard.require_secure_url) ----------

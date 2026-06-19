@@ -6,6 +6,7 @@ Per the plan: one model layer to avoid drift between DB and JSON shapes.
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 from sqlmodel import Field as SQLField
@@ -102,7 +103,7 @@ class McpServerCache(SQLModel, table=True):  # type: ignore[call-arg]
 
 # ---------- Project declarations (aim.toml) ----------
 
-CURRENT_DECLARATIONS_VERSION = 3
+CURRENT_DECLARATIONS_VERSION = 4  # v4 adds the [policy] governance table
 
 
 class DeclaredRepo(BaseModel):
@@ -168,11 +169,15 @@ class ProjectDeclarations(BaseModel):
     skills: list[DeclaredSkill] = Field(default_factory=list)
     agents: list[DeclaredAgent] = Field(default_factory=list)
     mcp_servers: list[DeclaredMcpServer] = Field(default_factory=list)
+    # Governance policy for this project: {scope: "local"|"org", ...}. Empty = no
+    # policy (permissive built-in). Stored as a raw mapping so the [policy] table is
+    # parsed/interpreted by aim.core.policy (avoids a models<->policy import cycle).
+    policy: dict[str, Any] = Field(default_factory=dict)
 
 
 # ---------- Manifest (per-project lockfile, committed) ----------
 
-CURRENT_MANIFEST_VERSION = 9  # v9: pin the governing policy (policy_repo/policy_hash)
+CURRENT_MANIFEST_VERSION = 10  # v10: pin the org policy commit SHA (policy_ref)
 HISTORY_CAP = 10
 
 
@@ -328,7 +333,9 @@ class Manifest(BaseModel):
     layout_profile: str | None = None
     # Explicit list of symlinks so sync can recreate them.
     symlinks: list[str] = Field(default_factory=list)
-    # Governing policy pinned at lock time: org repo url (None for a local policy) and
-    # a content hash of the resolved policy. Lets review/CI detect a disallowed policy.
+    # Governing policy pinned at lock time: org repo url (None for a local policy),
+    # the resolved commit SHA (org only), and a content hash of the resolved policy.
+    # Lets review/CI detect a disallowed/outdated policy.
     policy_repo: str | None = None
+    policy_ref: str | None = None
     policy_hash: str | None = None

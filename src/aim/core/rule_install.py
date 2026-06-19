@@ -114,20 +114,38 @@ def _check_local_edits(project_root: Path, installed: InstalledRule, *, force: b
         )
 
 
-def _gate_rule(qualified_name: str, content: str) -> None:
+def _repo_url(alias: str) -> str:
+    try:
+        return repos.get(alias).url
+    except repos.RepoNotFoundError:
+        return ""
+
+
+def _gate_rule(
+    project_root: Path, qualified_name: str, content: str, *, allow_risky: bool = False
+) -> None:
     """Single content gate for rules: every deploy path (install/update/rollback/
     sync, files and inline mode) funnels through here, so security/policy/risk
     checks live in one place."""
-    pol = policy.effective_policy()
+    pol = policy.effective_policy(project_root)
+    alias = qualified_name.split("/", 1)[0]
+    policy.assert_repo_allowed(pol, alias, _repo_url(alias))
     policy.assert_artifact_allowed(pol, "rule", qualified_name)
     content_guard.assert_no_hidden_unicode(content, source=f"rule {qualified_name}")
-    risk.gate(content, qualified_name=qualified_name, pol=pol)
+    risk.gate(content, qualified_name=qualified_name, pol=pol, allow_risky=allow_risky)
 
 
-def _deploy(project_root: Path, rule_name: str, content: str, *, qualified_name: str) -> None:
+def _deploy(
+    project_root: Path,
+    rule_name: str,
+    content: str,
+    *,
+    qualified_name: str,
+    allow_risky: bool = False,
+) -> None:
     """Gate then write the rule body to its files-mode target. The gate runs above
     the inline-mode early return, so inline rules are gated too."""
-    _gate_rule(qualified_name, content)
+    _gate_rule(project_root, qualified_name, content, allow_risky=allow_risky)
     target = _target_path(project_root, rule_name)
     if target is None:
         return
@@ -141,6 +159,7 @@ def install(
     *,
     track: str | None = None,
     pin: str | None = None,
+    allow_risky: bool = False,
 ) -> InstalledRule:
     """Install a rule into the project."""
     row = _rule_index_row(qualified_name)
@@ -152,7 +171,9 @@ def install(
         artifact_name=Path(row.rule_md_path).name,
     )
     content = repo_rules.read_rule_content(qualified_name)
-    _deploy(project_root, row.rule_name, content, qualified_name=qualified_name)
+    _deploy(
+        project_root, row.rule_name, content, qualified_name=qualified_name, allow_risky=allow_risky
+    )
     content_hash = hashing.hash_text(content)
 
     m = _load_manifest(project_root)
@@ -190,6 +211,7 @@ def update(
     qualified_name: str,
     *,
     force: bool = False,
+    allow_risky: bool = False,
 ) -> InstalledRule:
     """Refresh an installed rule from its source repo."""
     m = _load_manifest(project_root)
@@ -215,7 +237,13 @@ def update(
 
     _check_local_edits(project_root, existing, force=force)
     content = repo_rules.read_rule_content(qualified_name)
-    _deploy(project_root, _rule_name(qualified_name), content, qualified_name=qualified_name)
+    _deploy(
+        project_root,
+        _rule_name(qualified_name),
+        content,
+        qualified_name=qualified_name,
+        allow_risky=allow_risky,
+    )
     existing.push_history(new_version)
     existing.content_hash = hashing.hash_text(content)
     manifest.save(project_root, m)

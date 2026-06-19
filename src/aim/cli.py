@@ -661,29 +661,35 @@ def policy_show(project: Path | None = typer.Argument(None, help="Project root."
 @_friendly
 def policy_bind(
     git_url: str = typer.Argument(..., help="Org policy repo URL (contains policy.toml)."),
+    project: Path | None = typer.Argument(None, help="Project root."),
     ref: str = typer.Option("HEAD", "--ref", help="Branch/tag/commit to pin."),
 ) -> None:
-    """Bind this machine to an org policy repo (fetches + pins it; replaces local)."""
-    resolved = policy_mod.bind(git_url, ref)
-    typer.echo(f"bound to org policy {resolved.policy.name!r} ({git_url} @ {ref})")
+    """Point this project at an org policy repo: write [policy] scope='org' into its
+    aim.toml and warm the local cache (the org policy then governs the project)."""
+    root = _here(project)
+    resolved = policy_mod.bind(git_url, ref)  # fetch + cache snapshot
+    policy_mod.set_project_policy(root, {"scope": "org", "repo": git_url, "ref": ref})
+    typer.echo(
+        f"bound {root / 'aim.toml'} to org policy {resolved.policy.name!r} ({git_url} @ {ref})"
+    )
     typer.echo(f"hash: {resolved.hash}")
 
 
 @policy_app.command("unbind")
 @_friendly
-def policy_unbind() -> None:
-    """Remove the org policy binding (falls back to local/built-in)."""
-    policy_mod.unbind()
-    typer.echo("unbound org policy")
+def policy_unbind(project: Path | None = typer.Argument(None, help="Project root.")) -> None:
+    """Remove the [policy] table from the project's aim.toml (back to permissive)."""
+    policy_mod.set_project_policy(_here(project), {})
+    typer.echo("removed [policy] from aim.toml")
 
 
 @policy_app.command("refresh")
 @_friendly
-def policy_refresh() -> None:
-    """Re-fetch the bound org policy and update the pinned snapshot."""
-    resolved = policy_mod.refresh_org_policy()
+def policy_refresh(project: Path | None = typer.Argument(None, help="Project root.")) -> None:
+    """Re-fetch the project's org policy (scope='org') and update the cached snapshot."""
+    resolved = policy_mod.refresh_org_policy(_here(project))
     if resolved is None:
-        typer.echo("no org policy bound; nothing to refresh")
+        typer.echo("project has no org policy (scope != 'org'); nothing to refresh")
         return
     typer.echo(f"refreshed org policy {resolved.policy.name!r}; hash: {resolved.hash}")
 
@@ -691,41 +697,42 @@ def policy_refresh() -> None:
 @policy_app.command("init-local")
 @_friendly
 def policy_init_local(
-    force: bool = typer.Option(False, "--force", help="Overwrite an existing local policy."),
+    project: Path | None = typer.Argument(None, help="Project root."),
+    force: bool = typer.Option(False, "--force", help="Overwrite an existing [policy]."),
 ) -> None:
-    """Create an editable local policy (stored in the global DB) seeded with presets."""
-    if policy_mod.load_local_policy() is not None and not force:
-        typer.echo("error: a local policy already exists; pass --force to overwrite", err=True)
+    """Scaffold a default local policy ([policy] scope='local') in aim.toml."""
+    root = _here(project)
+    if policy_mod.project_policy_section(root) and not force:
+        typer.echo("error: aim.toml already has a [policy]; pass --force to overwrite", err=True)
         raise typer.Exit(code=1)
-    policy_mod.save_local_policy(policy_mod.Policy(name="local"))
-    typer.echo("created local policy. Edit it via `aim policy import` or export/edit/import.")
+    policy_mod.set_project_policy(root, {"scope": "local"})
+    typer.echo(f"wrote a default [policy] scope='local' to {root / 'aim.toml'}")
 
 
 @policy_app.command("import")
 @_friendly
 def policy_import(
-    rules_file: Path = typer.Argument(..., help="aim.rules.toml with custom [[rule]] entries."),
+    rules_file: Path = typer.Argument(..., help="aim.rules.toml with [[rule]] entries."),
+    project: Path | None = typer.Argument(None, help="Project root."),
 ) -> None:
-    """Load custom rules from an aim.rules.toml into the local policy."""
+    """Load custom risk rules from an aim.rules.toml into the project's [policy]."""
     rules = policy_mod.parse_rules_toml(rules_file.read_text(encoding="utf-8"))
-    pol = policy_mod.load_local_policy() or policy_mod.Policy(name="local")
-    pol.custom_rules = rules
-    policy_mod.save_local_policy(pol)
-    typer.echo(f"imported {len(rules)} custom rule(s) into the local policy")
+    root = _here(project)
+    section = dict(policy_mod.project_policy_section(root))
+    section.setdefault("scope", "local")
+    section["rule"] = [r.model_dump() for r in rules]
+    policy_mod.set_project_policy(root, section)
+    typer.echo(f"imported {len(rules)} custom rule(s) into aim.toml [policy]")
 
 
 @policy_app.command("export")
 @_friendly
 def policy_export(
-    rules_file: Path = typer.Argument(
-        Path("aim.rules.toml"), help="Destination for the custom-rule file."
-    ),
+    rules_file: Path = typer.Argument(Path("aim.rules.toml"), help="Destination file."),
+    project: Path | None = typer.Argument(None, help="Project root."),
 ) -> None:
-    """Write the local policy's custom rules out to an aim.rules.toml."""
-    pol = policy_mod.load_local_policy()
-    if pol is None:
-        typer.echo("error: no local policy to export", err=True)
-        raise typer.Exit(code=1)
+    """Write the project policy's custom rules out to an aim.rules.toml."""
+    pol = policy_mod.resolve_effective(_here(project)).policy
     rules_file.write_text(policy_mod.render_rules_toml(pol.custom_rules), encoding="utf-8")
     typer.echo(f"exported {len(pol.custom_rules)} custom rule(s) to {rules_file}")
 
@@ -943,32 +950,28 @@ def tui_cmd(
     run_tui(project_root=project, profile_name=profile)
 
 
-def _maybe_setup_policy(policy_url: str | None, local_policy: bool) -> None:
-    """Set up governance at init: bind an org policy, create a local one, or (when
-    interactive and nothing is configured yet) prompt for a choice."""
+def _maybe_setup_policy(root: Path, policy_url: str | None, local_policy: bool) -> None:
+    """Configure governance at init by writing the [policy] table in aim.toml.
+    `aim init` already wrote a default scope='local'; here we optionally switch to an
+    org policy (flag or interactive prompt)."""
     import sys
 
     if policy_url:
-        resolved = policy_mod.bind(policy_url)
+        resolved = policy_mod.bind(policy_url)  # fetch + cache
+        policy_mod.set_project_policy(root, {"scope": "org", "repo": policy_url, "ref": "HEAD"})
         typer.echo(f"bound org policy {resolved.policy.name!r} ({policy_url})")
         return
     if local_policy:
-        if policy_mod.load_local_policy() is None:
-            policy_mod.save_local_policy(policy_mod.Policy(name="local"))
-        typer.echo("using local policy")
+        typer.echo("using local policy ([policy] scope='local' in aim.toml)")
         return
-    # Already governed, or non-interactive: leave as-is (built-in permissive default).
-    if policy_mod.get_binding() is not None or policy_mod.load_local_policy() is not None:
-        return
-    if not sys.stdin.isatty():
+    section = policy_mod.project_policy_section(root)
+    if section.get("scope") == "org" or not sys.stdin.isatty():
         return
     if typer.confirm("Bind an org governance policy repo?", default=False):
         url = typer.prompt("Org policy git URL")
         resolved = policy_mod.bind(url)
+        policy_mod.set_project_policy(root, {"scope": "org", "repo": url, "ref": "HEAD"})
         typer.echo(f"bound org policy {resolved.policy.name!r}")
-    elif typer.confirm("Create a local editable policy instead?", default=False):
-        policy_mod.save_local_policy(policy_mod.Policy(name="local"))
-        typer.echo("created local policy (edit via `aim policy import`)")
 
 
 @app.command("init")
@@ -997,14 +1000,15 @@ def init_cmd(
 
     Rules are repo-sourced; add them after init with `aim rule add <git-url> <name>`.
     """
-    _maybe_setup_policy(policy_url, local_policy)
+    root = _here(project)
     options = init_mod.InitOptions(
-        project_root=_here(project),
+        project_root=root,
         instruction_template=instruction_template,
         symlinks=tuple(symlink),
         layout_profile=layout_profile,
     )
     result = init_mod.run(options)
+    _maybe_setup_policy(root, policy_url, local_policy)
     verb = "Refreshed" if result.re_init else "Initialized"
     typer.echo(f"{verb} {result.declarations_path}")
     if result.applied_rules:
@@ -1284,10 +1288,15 @@ def rule_add(
     yes: bool = typer.Option(
         False, "--yes", "-y", help="Register the source repo without prompting."
     ),
+    allow_risky: bool = typer.Option(
+        False, "--allow-risky", help="Install despite a risk block (unless the policy forbids it)."
+    ),
 ) -> None:
     """Add a rule from a git repository, registering the repo if needed."""
     qualified_name = _qualified_for_add(ctx, url, name, alias, "rule", assume_yes=yes)
-    installed = rule_install_mod.install(_here(project), qualified_name, pin=pin, track=track)
+    installed = rule_install_mod.install(
+        _here(project), qualified_name, pin=pin, track=track, allow_risky=allow_risky
+    )
     typer.echo(f"added rule {qualified_name} {installed.current.identifier()}")
 
 
@@ -1297,9 +1306,14 @@ def rule_update(
     qualified_name: str = typer.Argument(..., help="<repo_alias>/<rule_name>"),
     project: Path | None = typer.Argument(None, help="Project root (defaults to cwd)."),
     force: bool = typer.Option(False, "--force", "-f", help="Overwrite local edits."),
+    allow_risky: bool = typer.Option(
+        False, "--allow-risky", help="Update despite a risk block (unless the policy forbids it)."
+    ),
 ) -> None:
     """Refresh an installed rule from its source repo."""
-    updated = rule_install_mod.update(_here(project), qualified_name, force=force)
+    updated = rule_install_mod.update(
+        _here(project), qualified_name, force=force, allow_risky=allow_risky
+    )
     typer.echo(f"updated rule {qualified_name} -> {updated.current.identifier()}")
 
 
@@ -1492,10 +1506,15 @@ def skill_add(
     yes: bool = typer.Option(
         False, "--yes", "-y", help="Register the source repo without prompting."
     ),
+    allow_risky: bool = typer.Option(
+        False, "--allow-risky", help="Install despite a risk block (unless the policy forbids it)."
+    ),
 ) -> None:
     """Add a skill from a git repository, registering the repo if needed."""
     qualified_name = _qualified_for_add(ctx, url, name, alias, "skill", assume_yes=yes)
-    installed = install_mod.install(_here(project), qualified_name, pin=pin, track=track)
+    installed = install_mod.install(
+        _here(project), qualified_name, pin=pin, track=track, allow_risky=allow_risky
+    )
     typer.echo(f"added {qualified_name} {installed.current.identifier()} -> {installed.target_dir}")
     for warn in install_mod.take_install_warnings():
         typer.echo(f"  warning: {warn}", err=True)
@@ -1516,9 +1535,14 @@ def skill_install(
         "--track",
         help="Ref to track on update: 'latest-tag', a branch name, or any ref. Overrides repo default_ref.",
     ),
+    allow_risky: bool = typer.Option(
+        False, "--allow-risky", help="Install despite a risk block (unless the policy forbids it)."
+    ),
 ) -> None:
     """Deprecated: install an already-registered skill by qualified name. Use `add`."""
-    installed = install_mod.install(_here(project), qualified_name, pin=pin, track=track)
+    installed = install_mod.install(
+        _here(project), qualified_name, pin=pin, track=track, allow_risky=allow_risky
+    )
     typer.echo(
         f"installed {qualified_name} {installed.current.identifier()} -> {installed.target_dir}"
     )
@@ -1535,6 +1559,9 @@ def skill_update(
     project: Path | None = typer.Argument(None),
     force: bool = typer.Option(False, "--force", "-f", help="Overwrite local edits."),
     diff: bool = typer.Option(False, "--diff", help="Show proposed version change; don't apply."),
+    allow_risky: bool = typer.Option(
+        False, "--allow-risky", help="Update despite a risk block (unless the policy forbids it)."
+    ),
 ) -> None:
     """Refresh an installed skill from its source repo."""
     if diff:
@@ -1548,7 +1575,9 @@ def skill_update(
         )
         typer.echo(f"{verb} {qualified_name}: {preview.current_sha[:7]} -> {ident}")
         return
-    updated = install_mod.update(_here(project), qualified_name, force=force)
+    updated = install_mod.update(
+        _here(project), qualified_name, force=force, allow_risky=allow_risky
+    )
     assert not isinstance(updated, install_mod.UpdatePreview)
     typer.echo(f"updated {qualified_name} -> {updated.current.identifier()}")
 
@@ -1686,10 +1715,15 @@ def agent_add(
     yes: bool = typer.Option(
         False, "--yes", "-y", help="Register the source repo without prompting."
     ),
+    allow_risky: bool = typer.Option(
+        False, "--allow-risky", help="Install despite a risk block (unless the policy forbids it)."
+    ),
 ) -> None:
     """Add a sub-agent from a git repository, registering the repo if needed."""
     qualified_name = _qualified_for_add(ctx, url, name, alias, "sub-agent", assume_yes=yes)
-    installed = agent_install_mod.install(_here(project), qualified_name, pin=pin, track=track)
+    installed = agent_install_mod.install(
+        _here(project), qualified_name, pin=pin, track=track, allow_risky=allow_risky
+    )
     typer.echo(
         f"added {qualified_name} {installed.current.identifier()} -> {installed.target_path}"
     )
@@ -1712,9 +1746,14 @@ def agent_install_cmd(
         "--track",
         help="Ref to track on update: 'latest-tag', a branch name, or any ref. Overrides repo default_ref.",
     ),
+    allow_risky: bool = typer.Option(
+        False, "--allow-risky", help="Install despite a risk block (unless the policy forbids it)."
+    ),
 ) -> None:
     """Deprecated: install an already-registered sub-agent by qualified name. Use `add`."""
-    installed = agent_install_mod.install(_here(project), qualified_name, pin=pin, track=track)
+    installed = agent_install_mod.install(
+        _here(project), qualified_name, pin=pin, track=track, allow_risky=allow_risky
+    )
     typer.echo(
         f"installed {qualified_name} {installed.current.identifier()} -> {installed.target_path}"
     )
@@ -1730,9 +1769,14 @@ def agent_update(
     qualified_name: str = typer.Argument(...),
     project: Path | None = typer.Argument(None),
     force: bool = typer.Option(False, "--force", "-f", help="Overwrite local edits."),
+    allow_risky: bool = typer.Option(
+        False, "--allow-risky", help="Update despite a risk block (unless the policy forbids it)."
+    ),
 ) -> None:
     """Refresh an installed sub-agent from its source repo."""
-    updated = agent_install_mod.update(_here(project), qualified_name, force=force)
+    updated = agent_install_mod.update(
+        _here(project), qualified_name, force=force, allow_risky=allow_risky
+    )
     typer.echo(f"updated {qualified_name} -> {updated.current.identifier()}")
 
 

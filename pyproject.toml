@@ -61,6 +61,13 @@ ignore = ["E501", "B008"]  # B008: Typer/Click require call-in-default for param
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+# `llm`/`integration` tests hit real models/services and are excluded by default.
+# Run them explicitly, e.g.: uv run pytest -m llm
+addopts = "-m 'not llm and not integration'"
+markers = [
+    "llm: exercises a real language model (needs credentials; not run by default)",
+    "integration: needs external services or downloaded models (not run by default)",
+]
 filterwarnings = [
     "ignore::DeprecationWarning",
 ]

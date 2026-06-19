@@ -53,6 +53,11 @@ def _migrate(raw: dict[str, Any]) -> dict[str, Any]:
             )
         raw["rules"] = []
         raw["manifest_version"] = 3
+        version = 3
+    if version < 4:
+        # v4 adds the optional [policy] governance table. Additive.
+        raw.setdefault("policy", {})
+        raw["manifest_version"] = 4
     return raw
 
 

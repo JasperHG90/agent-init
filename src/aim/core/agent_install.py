@@ -123,18 +123,36 @@ def _check_local_edits(project_root: Path, installed: InstalledAgent, *, force: 
         )
 
 
-def _gate_agent(qualified_name: str, content: str) -> None:
+def _repo_url(alias: str) -> str:
+    try:
+        return agents.repos.get(alias).url
+    except agents.repos.RepoNotFoundError:
+        return ""
+
+
+def _gate_agent(
+    project_root: Path, qualified_name: str, content: str, *, allow_risky: bool = False
+) -> None:
     """Single content gate for agents: every deploy path (install/update/rollback/
     sync) funnels through here, so security/policy/risk checks live in one place."""
-    pol = policy.effective_policy()
+    pol = policy.effective_policy(project_root)
+    alias = qualified_name.split("/", 1)[0]
+    policy.assert_repo_allowed(pol, alias, _repo_url(alias))
     policy.assert_artifact_allowed(pol, "agent", qualified_name)
     content_guard.assert_no_hidden_unicode(content, source=f"agent {qualified_name}")
-    risk.gate(content, qualified_name=qualified_name, pol=pol)
+    risk.gate(content, qualified_name=qualified_name, pol=pol, allow_risky=allow_risky)
 
 
-def _write_agent(qualified_name: str, content: str, target: Path) -> str:
+def _write_agent(
+    project_root: Path,
+    qualified_name: str,
+    content: str,
+    target: Path,
+    *,
+    allow_risky: bool = False,
+) -> str:
     """Gate then write the agent file; return its content hash."""
-    _gate_agent(qualified_name, content)
+    _gate_agent(project_root, qualified_name, content, allow_risky=allow_risky)
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(content, encoding="utf-8")
     return hashing.hash_text(content)
@@ -146,6 +164,7 @@ def install(
     *,
     track: str | None = None,
     pin: str | None = None,
+    allow_risky: bool = False,
 ) -> InstalledAgent:
     """Install a sub-agent into the project's agents directory."""
     row = _agent_index_row(qualified_name)
@@ -163,7 +182,9 @@ def install(
         )
 
     target = _target_path(project_root, row.agent_name)
-    content_hash = _write_agent(qualified_name, content, target)
+    content_hash = _write_agent(
+        project_root, qualified_name, content, target, allow_risky=allow_risky
+    )
 
     m = _load_manifest(project_root)
     existing = _find_installed(m, qualified_name)
@@ -202,6 +223,7 @@ def update(
     qualified_name: str,
     *,
     force: bool = False,
+    allow_risky: bool = False,
 ) -> InstalledAgent:
     """Refresh an installed sub-agent from its source repo."""
     m = _load_manifest(project_root)
@@ -229,7 +251,9 @@ def update(
     content = agents.read_agent_content(qualified_name)
     target = _resolve_target_path(project_root, existing.target_path)
     existing.push_history(new_version)
-    existing.content_hash = _write_agent(qualified_name, content, target)
+    existing.content_hash = _write_agent(
+        project_root, qualified_name, content, target, allow_risky=allow_risky
+    )
     manifest.save(project_root, m)
     declarations._update_agent(project_root, existing)
     return existing
@@ -320,7 +344,7 @@ def rollback(project_root: Path, qualified_name: str, *, force: bool = False) ->
             installed_at=target_version.installed_at,
         )
     )
-    existing.content_hash = _write_agent(qualified_name, content, target)
+    existing.content_hash = _write_agent(project_root, qualified_name, content, target)
     manifest.save(project_root, m)
     declarations._update_agent(project_root, existing)
     return existing

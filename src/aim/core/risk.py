@@ -66,6 +66,7 @@ class RiskConfig:
     block_threshold: RiskLevel
     escalate_threshold: RiskLevel
     judge: str | None
+    allow_override: bool
     rules: list[policy.RiskRule]
 
 
@@ -79,6 +80,7 @@ def config_from_policy(pol: policy.Policy) -> RiskConfig:
         block_threshold=RiskLevel.from_severity(r.block_threshold),
         escalate_threshold=RiskLevel.from_severity(r.escalate_threshold),
         judge=r.judge,
+        allow_override=r.allow_override,
         rules=policy.active_rules(pol),
     )
 
@@ -441,6 +443,9 @@ def assert_acceptable_risk(
     if not config.enabled:
         return RiskVerdict(RiskLevel.LOW, [], "disabled")
 
+    # The override is honored only when the policy permits it (allow_override).
+    override = allow_risky and config.allow_override
+
     content_hash = hashlib.sha256(text.encode("utf-8")).hexdigest()
     fingerprint = config_fingerprint(config)
     verdict = verdict_cache_get(source, content_hash, fingerprint)
@@ -450,7 +455,7 @@ def assert_acceptable_risk(
         except RiskDependencyError as exc:
             # In block mode the policy demands enforcement, so an unavailable
             # classifier must fail CLOSED — otherwise block mode is silently vacuous.
-            if config.mode == "block" and not allow_risky:
+            if config.mode == "block" and not override:
                 raise RiskBlockedError(
                     f"{source}: policy requires risk blocking but the classifier is "
                     f"unavailable ({exc}); install the risk extra or pass --allow-risky"
@@ -461,10 +466,11 @@ def assert_acceptable_risk(
 
     if verdict.level >= config.block_threshold:
         detail = "; ".join(verdict.reasons) or "no detail"
-        if config.mode == "block" and not allow_risky:
+        if config.mode == "block" and not override:
+            hint = "" if config.allow_override else " (override disabled by policy)"
             raise RiskBlockedError(
                 f"{source}: risk {verdict.level.name} >= {config.block_threshold.name}: {detail}"
-                " (pass --allow-risky to override)"
+                f"{hint or ' (pass --allow-risky to override)'}"
             )
         _warn(f"{source}: risk {verdict.level.name}: {detail}")
     elif verdict.level >= RiskLevel.MEDIUM:

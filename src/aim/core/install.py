@@ -82,6 +82,7 @@ class InstallPlan:
     source_path: str
     target_dir: Path
     version: SkillVersion
+    project_root: Path
 
 
 def _skill_index_row(qualified_name: str) -> SkillIndex:
@@ -234,6 +235,7 @@ def _plan(
         source_path=row.source_path,
         target_dir=target_dir,
         version=version,
+        project_root=project_root,
     )
 
 
@@ -258,6 +260,14 @@ def _ensure_symlinks_safe(snap: Path) -> None:
 _RISK_TEXT_CAP = 256 * 1024  # bytes; bound the text fed to the classifier
 
 
+def _repo_url(alias: str) -> str:
+    """The registered URL for `alias`, or '' if unknown (alias match still applies)."""
+    try:
+        return repos.get(alias).url
+    except repos.RepoNotFoundError:
+        return ""
+
+
 def _gather_skill_text(snap: Path) -> str:
     """Concatenate the UTF-8 text of a skill snapshot for risk classification,
     capped so a large/hostile tree can't exhaust memory. Only called when a policy
@@ -278,12 +288,13 @@ def _gather_skill_text(snap: Path) -> str:
     return "\n".join(parts)
 
 
-def _deploy(plan: InstallPlan) -> str:
+def _deploy(plan: InstallPlan, *, allow_risky: bool = False) -> str:
     """Materialise the skill bytes into the project target_dir. Returns the
     content hash of the deployed tree."""
     snap = _ensure_snapshot(plan.repo_alias, plan.version.sha, plan.source_path, plan.skill_name)
     _ensure_symlinks_safe(snap)
-    pol = policy.effective_policy()
+    pol = policy.effective_policy(plan.project_root)
+    policy.assert_repo_allowed(pol, plan.repo_alias, _repo_url(plan.repo_alias))
     policy.assert_artifact_allowed(pol, "skill", plan.qualified_name)
     hidden = content_guard.scan_directory(snap)
     if hidden:
@@ -291,7 +302,12 @@ def _deploy(plan: InstallPlan) -> str:
             f"{plan.qualified_name}: hidden Unicode found in skill files:\n" + "\n".join(hidden)
         )
     if pol.risk.enabled:
-        risk.gate(_gather_skill_text(snap), qualified_name=plan.qualified_name, pol=pol)
+        risk.gate(
+            _gather_skill_text(snap),
+            qualified_name=plan.qualified_name,
+            pol=pol,
+            allow_risky=allow_risky,
+        )
     if plan.target_dir.exists():
         shutil.rmtree(plan.target_dir)
     plan.target_dir.parent.mkdir(parents=True, exist_ok=True)
@@ -321,6 +337,7 @@ def install(
     *,
     track: str | None = None,
     pin: str | None = None,
+    allow_risky: bool = False,
 ) -> InstalledSkill:
     plan = _plan(project_root, qualified_name, track=track, pin=pin)
 
@@ -329,7 +346,7 @@ def install(
     # gets a clear print-list to install themselves.
     _warn_about_prereqs_and_capabilities(project_root, qualified_name)
 
-    content_hash = _deploy(plan)
+    content_hash = _deploy(plan, allow_risky=allow_risky)
 
     m = _load_manifest(project_root)
     existing = _find_installed(m, qualified_name)
@@ -452,6 +469,7 @@ def update(
     *,
     force: bool = False,
     dry_run: bool = False,
+    allow_risky: bool = False,
 ) -> InstalledSkill | UpdatePreview:
     m = _load_manifest(project_root)
     existing = _find_installed(m, qualified_name)
@@ -488,8 +506,9 @@ def update(
         source_path=existing.source_path,
         target_dir=_resolve_target_dir(project_root, existing.target_dir),
         version=new_version,
+        project_root=project_root,
     )
-    content_hash = _deploy(plan)
+    content_hash = _deploy(plan, allow_risky=allow_risky)
     existing.push_history(new_version)
     existing.content_hash = content_hash
     manifest.save(project_root, m)
@@ -603,6 +622,7 @@ def rollback(project_root: Path, qualified_name: str, *, force: bool = False) ->
         source_path=existing.source_path,
         target_dir=_resolve_target_dir(project_root, existing.target_dir),
         version=target_version,
+        project_root=project_root,
     )
     content_hash = _deploy(plan)
 

@@ -196,6 +196,7 @@ def _sync_skill(
             source_path=installed.source_path,
             target_dir=target,
             version=installed.current,
+            project_root=project_root,
         )
         content_hash = install_mod._deploy(plan)
     except Exception as exc:
@@ -278,7 +279,7 @@ def _sync_agent(
             )
 
     try:
-        agent_install._gate_agent(installed.qualified_name, expected_content)
+        agent_install._gate_agent(project_root, installed.qualified_name, expected_content)
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(expected_content, encoding="utf-8")
     except Exception as exc:
@@ -362,7 +363,7 @@ def _sync_rule(
             )
 
     try:
-        rule_install._gate_rule(installed.qualified_name, expected_content)
+        rule_install._gate_rule(project_root, installed.qualified_name, expected_content)
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(expected_content, encoding="utf-8")
     except Exception as exc:
@@ -414,7 +415,7 @@ def _sync_mcp(
     """Reconcile a single MCP entry. Returns (synced_alias or None, error or None)."""
     try:
         policy.assert_mcp_allowed(
-            policy.effective_policy(), installed.alias, installed.registry_name
+            policy.effective_policy(project_root), installed.alias, installed.registry_name
         )
     except policy.PolicyViolationError as exc:
         return None, str(exc)

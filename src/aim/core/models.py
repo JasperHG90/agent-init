@@ -165,14 +165,15 @@ class ProjectDeclarations(BaseModel):
     layout_profile: str | None = None
     symlinks: list[str] = Field(default_factory=list)
     rules: list[DeclaredRule] = Field(default_factory=list)
+    # Governance policy for this project: {scope: "local"|"org", ...}. Empty = no
+    # policy (permissive built-in). Stored as a raw mapping so the [policy] table is
+    # parsed/interpreted by aim.core.policy (avoids a models<->policy import cycle).
+    # Declared above `repos` so the [policy] table serializes near the top of aim.toml.
+    policy: dict[str, Any] = Field(default_factory=dict)
     repos: dict[str, str] = Field(default_factory=dict)
     skills: list[DeclaredSkill] = Field(default_factory=list)
     agents: list[DeclaredAgent] = Field(default_factory=list)
     mcp_servers: list[DeclaredMcpServer] = Field(default_factory=list)
-    # Governance policy for this project: {scope: "local"|"org", ...}. Empty = no
-    # policy (permissive built-in). Stored as a raw mapping so the [policy] table is
-    # parsed/interpreted by aim.core.policy (avoids a models<->policy import cycle).
-    policy: dict[str, Any] = Field(default_factory=dict)
 
 
 # ---------- Manifest (per-project lockfile, committed) ----------

@@ -15,10 +15,14 @@ from textual.widgets import Button, Input, Static
 
 @dataclass(frozen=True)
 class ProjectPick:
+    """Result of a project-root selection, holding the chosen directory."""
+
     project_root: Path
 
 
 class ProjectPickerModal(ModalScreen[ProjectPick | None]):
+    """Modal screen prompting the user to pick a target project directory."""
+
     BINDINGS = [Binding("escape", "cancel", "Cancel", priority=True)]
 
     def __init__(
@@ -29,6 +33,14 @@ class ProjectPickerModal(ModalScreen[ProjectPick | None]):
         initial_project: Path | None = None,
         helper: str = "Project root (will be created if missing):",
     ) -> None:
+        """Initialize the picker with display text and a starting directory.
+
+        Args:
+            title: Heading shown at the top of the modal.
+            action_label: Label for the confirm button.
+            initial_project: Pre-filled project root; defaults to the cwd.
+            helper: Helper text shown above the input field.
+        """
         super().__init__()
         self._title = title
         self._action_label = action_label
@@ -36,6 +48,7 @@ class ProjectPickerModal(ModalScreen[ProjectPick | None]):
         self._helper = helper
 
     def compose(self) -> ComposeResult:
+        """Build the modal's title, helper, input, and action buttons."""
         yield Vertical(
             Static(self._title, classes="modal-title", markup=False),
             Static(self._helper, markup=False),
@@ -49,9 +62,11 @@ class ProjectPickerModal(ModalScreen[ProjectPick | None]):
         )
 
     def on_mount(self) -> None:
+        """Focus the project-root input when the modal is mounted."""
         self.query_one("#project-root", Input).focus()
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
+        """Dismiss with the chosen project on confirm, or None on cancel."""
         if event.button.id == "go":
             value = self.query_one("#project-root", Input).value.strip()
             if not value:
@@ -61,9 +76,11 @@ class ProjectPickerModal(ModalScreen[ProjectPick | None]):
             self.dismiss(None)
 
     def action_cancel(self) -> None:
+        """Dismiss the modal without making a selection."""
         self.dismiss(None)
 
     def on_key(self, event) -> None:
+        """Cancel the modal when Escape is pressed, stopping propagation."""
         if event.key == "escape":
             event.stop()
             self.action_cancel()

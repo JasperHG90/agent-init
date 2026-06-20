@@ -32,6 +32,15 @@ _engine: Engine | None = None
 
 
 def get_engine(db_path: Path | None = None) -> Engine:
+    """Return the process-wide SQLite engine, creating it on first use.
+
+    Args:
+        db_path: Override for the database file location; defaults to the
+            global DB path when omitted.
+
+    Returns:
+        The cached SQLModel engine, with tables created and schema migrated.
+    """
     global _engine
     if _engine is not None:
         return _engine
@@ -45,14 +54,18 @@ def get_engine(db_path: Path | None = None) -> Engine:
 
 
 def _migrate_schema(engine: Engine) -> None:
-    """Additive schema migration. `SQLModel.metadata.create_all` only creates
-    *missing tables*; it never ALTERs an existing one to add a new column.
+    """Apply additive schema migrations to bring the DB up to the model.
 
-    When fields are added to an ORM model the next `aim` run against
-    an older DB crashes with `no such column: ...`. Walk each model table,
-    diff against the live SQLite schema, and `ALTER TABLE ADD COLUMN` for
-    anything missing. Safe only for additive changes (new column must be
-    nullable or have a default)."""
+    `SQLModel.metadata.create_all` only creates *missing tables*; it never
+    ALTERs an existing one to add a new column. When fields are added to an
+    ORM model the next `aim` run against an older DB crashes with
+    `no such column: ...`. Walk each model table, diff against the live
+    SQLite schema, and `ALTER TABLE ADD COLUMN` for anything missing. Safe
+    only for additive changes (new column must be nullable or have a default).
+
+    Args:
+        engine: The live engine whose database is reconciled with the models.
+    """
     from sqlalchemy import inspect, text
 
     inspector = inspect(engine)
@@ -85,7 +98,7 @@ def _migrate_schema(engine: Engine) -> None:
 
 
 def reset_engine() -> None:
-    """Used by tests to drop the cached engine between tmp_path fixtures."""
+    """Dispose and clear the cached engine between tmp_path test fixtures."""
     global _engine
     if _engine is not None:
         _engine.dispose()
@@ -94,5 +107,10 @@ def reset_engine() -> None:
 
 @contextmanager
 def session() -> Iterator[Session]:
+    """Yield a database session bound to the shared engine.
+
+    Yields:
+        An open SQLModel session that is closed on context exit.
+    """
     with Session(get_engine()) as s:
         yield s

@@ -24,6 +24,8 @@ KNOWN_SYMLINKS = ("CLAUDE.md", "GEMINI.md", "OPENCODE.md")
 
 @dataclass
 class InitOptions:
+    """Configuration inputs for an `aim init` run."""
+
     project_root: Path
     instruction_template: str = templates.BUILTIN_DEFAULT
     symlinks: tuple[str, ...] = ()
@@ -33,6 +35,8 @@ class InitOptions:
 
 @dataclass
 class InitResult:
+    """Outcome of an `aim init` run."""
+
     project_root: Path
     declarations_path: Path
     applied_rules: list[str]
@@ -40,6 +44,17 @@ class InitResult:
 
 
 def run(options: InitOptions) -> InitResult:
+    """Create or update the project's `aim.toml` declarations.
+
+    Args:
+        options: Project root and the template, symlink, and layout choices to apply.
+
+    Returns:
+        An InitResult describing the written declarations and whether this was a re-init.
+
+    Raises:
+        MirrorNameError: If a requested symlink filename is not a valid mirror name.
+    """
     paths.ensure_global_dirs()
     templates.ensure_builtin_registered()
     templates.resolve(options.instruction_template)

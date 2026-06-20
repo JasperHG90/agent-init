@@ -63,7 +63,7 @@ class LocalEditsError(RuntimeError):
 
 
 class NoHistoryToRollbackError(RuntimeError):
-    pass
+    """The skill has no prior version recorded, so there is nothing to roll back to."""
 
 
 class RollbackUnavailableError(RuntimeError):
@@ -76,6 +76,8 @@ class ManifestPathEscapeError(ValueError):
 
 @dataclass(frozen=True)
 class InstallPlan:
+    """Resolved inputs needed to deploy one skill version into a project."""
+
     qualified_name: str
     repo_alias: str
     skill_name: str
@@ -86,6 +88,11 @@ class InstallPlan:
 
 
 def _skill_index_row(qualified_name: str) -> SkillIndex:
+    """Fetch the index row for a skill, or raise if it is not indexed.
+
+    Raises:
+        SkillNotIndexedError: the qualified_name is absent from the index.
+    """
     with db.session() as session:
         row = session.get(SkillIndex, qualified_name)
     if row is None:
@@ -94,18 +101,34 @@ def _skill_index_row(qualified_name: str) -> SkillIndex:
 
 
 def _snapshot_dir(repo_alias: str, sha: str, skill_name: str) -> Path:
+    """Return the cache path where this skill's snapshot bytes live."""
     return paths.snapshots_cache_dir() / repo_alias / sha / skill_name
 
 
 def _snapshot_is_complete(snap: Path) -> bool:
+    """Return True when the snapshot directory carries its completion sentinel."""
     return snap.exists() and (snap / _SNAPSHOT_SENTINEL).exists()
 
 
 def _ensure_snapshot(repo_alias: str, sha: str, source_path: str, skill_name: str) -> Path:
+    """Materialise (or reuse) the snapshot of a skill at a given SHA.
+
+    Args:
+        repo_alias: registered alias of the source repo.
+        sha: commit whose bytes are extracted.
+        source_path: path within the repo to extract.
+        skill_name: name used for the snapshot subdirectory.
+
+    Returns:
+        The snapshot directory, guaranteed complete on success.
+
+    Raises:
+        RollbackUnavailableError: the snapshot is missing and the cached
+            clone cannot be used to rebuild it.
+    """
     snap = _snapshot_dir(repo_alias, sha, skill_name)
     if _snapshot_is_complete(snap):
         return snap
-    # Wipe any partial extraction.
     if snap.exists():
         shutil.rmtree(snap)
     snap.mkdir(parents=True, exist_ok=True)
@@ -136,17 +159,23 @@ def resolve_install_version(
 ) -> SkillVersion:
     """Pick the version to install for this artifact (skill or agent).
 
-    Strategy: the actual SHA is the last commit touching `source_path`
-    reachable from the resolved ref. The most recent ancestor tag is
-    attached IFF (a) the source_path exists at that tag and (b) the
-    artifact's last-touching SHA is reachable from the tag.
+    The actual SHA is the last commit touching `source_path` reachable from
+    the resolved ref. The most recent ancestor tag is attached IFF (a) the
+    source_path exists at that tag and (b) the artifact's last-touching SHA
+    is reachable from the tag (so the tag honestly describes the bytes).
 
-    - `track` overrides the registered repo's default_ref (e.g. "main",
-      a specific branch, or "latest-tag" for "newest reachable tag").
-    - `pin` returns that exact tag/sha verbatim if it resolves — install
-      stays put even when upstream advances.
-    - `artifact_name` is the manifest file inside `source_path` (SKILL.md
-      or AGENT.md).
+    Args:
+        repo_alias: registered alias of the source repo.
+        source_path: path within the repo to the artifact.
+        track: overrides the registered repo's default_ref (e.g. "main", a
+            branch, or "latest-tag" for the newest reachable tag).
+        pin: an exact tag/sha returned verbatim if it resolves, so the
+            install stays put even when upstream advances.
+        artifact_name: the manifest file inside source_path (SKILL.md or
+            AGENT.md).
+
+    Returns:
+        The resolved version to install.
     """
     repo = repos.get(repo_alias)
     repo_dir = repos.clone_dir(repo_alias)
@@ -224,6 +253,17 @@ def _plan(
     track: str | None = None,
     pin: str | None = None,
 ) -> InstallPlan:
+    """Build the install plan for a skill from its index row and active layout.
+
+    Args:
+        project_root: project whose layout profile and target dir apply.
+        qualified_name: the skill to plan an install for.
+        track: optional ref override passed to version resolution.
+        pin: optional exact tag/sha passed to version resolution.
+
+    Returns:
+        A fully resolved install plan.
+    """
     row = _skill_index_row(qualified_name)
     version = resolve_install_version(row.repo_alias, row.source_path, track=track, pin=pin)
     profile = layout_profiles.resolve_active(project_root)
@@ -261,7 +301,7 @@ _RISK_TEXT_CAP = 256 * 1024  # bytes; bound the text fed to the classifier
 
 
 def _repo_url(alias: str) -> str:
-    """The registered URL for `alias`, or '' if unknown (alias match still applies)."""
+    """Return the registered URL for `alias`, or '' if unknown (alias match still applies)."""
     try:
         return repos.get(alias).url
     except repos.RepoNotFoundError:
@@ -269,9 +309,17 @@ def _repo_url(alias: str) -> str:
 
 
 def _gather_skill_text(snap: Path) -> str:
-    """Concatenate the UTF-8 text of a skill snapshot for risk classification,
-    capped so a large/hostile tree can't exhaust memory. Only called when a policy
-    enables risk scanning."""
+    """Concatenate the UTF-8 text of a skill snapshot for risk classification.
+
+    The total is capped so a large or hostile tree can't exhaust memory. Only
+    called when a policy enables risk scanning.
+
+    Args:
+        snap: the snapshot directory to read files from.
+
+    Returns:
+        The concatenated text, truncated to the byte cap.
+    """
     parts: list[str] = []
     total = 0
     for path in sorted(snap.rglob("*")):
@@ -289,8 +337,18 @@ def _gather_skill_text(snap: Path) -> str:
 
 
 def _deploy(plan: InstallPlan, *, override_risk: bool = False) -> str:
-    """Materialise the skill bytes into the project target_dir. Returns the
-    content hash of the deployed tree."""
+    """Materialise the skill bytes into the project target_dir.
+
+    Args:
+        plan: the resolved install plan to deploy.
+        override_risk: bypass a risk gate the user has acknowledged.
+
+    Returns:
+        The content hash of the deployed tree.
+
+    Raises:
+        content_guard.HiddenUnicodeError: hidden Unicode found in skill files.
+    """
     snap = _ensure_snapshot(plan.repo_alias, plan.version.sha, plan.source_path, plan.skill_name)
     _ensure_symlinks_safe(snap)
     pol = policy.effective_policy(plan.project_root)
@@ -323,10 +381,12 @@ def _deploy(plan: InstallPlan, *, override_risk: bool = False) -> str:
 
 
 def _load_manifest(project_root: Path) -> Manifest:
+    """Load the project manifest, creating an empty one if absent."""
     return manifest.load_or_create(project_root)
 
 
 def _find_installed(m: Manifest, qualified_name: str) -> InstalledSkill | None:
+    """Return the manifest's installed entry for a skill, or None if absent."""
     for skill in m.skills:
         if skill.qualified_name == qualified_name:
             return skill
@@ -341,9 +401,20 @@ def install(
     pin: str | None = None,
     override_risk: bool = False,
 ) -> InstalledSkill:
+    """Install or re-install a skill and record it in the project manifest.
+
+    Args:
+        project_root: project to install into.
+        qualified_name: the skill to install.
+        track: optional ref override for version resolution.
+        pin: optional exact tag/sha to install.
+        override_risk: bypass a risk gate the user has acknowledged.
+
+    Returns:
+        The manifest entry for the installed skill.
+    """
     plan = _plan(project_root, qualified_name, track=track, pin=pin)
 
-    # Warn about missing prereqs and capability collisions BEFORE deploying.
     # We don't auto-install prereqs across repos (per the plan); the user
     # gets a clear print-list to install themselves.
     _warn_about_prereqs_and_capabilities(project_root, qualified_name)
@@ -393,9 +464,15 @@ def take_install_warnings() -> list[str]:
 
 
 def _warn_about_prereqs_and_capabilities(project_root: Path, qualified_name: str) -> None:
-    """Inspect the SkillIndex row for this skill and the existing manifest
-    to surface missing prereqs and capability collisions. Warnings are
-    drained via `take_install_warnings()`."""
+    """Surface missing prereqs and capability collisions for a skill.
+
+    Inspects the SkillIndex row and the existing manifest. Warnings are
+    drained via `take_install_warnings()`.
+
+    Args:
+        project_root: project whose installed skills are checked.
+        qualified_name: the skill being installed.
+    """
     from aim.core.skills import split_csv
 
     with db.session() as session:
@@ -405,7 +482,6 @@ def _warn_about_prereqs_and_capabilities(project_root: Path, qualified_name: str
     prereqs = split_csv(row.prereqs or "")
     provides = split_csv(row.provides or "")
 
-    # Look at currently-installed skills in this project for collisions / met prereqs.
     try:
         m = manifest.load(project_root)
         installed_names = {s.qualified_name for s in m.skills}
@@ -441,6 +517,16 @@ def _warn_about_prereqs_and_capabilities(project_root: Path, qualified_name: str
 
 
 def _check_local_edits(project_root: Path, installed: InstalledSkill, *, force: bool) -> None:
+    """Refuse to overwrite a target_dir the user has hand-edited since install.
+
+    Args:
+        project_root: project containing the deployed skill.
+        installed: the manifest entry to verify against its target_dir.
+        force: when True, skip the check and allow overwrite.
+
+    Raises:
+        LocalEditsError: the deployed files no longer match the stored hash.
+    """
     if force or installed.content_hash is None:
         return
     target = _resolve_target_dir(project_root, installed.target_dir)
@@ -473,6 +559,22 @@ def update(
     dry_run: bool = False,
     override_risk: bool = False,
 ) -> InstalledSkill | UpdatePreview:
+    """Update an installed skill to the latest resolved version.
+
+    Args:
+        project_root: project containing the skill.
+        qualified_name: the skill to update.
+        force: overwrite even if the target_dir was hand-edited.
+        dry_run: return a preview without applying changes.
+        override_risk: bypass a risk gate the user has acknowledged.
+
+    Returns:
+        The updated manifest entry, or an UpdatePreview when dry_run is True.
+
+    Raises:
+        SkillNotInstalledError: the skill is not in the manifest.
+        SkillSourcePathChangedError: upstream moved the skill's source_path.
+    """
     m = _load_manifest(project_root)
     existing = _find_installed(m, qualified_name)
     if existing is None:
@@ -520,6 +622,8 @@ def update(
 
 @dataclass
 class BulkUpdateOutcome:
+    """Per-skill result of a bulk update run."""
+
     qualified_name: str
     status: str  # "updated" | "noop" | "skipped" | "error"
     detail: str = ""
@@ -535,13 +639,18 @@ def update_many(
 ) -> list[BulkUpdateOutcome]:
     """Update all (or a filtered subset of) installed skills in a project.
 
-    - `repo_alias`: limit to a single source repo.
-    - `only_outdated`: skip skills already at HEAD.
-    - `force`: pass through to per-skill update.
-    - `dry_run`: returns previews without applying.
-
     Partial failures don't half-write — the per-skill `update()` is atomic.
-    A failing skill is recorded as status="error" and we continue.
+    A failing skill is recorded as status="error" and the run continues.
+
+    Args:
+        project_root: project whose skills are updated.
+        repo_alias: limit to a single source repo.
+        only_outdated: skip skills already at HEAD.
+        force: pass through to per-skill update.
+        dry_run: return previews without applying.
+
+    Returns:
+        One outcome per skill considered.
     """
     m = _load_manifest(project_root)
     outcomes: list[BulkUpdateOutcome] = []
@@ -592,6 +701,11 @@ def update_many(
 
 
 def delete(project_root: Path, qualified_name: str) -> None:
+    """Remove an installed skill's files and manifest entry.
+
+    Raises:
+        SkillNotInstalledError: the skill is not in the manifest.
+    """
     m = _load_manifest(project_root)
     existing = _find_installed(m, qualified_name)
     if existing is None:
@@ -605,9 +719,23 @@ def delete(project_root: Path, qualified_name: str) -> None:
 
 
 def rollback(project_root: Path, qualified_name: str, *, force: bool = False) -> InstalledSkill:
-    """Restore `history[0]` as the new current. The previously-current entry
-    becomes the new `history[0]` — rolling back twice in a row returns to
-    where you started, by design."""
+    """Restore `history[0]` as the new current version.
+
+    The previously-current entry becomes the new `history[0]`, so rolling back
+    twice in a row returns to where you started, by design.
+
+    Args:
+        project_root: project containing the skill.
+        qualified_name: the skill to roll back.
+        force: overwrite even if the target_dir was hand-edited.
+
+    Returns:
+        The updated manifest entry.
+
+    Raises:
+        SkillNotInstalledError: the skill is not in the manifest.
+        NoHistoryToRollbackError: there is no prior version to restore.
+    """
     m = _load_manifest(project_root)
     existing = _find_installed(m, qualified_name)
     if existing is None:

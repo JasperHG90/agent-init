@@ -40,6 +40,8 @@ _TEMPLATE_HELP = (
 
 
 class ConfigScreen(Screen[None]):
+    """Edit project-level settings and the global default instruction template."""
+
     BINDINGS = [
         ("escape", "app.pop_screen", "Back"),
         ("b", "app.pop_screen", "Back"),
@@ -47,11 +49,18 @@ class ConfigScreen(Screen[None]):
     ]
 
     def __init__(self, project_root: Path | None = None) -> None:
+        """Initialize the screen for a project and locate the global template override.
+
+        Args:
+            project_root: Project directory to configure; defaults to the current
+                working directory.
+        """
         super().__init__()
         self._project_root = (project_root or Path.cwd()).resolve()
         self._template_path = templates._builtin_override_path(templates.BUILTIN_DEFAULT)
 
     def compose(self) -> ComposeResult:
+        """Build the project pane, the global template editor, and footer widgets."""
         yield Static("Config", id="title", markup=False)
         try:
             m = manifest.load(self._project_root)
@@ -129,11 +138,13 @@ class ConfigScreen(Screen[None]):
         )
 
     def on_screen_resume(self) -> None:
+        """Refresh the active-profile label when the screen regains focus."""
         self.query_one("#active-profile", Static).update(
             f"Active layout profile: {self._active_profile_label()}"
         )
 
     def _active_profile_label(self) -> str:
+        """Return a one-line summary of the active layout profile, or an em dash on failure."""
         try:
             profile = layout_profiles.resolve_active(self._project_root)
         except Exception:
@@ -141,15 +152,18 @@ class ConfigScreen(Screen[None]):
         return f"{profile.name}  ·  skills:{profile.skills_dir}  rules:{profile.rules_mode}  subagents:{profile.agents_dir}  mcp:{profile.mcp_json}"
 
     def on_mount(self) -> None:
+        """Show the initial status hint when the screen mounts."""
         self._status("edit project settings or the global template, then save")
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
+        """Dispatch the project-save and template-save buttons to their handlers."""
         if event.button.id == "proj-save":
             self._save_project()
         elif event.button.id == "template-save":
             self._save_template()
 
     def _save_project(self) -> None:
+        """Re-run init against the edited project root and instruction template."""
         project = Path(self.query_one("#proj-root", Input).value).expanduser()
         instruction_template = self.query_one("#proj-template", Input).value.strip() or "default"
         try:
@@ -168,6 +182,7 @@ class ConfigScreen(Screen[None]):
         self._project_root = project.resolve()
 
     def _save_template(self) -> None:
+        """Write the global default template override and re-init the current project."""
         body = self.query_one("#global-template", TextArea).text
         try:
             self._template_path.parent.mkdir(parents=True, exist_ok=True)
@@ -183,4 +198,5 @@ class ConfigScreen(Screen[None]):
         self._save_project()
 
     def _status(self, msg: str) -> None:
+        """Update the status line with the given message."""
         self.query_one("#status", Static).update(msg)

@@ -15,6 +15,14 @@ from aim.tui.modals.repo_add import RepoAddModal, RepoAddResult
 
 
 def kind_tag(kinds: set[str]) -> str:
+    """Render a set of artifact kinds as a human-readable tag string.
+
+    Args:
+        kinds: Artifact kinds present in a repo (e.g. "skill", "agent", "rules").
+
+    Returns:
+        A " + "-joined label, or "—" when no known kinds are present.
+    """
     parts: list[str] = []
     if "skill" in kinds:
         parts.append("skills")
@@ -26,6 +34,8 @@ def kind_tag(kinds: set[str]) -> str:
 
 
 class ReposScreen(Screen[None]):
+    """Screen that lists registered repos and supports add, refresh, and remove."""
+
     BINDINGS = [
         ("escape", "app.pop_screen", "Back"),
         ("b", "app.pop_screen", "Back"),
@@ -39,6 +49,7 @@ class ReposScreen(Screen[None]):
     _refreshing: str | None = None
 
     def compose(self) -> ComposeResult:
+        """Build the title, repos table, status line, and key hint."""
         yield Static("Registered Repos", id="title", markup=False)
         yield DataTable(id="repos-table", cursor_type="row")
         yield Static("", id="status", markup=False)
@@ -49,15 +60,18 @@ class ReposScreen(Screen[None]):
         )
 
     def on_mount(self) -> None:
+        """Set up the table columns, populate rows, and focus the table."""
         table = self.query_one(DataTable)
         table.add_columns("alias", "url", "head", "last fetched", "contains")
         self._populate()
         table.focus()
 
     def on_screen_resume(self) -> None:
+        """Refresh the table whenever the screen is resumed."""
         self._populate()
 
     def _populate(self) -> None:
+        """Rebuild the table from the current repo registry, preserving selection."""
         table = self.query_one(DataTable)
         selected_alias = self._selected_alias()
         table.clear()
@@ -84,6 +98,7 @@ class ReposScreen(Screen[None]):
         self._status(f"{len(rows)} repo(s)")
 
     def _selected_alias(self) -> str | None:
+        """Return the alias under the cursor, or None when the table is empty."""
         table = self.query_one(DataTable)
         if table.row_count == 0:
             return None
@@ -91,9 +106,15 @@ class ReposScreen(Screen[None]):
         return str(row_key.value) if row_key and row_key.value is not None else None
 
     def action_add_repo(self) -> None:
+        """Open the add-repo modal and handle its result."""
         self.app.push_screen(RepoAddModal(), self._on_add)
 
     def _on_add(self, result: RepoAddResult | None) -> None:
+        """Kick off a background add for the modal result.
+
+        Args:
+            result: The completed add form, or None if the modal was cancelled.
+        """
         if result is None:
             return
         self._status(f"adding {result.alias}…")
@@ -101,6 +122,7 @@ class ReposScreen(Screen[None]):
         self.run_worker(self._do_add_thread, exclusive=True, thread=True)
 
     def _do_add_thread(self) -> None:
+        """Add the pending repo on a worker thread, reporting status to the UI."""
         result = self._adding
         if result is None:
             return
@@ -124,6 +146,7 @@ class ReposScreen(Screen[None]):
         self.app.call_from_thread(self._status, f"added {result.alias}")
 
     def on_worker_state_changed(self, event) -> None:  # type: ignore[no-untyped-def]
+        """Update status and repopulate when an add or refresh worker changes state."""
         adding = getattr(self, "_adding", None)
         if adding is not None:
             if event.state == WorkerState.RUNNING:
@@ -144,6 +167,7 @@ class ReposScreen(Screen[None]):
                 self._refreshing = None
 
     def action_refresh_current(self) -> None:
+        """Start a background refresh of the selected repo."""
         alias = self._selected_alias()
         if alias is None:
             self._notify_or_status("no row selected")
@@ -153,6 +177,7 @@ class ReposScreen(Screen[None]):
         self.run_worker(self._do_refresh_thread, exclusive=True, thread=True)
 
     def _do_refresh_thread(self) -> None:
+        """Refresh the pending repo on a worker thread, reporting status to the UI."""
         alias = getattr(self, "_refreshing", None)
         if alias is None:
             return
@@ -169,12 +194,18 @@ class ReposScreen(Screen[None]):
         self.app.call_from_thread(self._populate)
 
     def action_remove_current(self) -> None:
+        """Confirm and remove the selected repo, wiping its cache and project artifacts."""
         alias = self._selected_alias()
         if alias is None:
             self._notify_or_status("no row selected")
             return
 
         def _on_confirm(yes: bool | None) -> None:
+            """Perform the removal once the confirm modal returns affirmatively.
+
+            Args:
+                yes: The modal result; removal proceeds only when this is True.
+            """
             if yes is not True:
                 return
             project_root = getattr(self.app, "_project_root", None)
@@ -199,9 +230,15 @@ class ReposScreen(Screen[None]):
         )
 
     def _status(self, msg: str) -> None:
+        """Write a message to the status line."""
         self.query_one("#status", Static).update(msg)
 
     def _notify_or_status(self, msg: str) -> None:
+        """Notify to add a repo when none exist, otherwise show the status message.
+
+        Args:
+            msg: The status message to display when the table has rows.
+        """
         if self.query_one(DataTable).row_count == 0:
             self.app.notify("add a repo first (press [a])", severity="warning")
         else:
@@ -209,6 +246,14 @@ class ReposScreen(Screen[None]):
 
 
 def _humanize(seconds: float) -> str:
+    """Format an elapsed-seconds duration as a coarse "N{unit} ago" string.
+
+    Args:
+        seconds: Elapsed time in seconds; negative values are clamped to zero.
+
+    Returns:
+        A relative-time label in seconds, minutes, hours, or days.
+    """
     seconds = max(0, int(seconds))
     if seconds < 60:
         return f"{seconds}s ago"

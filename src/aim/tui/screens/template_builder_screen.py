@@ -22,6 +22,8 @@ from aim.tui.modals.skill_picker import SkillPick, SkillPickerModal
 
 
 class TemplateBuilderScreen(Screen[None]):
+    """Screen for building or editing a project template profile."""
+
     BINDINGS = [
         ("escape", "app.pop_screen", "Back"),
         ("b", "app.pop_screen", "Back"),
@@ -37,6 +39,11 @@ class TemplateBuilderScreen(Screen[None]):
     ]
 
     def __init__(self, profile: profiles_mod.Profile | None = None) -> None:
+        """Initialize the builder, seeding state from an existing profile if given.
+
+        Args:
+            profile: Existing profile to edit; when None the builder starts empty.
+        """
         super().__init__()
         self._name: str
         self._skills: list[profiles_mod.ProfileSkill]
@@ -57,6 +64,7 @@ class TemplateBuilderScreen(Screen[None]):
             self._mcp_servers = []
 
     def _profile(self) -> profiles_mod.Profile:
+        """Build a Profile from the current in-memory builder state."""
         return profiles_mod.Profile(
             name=self._name,
             skills=self._skills,
@@ -66,6 +74,7 @@ class TemplateBuilderScreen(Screen[None]):
         )
 
     def compose(self) -> ComposeResult:
+        """Lay out the title, name input, content tables, and key hints."""
         yield Static("Template builder", id="title", markup=False)
         yield VerticalScroll(
             Static("Template name:", markup=False),
@@ -112,6 +121,7 @@ class TemplateBuilderScreen(Screen[None]):
         )
 
     def on_mount(self) -> None:
+        """Populate tables and focus the name input on mount."""
         self._populate_all()
         self.query_one("#name", Input).focus()
         self.query_one("#status", Static).update(
@@ -119,6 +129,7 @@ class TemplateBuilderScreen(Screen[None]):
         )
 
     def _populate_all(self) -> None:
+        """Refresh every content table and reset the status line."""
         self._populate_skills()
         self._populate_agents()
         self._populate_rules()
@@ -126,6 +137,7 @@ class TemplateBuilderScreen(Screen[None]):
         self._status("edit template contents")
 
     def _populate_skills(self) -> None:
+        """Rebuild the skills table from the current skill list."""
         table = self.query_one("#skills-table", DataTable)
         table.clear()
         table.add_columns("qualified name")
@@ -133,6 +145,7 @@ class TemplateBuilderScreen(Screen[None]):
             table.add_row(s.qualified_name, key=s.qualified_name)
 
     def _populate_agents(self) -> None:
+        """Rebuild the agents table from the current agent list."""
         table = self.query_one("#agents-table", DataTable)
         table.clear()
         table.add_columns("qualified name")
@@ -140,6 +153,7 @@ class TemplateBuilderScreen(Screen[None]):
             table.add_row(a.qualified_name, key=a.qualified_name)
 
     def _populate_rules(self) -> None:
+        """Rebuild the rules table from the current rule list."""
         table = self.query_one("#rules-table", DataTable)
         table.clear()
         table.add_columns("name")
@@ -147,6 +161,7 @@ class TemplateBuilderScreen(Screen[None]):
             table.add_row(r, key=r)
 
     def _populate_mcp(self) -> None:
+        """Rebuild the MCP servers table from the current server list."""
         table = self.query_one("#mcp-table", DataTable)
         table.clear()
         table.add_columns("registry", "alias")
@@ -154,9 +169,15 @@ class TemplateBuilderScreen(Screen[None]):
             table.add_row(m.registry_name, m.alias, key=m.alias)
 
     def action_add_skill(self) -> None:
+        """Open the skill picker modal."""
         self.app.push_screen(SkillPickerModal(), self._on_skill_picked)
 
     def _on_skill_picked(self, result: SkillPick | None) -> None:
+        """Add the picked skill to the template, skipping duplicates.
+
+        Args:
+            result: Picker selection, or None when the modal was cancelled.
+        """
         if result is None:
             return
         if any(s.qualified_name == result.qualified_name for s in self._skills):
@@ -168,9 +189,15 @@ class TemplateBuilderScreen(Screen[None]):
         self._populate_skills()
 
     def action_add_agent(self) -> None:
+        """Open the agent picker modal."""
         self.app.push_screen(AgentPickerModal(), self._on_agent_picked)
 
     def _on_agent_picked(self, result: AgentPick | None) -> None:
+        """Add the picked agent to the template, skipping duplicates.
+
+        Args:
+            result: Picker selection, or None when the modal was cancelled.
+        """
         if result is None:
             return
         if any(a.qualified_name == result.qualified_name for a in self._agents):
@@ -182,9 +209,15 @@ class TemplateBuilderScreen(Screen[None]):
         self._populate_agents()
 
     def action_add_rule(self) -> None:
+        """Open the rule picker modal."""
         self.app.push_screen(RulePickerModal(), self._on_rule_picked)
 
     def _on_rule_picked(self, result: RulePick | None) -> None:
+        """Add the picked rule to the template, skipping duplicates.
+
+        Args:
+            result: Picker selection, or None when the modal was cancelled.
+        """
         if result is None:
             return
         if result.name in self._rules:
@@ -194,9 +227,15 @@ class TemplateBuilderScreen(Screen[None]):
         self._populate_rules()
 
     def action_add_mcp(self) -> None:
+        """Open the MCP server picker modal."""
         self.app.push_screen(McpPickerModal(), self._on_mcp_picked)
 
     def _on_mcp_picked(self, result: McpPick | None) -> None:
+        """Add the picked MCP server to the template, skipping alias clashes.
+
+        Args:
+            result: Picker selection, or None when the modal was cancelled.
+        """
         if result is None:
             return
         alias = self._default_alias(result.server.name)
@@ -216,11 +255,20 @@ class TemplateBuilderScreen(Screen[None]):
 
     @staticmethod
     def _default_alias(name: str) -> str:
+        """Derive a safe lowercase alias from a registry server name.
+
+        Args:
+            name: Registry name, possibly namespaced or version-tagged.
+
+        Returns:
+            A lowercased alias with non-alphanumeric characters replaced by hyphens.
+        """
         short = name.split("/")[-1]
         short = short.split(":")[0]
         return "".join(c if c.isalnum() or c in "_-" else "-" for c in short).lower()
 
     def action_remove_selected(self) -> None:
+        """Remove the selected row from whichever content table is focused."""
         focused = self.app.focused
         if focused is None:
             return
@@ -240,6 +288,14 @@ class TemplateBuilderScreen(Screen[None]):
         items: list,
         attr: str | None,
     ) -> None:
+        """Remove the cursor's row key from the backing list and refresh tables.
+
+        Args:
+            selector: CSS selector for the DataTable to operate on.
+            items: Backing list whose matching entry should be removed.
+            attr: Attribute on each item to compare against the row key, or None
+                when items are plain strings compared directly.
+        """
         table = self.query_one(selector, DataTable)
         if table.row_count == 0:
             return
@@ -254,9 +310,16 @@ class TemplateBuilderScreen(Screen[None]):
         self._populate_all()
 
     def action_import_toml(self) -> None:
+        """Open the TOML import modal."""
         self.app.push_screen(ImportTomlModal(), self._on_import)
 
     def _on_import(self, result: ImportTomlResult | None) -> None:
+        """Replace builder state with an imported profile.
+
+        Args:
+            result: Import result holding the parsed profile and source path,
+                or None when the modal was cancelled.
+        """
         if result is None:
             return
         self._name = result.profile.name
@@ -269,11 +332,13 @@ class TemplateBuilderScreen(Screen[None]):
         self.app.notify(f"imported template from {result.path}")
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
+        """Save the template when the name input is submitted."""
         if event.input.id == "name":
             self.action_save()
             return
 
     def action_export_toml(self) -> None:
+        """Open the TOML export modal seeded with the current profile."""
         profile = self._profile()
         self.app.push_screen(
             ExportTomlModal(profile, initial_path=f"{profile.name or 'template'}.toml"),
@@ -281,11 +346,17 @@ class TemplateBuilderScreen(Screen[None]):
         )
 
     def _on_export(self, result: ExportTomlResult | None) -> None:
+        """Notify the user of the export destination on success.
+
+        Args:
+            result: Export result holding the written path, or None when cancelled.
+        """
         if result is None:
             return
         self.app.notify(f"exported template to {result.path}")
 
     def action_save(self) -> None:
+        """Validate the name, persist the profile, and pop the screen on success."""
         name = self.query_one("#name", Input).value.strip()
         if not name:
             self._error("template name is required")
@@ -300,13 +371,16 @@ class TemplateBuilderScreen(Screen[None]):
         self.app.pop_screen()
 
     def _error(self, msg: str) -> None:
+        """Show an error message in the status line and as a notification."""
         self.query_one("#status", Static).update(msg)
         self.app.notify(msg, severity="error", title="Template builder")
 
     def _status(self, msg: str) -> None:
+        """Update the status line with an informational message."""
         self.query_one("#status", Static).update(msg)
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
+        """Route add-* button presses to their corresponding actions."""
         if event.button.id == "add-skill":
             self.action_add_skill()
         elif event.button.id == "add-agent":

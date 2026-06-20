@@ -14,23 +14,34 @@ from textual.widgets import Button, Input, Static
 
 @dataclass(frozen=True)
 class SkillInstallConfig:
+    """Capture the user's choices for installing a skill into a project."""
+
     project_root: Path
     pin: str | None = None
     track: str | None = None
 
 
 class SkillInstallModal(ModalScreen[SkillInstallConfig | None]):
+    """Prompt for the project root and ref options when installing a skill."""
+
     BINDINGS = [
         Binding("escape", "cancel", "Cancel", priority=True),
         Binding("enter", "submit", "Install", priority=True),
     ]
 
     def __init__(self, qualified_name: str, *, initial_project: Path | None = None) -> None:
+        """Initialize the modal for the given skill.
+
+        Args:
+            qualified_name: Fully qualified name of the skill to install.
+            initial_project: Pre-filled project root; defaults to the current directory.
+        """
         super().__init__()
         self._qualified_name = qualified_name
         self._initial_project = initial_project or Path.cwd()
 
     def compose(self) -> ComposeResult:
+        """Build the modal layout."""
         yield Vertical(
             Static(f"Install {self._qualified_name}", classes="modal-title", markup=False),
             VerticalScroll(
@@ -52,22 +63,27 @@ class SkillInstallModal(ModalScreen[SkillInstallConfig | None]):
         )
 
     def on_mount(self) -> None:
+        """Focus the project root input when the modal mounts."""
         self.query_one("#project-root", Input).focus()
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
+        """Submit on the install button, otherwise dismiss without a result."""
         if event.button.id == "go":
             self._submit()
         else:
             self.dismiss(None)
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
+        """Submit when the project root input is confirmed with Enter."""
         if event.input.id == "project-root":
             self._submit()
 
     def action_submit(self) -> None:
+        """Handle the submit binding."""
         self._submit()
 
     def _submit(self) -> None:
+        """Validate inputs and dismiss with a config, or surface an error."""
         value = self.query_one("#project-root", Input).value.strip()
         if not value:
             self.query_one("#error", Static).update("project root is required")
@@ -85,9 +101,11 @@ class SkillInstallModal(ModalScreen[SkillInstallConfig | None]):
         )
 
     def action_cancel(self) -> None:
+        """Dismiss the modal without a result."""
         self.dismiss(None)
 
     def on_key(self, event) -> None:
+        """Intercept Escape so it cancels the modal instead of bubbling up."""
         if event.key == "escape":
             event.stop()
             self.action_cancel()

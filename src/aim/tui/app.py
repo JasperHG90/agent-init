@@ -19,7 +19,7 @@ from aim.tui.screens.main_screen import MainScreen
 
 
 class AimApp(App[None]):
-    """Top-level Textual app."""
+    """Provide the top-level Textual app shell for aim."""
 
     TITLE = "aim"
     SUB_TITLE = "scaffold and manage agent-engineering projects"
@@ -37,11 +37,18 @@ class AimApp(App[None]):
         project_root: Path | None = None,
         profile_name: str | None = None,
     ) -> None:
+        """Initialize the app with a resolved project root and optional profile.
+
+        Args:
+            project_root: Directory the TUI operates on; defaults to the cwd.
+            profile_name: Layout profile to activate on mount, if any.
+        """
         super().__init__()
         self._project_root = (project_root or Path.cwd()).expanduser().resolve()
         self._profile_name = profile_name
 
     def on_mount(self) -> None:
+        """Sync profiles, seed MCP defaults, and push the main screen."""
         report = layout_profiles.sync_profiles(self._project_root)
         for warning in report.warnings:
             self.app.notify(warning, severity="warning")
@@ -61,6 +68,7 @@ class AimApp(App[None]):
         self.push_screen(MainScreen(project_root=self._project_root))
 
     def _seed_default_mcp_servers(self) -> None:
+        """Seed the default MCP registry entries on a best-effort basis."""
         try:
             mcp_registry.seed_default_servers(default_mcp_servers.DEFAULT_MCP_SERVER_NAMES)
         except Exception:
@@ -68,14 +76,26 @@ class AimApp(App[None]):
             pass
 
     def action_open_palette(self) -> None:
+        """Open the command palette modal."""
         entries = build_entries(self)
         self.push_screen(PaletteModal(entries), self._on_palette)
 
     def _on_palette(self, entry: PaletteEntry | None) -> None:
+        """Invoke the selected palette entry's handler, ignoring dismissal.
+
+        Args:
+            entry: The chosen palette entry, or None when the modal was dismissed.
+        """
         if entry is None:
             return
         entry.handler()
 
 
 def run(project_root: Path | None = None, profile_name: str | None = None) -> None:
+    """Construct and run the aim Textual app.
+
+    Args:
+        project_root: Directory the TUI operates on; defaults to the cwd.
+        profile_name: Layout profile to activate on mount, if any.
+    """
     AimApp(project_root=project_root, profile_name=profile_name).run()

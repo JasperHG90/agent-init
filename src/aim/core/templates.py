@@ -27,16 +27,29 @@ _BUILTIN_PACKAGE = "aim.templates"
 
 
 class TemplateNotFoundError(KeyError):
-    pass
+    """Raised when a requested template cannot be located."""
 
 
 @dataclass(frozen=True)
 class ResolvedTemplate:
+    """A resolved template name paired with its raw Jinja source body."""
+
     name: str
     body: str  # raw jinja source
 
 
 def _builtin_body(template_name: str) -> str:
+    """Read the bundled source for a builtin template.
+
+    Args:
+        template_name: Name of the builtin template (without extension).
+
+    Returns:
+        The raw Jinja source text of the builtin template.
+
+    Raises:
+        TemplateNotFoundError: If no bundled resource matches the name.
+    """
     resource = files(_BUILTIN_PACKAGE).joinpath(f"{template_name}.md.j2")
     if not resource.is_file():
         raise TemplateNotFoundError(template_name)
@@ -44,13 +57,27 @@ def _builtin_body(template_name: str) -> str:
 
 
 def _builtin_override_path(template_name: str) -> Path:
-    """Filesystem path where a user-editable copy of a builtin template lives."""
+    """Return the filesystem path of the user-editable copy of a builtin template.
+
+    Args:
+        template_name: Name of the builtin template (without extension).
+
+    Returns:
+        Path within the global templates library where the override lives.
+    """
     paths.ensure_global_dirs()
     return paths.templates_library_dir() / f"{template_name}.md.j2"
 
 
 def _ensure_builtin_override(template_name: str) -> Path:
-    """Copy the bundled template to the global templates dir if no override exists."""
+    """Copy the bundled template into the global dir if no override exists yet.
+
+    Args:
+        template_name: Name of the builtin template (without extension).
+
+    Returns:
+        Path to the (possibly newly created) user-editable override.
+    """
     override = _builtin_override_path(template_name)
     if not override.exists():
         override.write_text(_builtin_body(template_name), encoding="utf-8")
@@ -74,12 +101,29 @@ def ensure_builtin_registered() -> None:
 
 
 def list_templates() -> list[Template]:
+    """Return all registered templates, ensuring the builtin default is present.
+
+    Returns:
+        Every template row in the global registry.
+    """
     ensure_builtin_registered()
     with db.session() as session:
         return list(session.exec(select(Template)).all())
 
 
 def resolve(name: str) -> ResolvedTemplate:
+    """Resolve a template name to its raw Jinja source body.
+
+    Args:
+        name: Registered template name to resolve.
+
+    Returns:
+        The resolved template with its source body.
+
+    Raises:
+        TemplateNotFoundError: If the name is unregistered or its source file
+            is missing.
+    """
     ensure_builtin_registered()
     with db.session() as session:
         row = session.get(Template, name)
@@ -105,6 +149,16 @@ def resolve(name: str) -> ResolvedTemplate:
 
 
 def register_user_template(name: str, source_path: Path, description: str | None = None) -> None:
+    """Register or update a user template pointing at a filesystem source.
+
+    Args:
+        name: Template name to register or update.
+        source_path: Path to the `.md.j2` source file backing the template.
+        description: Optional human-readable description.
+
+    Raises:
+        FileNotFoundError: If `source_path` does not point at a file.
+    """
     if not source_path.is_file():
         raise FileNotFoundError(source_path)
     with db.session() as session:
@@ -119,6 +173,15 @@ def register_user_template(name: str, source_path: Path, description: str | None
 
 
 def render(template_name: str, context: dict) -> str:
+    """Render a named template against the given context.
+
+    Args:
+        template_name: Registered template name to render.
+        context: Mapping of variables exposed to the Jinja template.
+
+    Returns:
+        The rendered template output.
+    """
     template = resolve(template_name)
     env = Environment(
         undefined=StrictUndefined,

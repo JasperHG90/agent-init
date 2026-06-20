@@ -35,6 +35,8 @@ from aim.tui.modals.confirm import ConfirmModal
 
 
 class ProjectScreen(Screen[None]):
+    """Show installed skills, agents, MCP servers, and rules with drift status."""
+
     BINDINGS = [
         ("escape", "app.pop_screen", "Back"),
         ("b", "app.pop_screen", "Back"),
@@ -47,12 +49,19 @@ class ProjectScreen(Screen[None]):
     ]
 
     def __init__(self, project_root: Path | None = None) -> None:
+        """Initialize the screen for the given project root.
+
+        Args:
+            project_root: Project directory to inspect; defaults to the current
+                working directory.
+        """
         super().__init__()
         self._project_root = project_root or Path.cwd()
         self._has_manifest: bool = False
         self.last_status: str = ""
 
     def compose(self) -> ComposeResult:
+        """Build the title, tabbed tables, status line, and key hints."""
         lock_path = paths.project_lock_path(self._project_root)
         yield Static(
             f"Project: {self._project_root}    ·    lock: {lock_path}",
@@ -76,6 +85,7 @@ class ProjectScreen(Screen[None]):
         )
 
     def on_mount(self) -> None:
+        """Add columns to each table, populate rows, and focus the skills table."""
         for table_id in ("skills-table", "agents-table", "mcp-table", "rules-table"):
             table = self.query_one(f"#{table_id}", DataTable)
             if table_id == "skills-table":
@@ -90,9 +100,15 @@ class ProjectScreen(Screen[None]):
         self.query_one("#skills-table", DataTable).focus()
 
     def on_screen_resume(self) -> None:
+        """Refresh the tables when the screen becomes active again."""
         self._populate()
 
     def _load_manifest(self) -> manifest.Manifest | None:
+        """Load the project manifest, tracking whether one exists.
+
+        Returns:
+            The loaded manifest, or None if the project has no lock file.
+        """
         try:
             m = manifest.load(self._project_root)
             self._has_manifest = True
@@ -102,6 +118,7 @@ class ProjectScreen(Screen[None]):
             return None
 
     def _populate(self) -> None:
+        """Rebuild every table from the manifest, preserving cursor selection."""
         m = self._load_manifest()
         if m is None:
             self._status("no aim.lock.toml — run init or sync from the main menu")
@@ -186,6 +203,15 @@ class ProjectScreen(Screen[None]):
         )
 
     def _selected_in(self, table_id: str) -> str | None:
+        """Return the row key currently selected in the given table.
+
+        Args:
+            table_id: CSS selector of the target DataTable.
+
+        Returns:
+            The selected row key, or None if the table is empty or has no
+            selection.
+        """
         table = self.query_one(table_id, DataTable)
         if table.row_count == 0:
             return None
@@ -193,6 +219,15 @@ class ProjectScreen(Screen[None]):
         return str(row_key.value) if row_key and row_key.value is not None else None
 
     def _skill_drift(self, s: InstalledSkill, target: Path | None) -> str:
+        """Compute the drift status for an installed skill.
+
+        Args:
+            s: The recorded installed skill.
+            target: Resolved on-disk path of the skill, or None if invalid.
+
+        Returns:
+            A drift label such as "clean", "edited", "missing", or "invalid path".
+        """
         if target is None:
             return "invalid path"
         if s.content_hash is None:
@@ -202,6 +237,15 @@ class ProjectScreen(Screen[None]):
         return "clean" if hashing.hash_tree(target) == s.content_hash else "edited"
 
     def _agent_drift(self, a: InstalledAgent, target: Path | None) -> str:
+        """Compute the drift status for an installed agent.
+
+        Args:
+            a: The recorded installed agent.
+            target: Resolved on-disk path of the agent file, or None if invalid.
+
+        Returns:
+            A drift label such as "clean", "edited", "missing", or "invalid path".
+        """
         if target is None:
             return "invalid path"
         if a.content_hash is None:
@@ -215,12 +259,31 @@ class ProjectScreen(Screen[None]):
         )
 
     def _mcp_drift(self, mc: InstalledMcpServer, servers: object) -> str:
+        """Compute the drift status for an installed MCP server.
+
+        Args:
+            mc: The recorded installed MCP server.
+            servers: The mcpServers mapping parsed from .mcp.json.
+
+        Returns:
+            A drift label of "clean", "edited", or "missing".
+        """
         if not isinstance(servers, dict) or mc.alias not in servers:
             return "missing"
         current_hash = hashing.hash_text(mcp_registry._canonical_json(servers[mc.alias]))
         return "clean" if current_hash == mc.entry_hash else "edited"
 
     def _rule_drift(self, rule: InstalledRule) -> tuple[str, str]:
+        """Compute the drift status and source for an installed rule.
+
+        Args:
+            rule: The recorded installed rule.
+
+        Returns:
+            A tuple of (drift label, source alias). The drift label is "inline"
+            when the active profile renders rules into AGENTS.md rather than
+            per-rule files.
+        """
         profile = layout_profiles.resolve_active(self._project_root)
         source = rule.repo_alias
         if profile.rules_mode != "files":
@@ -237,6 +300,7 @@ class ProjectScreen(Screen[None]):
         return drift, source
 
     def _active_table(self) -> DataTable:
+        """Return the DataTable belonging to the currently active tab."""
         active = self.query_one(TabbedContent).active
         if active == "agents":
             return self.query_one("#agents-table", DataTable)
@@ -247,6 +311,7 @@ class ProjectScreen(Screen[None]):
         return self.query_one("#skills-table", DataTable)
 
     def _selected(self) -> str | None:
+        """Return the row key selected in the active tab's table, or None."""
         table = self._active_table()
         if table.row_count == 0:
             return None
@@ -254,6 +319,12 @@ class ProjectScreen(Screen[None]):
         return str(row_key.value) if row_key and row_key.value is not None else None
 
     def _guard(self) -> str | None:
+        """Validate that an action can run on the active tab's selection.
+
+        Returns:
+            The selected row key, or None if there is no manifest or no row
+            selected (notifying the user as appropriate).
+        """
         if not self._has_manifest:
             self.app.notify("no manifest in this project — run init first", severity="warning")
             return None
@@ -267,16 +338,19 @@ class ProjectScreen(Screen[None]):
         return qn
 
     def _active_kind(self) -> str:
+        """Return the active tab identifier, defaulting to "skills"."""
         active = self.query_one(TabbedContent).active
         return str(active) if active else "skills"
 
     def action_sync_project(self) -> None:
+        """Start a background sync of the whole project."""
         if not self._has_manifest:
             self.app.notify("no aim.lock.toml in this project — run init first", severity="warning")
             return
         self.run_worker(self._do_sync_thread, exclusive=True, thread=True)
 
     def _do_sync_thread(self) -> None:
+        """Run the async sync in a worker thread and report results to the UI."""
         import asyncio
 
         try:
@@ -307,12 +381,14 @@ class ProjectScreen(Screen[None]):
         self.app.call_from_thread(self._populate)
 
     def action_prune_project(self) -> None:
+        """Start planning a prune of orphaned project artifacts."""
         if not self._has_manifest:
             self.app.notify("no aim.lock.toml in this project — run init first", severity="warning")
             return
         self.run_worker(self._plan_prune_thread, exclusive=True, thread=True)
 
     def _plan_prune_thread(self) -> None:
+        """Plan a prune in a worker thread and prompt for confirmation."""
         try:
             plan_result = prune_mod.plan(prune_mod.PruneOptions(project_root=self._project_root))
         except Exception as exc:
@@ -335,11 +411,17 @@ class ProjectScreen(Screen[None]):
         )
 
     def _on_prune_confirm(self, confirmed: bool | None) -> None:
+        """Run the prune in a worker thread once the user confirms.
+
+        Args:
+            confirmed: Result from the confirmation modal.
+        """
         if confirmed is not True:
             return
         self.run_worker(self._do_prune_thread, exclusive=True, thread=True)
 
     def _do_prune_thread(self) -> None:
+        """Re-plan and apply the prune in a worker thread, reporting results."""
         try:
             plan_result = prune_mod.plan(prune_mod.PruneOptions(project_root=self._project_root))
             removals = [i for i in plan_result.removed if i.action == "would-remove"]
@@ -363,6 +445,7 @@ class ProjectScreen(Screen[None]):
         self.app.call_from_thread(self._populate)
 
     def action_update_current(self) -> None:
+        """Update the selected artifact, dispatching by the active tab kind."""
         key = self._guard()
         if key is None:
             return
@@ -380,12 +463,18 @@ class ProjectScreen(Screen[None]):
             self._update_mcp(key)
 
     def _update_skill(self, qn: str) -> None:
+        """Update a skill, prompting to force through local edits if needed.
+
+        Args:
+            qn: Qualified name of the skill to update.
+        """
         try:
             result = skill_install.update(self._project_root, qn)
             assert not isinstance(result, skill_install.UpdatePreview)
         except skill_install.LocalEditsError as exc:
 
             def _on_confirm(yes: bool | None) -> None:
+                """Force the update when the user confirms overwriting edits."""
                 if yes is not True:
                     return
                 try:
@@ -408,11 +497,17 @@ class ProjectScreen(Screen[None]):
         self._populate()
 
     def _update_agent(self, qn: str) -> None:
+        """Update an agent, prompting to force through local edits if needed.
+
+        Args:
+            qn: Qualified name of the agent to update.
+        """
         try:
             result = agent_install.update(self._project_root, qn)
         except agent_install.AgentLocalEditsError as exc:
 
             def _on_confirm(yes: bool | None) -> None:
+                """Force the update when the user confirms overwriting edits."""
                 if yes is not True:
                     return
                 try:
@@ -435,11 +530,17 @@ class ProjectScreen(Screen[None]):
         self._populate()
 
     def _update_mcp(self, alias: str) -> None:
+        """Update an MCP server, prompting to force through local edits if needed.
+
+        Args:
+            alias: Alias of the MCP server to update.
+        """
         try:
             result = mcp_install.update(self._project_root, alias)
         except mcp_install.McpLocalEditsError as exc:
 
             def _on_confirm(yes: bool | None) -> None:
+                """Force the update when the user confirms overwriting edits."""
                 if yes is not True:
                     return
                 try:
@@ -462,6 +563,7 @@ class ProjectScreen(Screen[None]):
         self._populate()
 
     def action_rollback_current(self) -> None:
+        """Roll the selected artifact back to its previous version."""
         key = self._guard()
         if key is None:
             return
@@ -488,6 +590,7 @@ class ProjectScreen(Screen[None]):
         self._populate()
 
     def action_uninstall_current(self) -> None:
+        """Uninstall the selected artifact after user confirmation."""
         key = self._guard()
         if key is None:
             return
@@ -499,6 +602,7 @@ class ProjectScreen(Screen[None]):
             return
 
         def _on_confirm(yes: bool | None) -> None:
+            """Delete the artifact when the user confirms the uninstall."""
             if yes is not True:
                 return
             try:
@@ -517,5 +621,10 @@ class ProjectScreen(Screen[None]):
         self.app.push_screen(ConfirmModal(f"Uninstall {kind} {key!r}?"), _on_confirm)
 
     def _status(self, msg: str) -> None:
+        """Record and display a status message in the status line.
+
+        Args:
+            msg: The message to show.
+        """
         self.last_status = msg
         self.query_one("#status", Static).update(msg)

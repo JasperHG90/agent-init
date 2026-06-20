@@ -13,10 +13,18 @@ from aim.core import paths
 
 
 def _roots_file() -> Path:
+    """Return the path to the global `roots.txt` file."""
     return paths.user_config_dir() / "roots.txt"
 
 
 def list_roots() -> list[Path]:
+    """Read the roots file and return the configured project roots.
+
+    Blank lines and `#` comments are skipped.
+
+    Returns:
+        The user-expanded root paths, or an empty list if the file is absent.
+    """
     path = _roots_file()
     if not path.exists():
         return []
@@ -30,6 +38,11 @@ def list_roots() -> list[Path]:
 
 
 def add_root(root: Path) -> None:
+    """Add a project root to the roots file, skipping duplicates.
+
+    Args:
+        root: The project root to register; resolved before comparison.
+    """
     paths.ensure_global_dirs()
     path = _roots_file()
     resolved = root.expanduser().resolve()
@@ -47,6 +60,14 @@ def add_root(root: Path) -> None:
 
 
 def remove_root(root: Path) -> bool:
+    """Remove a project root from the roots file, preserving comments.
+
+    Args:
+        root: The project root to remove; resolved before comparison.
+
+    Returns:
+        True if a matching root was found and removed, False otherwise.
+    """
     path = _roots_file()
     if not path.exists():
         return False

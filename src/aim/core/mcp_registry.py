@@ -50,6 +50,8 @@ class McpMappingError(Exception):
 
 
 class McpRemoteHeader(BaseModel):
+    """An HTTP header declared on a registry server's remote endpoint."""
+
     model_config = ConfigDict(extra="allow")
 
     name: str
@@ -58,6 +60,8 @@ class McpRemoteHeader(BaseModel):
 
 
 class McpRemote(BaseModel):
+    """A remote transport endpoint advertised by a registry server."""
+
     model_config = ConfigDict(extra="allow")
 
     type: str
@@ -66,6 +70,8 @@ class McpRemote(BaseModel):
 
 
 class McpEnvVar(BaseModel):
+    """An environment variable declared by a registry package."""
+
     model_config = ConfigDict(extra="allow")
 
     name: str
@@ -75,6 +81,8 @@ class McpEnvVar(BaseModel):
 
 
 class McpPackage(BaseModel):
+    """A runnable package (pypi/npm) advertised by a registry server."""
+
     model_config = ConfigDict(extra="allow")
 
     registry_type: str = Field(alias="registryType")
@@ -88,6 +96,8 @@ class McpPackage(BaseModel):
 
 
 class McpServer(BaseModel):
+    """A server definition as returned by the public MCP registry."""
+
     model_config = ConfigDict(extra="allow")
 
     name: str
@@ -99,6 +109,8 @@ class McpServer(BaseModel):
 
 
 class McpSearchResult(BaseModel):
+    """A single registry search hit pairing a server with its registry metadata."""
+
     model_config = ConfigDict(extra="allow", populate_by_name=True)
 
     server: McpServer
@@ -106,7 +118,7 @@ class McpSearchResult(BaseModel):
 
 
 def _canonical_json(value: dict) -> str:
-    """Deterministic JSON for stable hashing and comparison."""
+    """Render a dict as deterministic JSON for stable hashing and comparison."""
     return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
 
 
@@ -116,6 +128,18 @@ def _canonical_json(value: dict) -> str:
     timeout=10,
 )
 def _fetch_json(url: str, *, allow_insecure: bool = False) -> dict:
+    """Fetch and parse a JSON payload from the registry, retrying on network errors.
+
+    Args:
+        url: The fully-formed registry URL to GET.
+        allow_insecure: Permit non-HTTPS URLs (relaxes the secure-URL guard).
+
+    Returns:
+        The decoded JSON object.
+
+    Raises:
+        McpRegistryError: The response body is not valid JSON.
+    """
     content_guard.require_secure_url(url, allow_insecure=allow_insecure)
     with httpx.Client(timeout=_TIMEOUT_SECONDS) as client:
         response = client.get(url, headers={"Accept": "application/json, application/problem+json"})
@@ -129,9 +153,18 @@ def _fetch_json(url: str, *, allow_insecure: bool = False) -> dict:
 def search_registry(
     query: str, cursor: str | None = None, *, allow_insecure: bool = False
 ) -> tuple[list[McpSearchResult], str | None]:
-    """Search the public MCP registry.
+    """Search the public MCP registry, caching results in memory for 60s.
 
-    Returns `(results, next_cursor)`. Results are cached in memory for 60s.
+    Args:
+        query: Free-text search term.
+        cursor: Opaque pagination cursor from a prior call, if any.
+        allow_insecure: Permit non-HTTPS URLs (relaxes the secure-URL guard).
+
+    Returns:
+        A `(results, next_cursor)` tuple; `next_cursor` is `None` on the last page.
+
+    Raises:
+        McpRegistryError: The registry request failed.
     """
     cache_key = (query.strip().lower(), cursor)
     with _CACHE_LOCK:
@@ -160,6 +193,7 @@ def search_registry(
 
 
 def _is_latest(meta: dict) -> bool:
+    """Report whether the registry flagged this result as the latest version."""
     official = meta.get("io.modelcontextprotocol.registry/official", {})
     return bool(official.get("isLatest", False))
 
@@ -176,14 +210,24 @@ def _version_key(server: McpServer) -> tuple[int, ...]:
 
 
 def _default_cache_key(name: str) -> str:
+    """Normalize a server name into a canonical cache key."""
     return name.strip().lower()
 
 
 def _server_from_json(text: str) -> McpServer:
+    """Deserialize a stored JSON definition back into an `McpServer`."""
     return McpServer.model_validate(json.loads(text))
 
 
 def _get_cached_default(name: str) -> McpServer | None:
+    """Return a cached default server, checking the LRU then the DB cache.
+
+    Args:
+        name: The server name to look up.
+
+    Returns:
+        The cached server, or `None` if absent or the DB entry has expired.
+    """
     key = _default_cache_key(name)
     with _CACHE_LOCK:
         cached = _DEFAULT_CACHE.get(key)
@@ -206,6 +250,12 @@ def _get_cached_default(name: str) -> McpServer | None:
 
 
 def _set_cached_default(name: str, server: McpServer) -> None:
+    """Store a default server in both the LRU and the persistent DB cache.
+
+    Args:
+        name: The server name used to derive the cache key.
+        server: The fetched server definition to persist.
+    """
     key = _default_cache_key(name)
     with _CACHE_LOCK:
         _DEFAULT_CACHE[key] = server
@@ -324,6 +374,15 @@ def list_cached_servers() -> list[tuple[str, McpServer, datetime, datetime]]:
 
 
 def _choose_remote(server: McpServer, preferred_transport: str | None) -> McpRemote | None:
+    """Select the best remote endpoint for a server by transport precedence.
+
+    Args:
+        server: The registry server whose remotes are considered.
+        preferred_transport: A caller-requested transport to try first, if any.
+
+    Returns:
+        The chosen remote, or `None` when the server has no usable remote.
+    """
     if not server.remotes:
         return None
     if preferred_transport:
@@ -342,6 +401,17 @@ def _choose_remote(server: McpServer, preferred_transport: str | None) -> McpRem
 
 
 def _build_stdio_entry(package: McpPackage) -> McpClaudeEntry:
+    """Build a stdio `.mcp.json` entry (uvx/npx) from a registry package.
+
+    Args:
+        package: The registry package to translate into a launch command.
+
+    Returns:
+        The corresponding stdio Claude Code entry.
+
+    Raises:
+        McpMappingError: The package's registry type / runtime hint is unsupported.
+    """
     registry_type = package.registry_type.lower()
     runtime_hint = (package.runtime_hint or "").lower()
 
@@ -366,6 +436,15 @@ def _build_stdio_entry(package: McpPackage) -> McpClaudeEntry:
 
 
 def _build_remote_entry(remote: McpRemote, *, allow_insecure: bool = False) -> McpClaudeEntry:
+    """Build a remote `.mcp.json` entry from a registry remote endpoint.
+
+    Args:
+        remote: The registry remote endpoint to translate.
+        allow_insecure: Permit non-HTTPS URLs (relaxes the secure-URL guard).
+
+    Returns:
+        The corresponding remote Claude Code entry.
+    """
     server_type = "http" if remote.type.lower() == "streamable-http" else remote.type.lower()
     content_guard.require_secure_url(remote.url, allow_insecure=allow_insecure)
     headers: dict[str, str] = {}
@@ -418,6 +497,16 @@ def make_mcp_server_version(
     entry: McpClaudeEntry | None = None,
     overrides: dict[str, object] | None = None,
 ) -> McpServerVersion:
+    """Build an `McpServerVersion` record stamping the install time and hashes.
+
+    Args:
+        server: The registry server being installed.
+        entry: The `.mcp.json` entry written for it, if already built.
+        overrides: User-supplied overrides to record alongside the version.
+
+    Returns:
+        A populated `McpServerVersion` ready to persist.
+    """
     return McpServerVersion(
         definition_hash=hash_definition(server),
         registry_version=server.version,
@@ -428,6 +517,7 @@ def make_mcp_server_version(
 
 
 def _mcp_json_path(project_root: Path) -> Path:
+    """Resolve the `.mcp.json` path for a project from its active layout profile."""
     profile = layout_profiles.resolve_active(project_root)
     return project_root / profile.mcp_json
 
@@ -465,8 +555,16 @@ def write_mcp_json(project_root: Path, data: dict) -> Path:
 def merge_mcp_server(
     project_root: Path, alias: str, entry: McpClaudeEntry
 ) -> tuple[dict, McpClaudeEntry]:
-    """Merge a managed server entry into `.mcp.json` and return the updated data
-    plus the canonical entry that was written."""
+    """Merge a managed server entry into `.mcp.json`.
+
+    Args:
+        project_root: The project whose `.mcp.json` is updated.
+        alias: The server alias key to write under `mcpServers`.
+        entry: The Claude Code entry to store.
+
+    Returns:
+        A `(data, entry)` tuple of the updated document and the entry written.
+    """
     data = read_mcp_json(project_root)
     servers = data.setdefault("mcpServers", {})
     if not isinstance(servers, dict):

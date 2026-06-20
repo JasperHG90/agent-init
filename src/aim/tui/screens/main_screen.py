@@ -39,6 +39,15 @@ _META_COLOR = "#7d7869"
 
 
 def _active_profile_label(project_root: Path) -> str:
+    """Return the display label of the active layout profile, or a dash if unresolved.
+
+    Args:
+        project_root: Project directory used to resolve the active profile.
+
+    Returns:
+        The profile's display name (falling back to its name), or "—" when
+        resolution fails.
+    """
     try:
         profile = layout_profiles.resolve_active(project_root)
     except Exception:
@@ -47,6 +56,14 @@ def _active_profile_label(project_root: Path) -> str:
 
 
 def _render_banner(project_root: Path) -> str:
+    """Build the colored rocket banner with aim version, profile, OS, and path.
+
+    Args:
+        project_root: Project directory shown in the banner (home is abbreviated to ~).
+
+    Returns:
+        A newline-joined, markup-styled banner string for the landing screen.
+    """
     py = f"{sys.version_info.major}.{sys.version_info.minor}"
     os_name = {"Darwin": "macOS"}.get(platform.system(), platform.system())
     home = str(Path.home())
@@ -76,6 +93,8 @@ def _render_banner(project_root: Path) -> str:
 
 
 class MainScreen(Screen[None]):
+    """Landing screen with key-bound navigation to every other TUI screen."""
+
     BINDINGS = [
         ("i", "open_init", "Init project"),
         ("k", "open_lock", "Lock project"),
@@ -94,10 +113,17 @@ class MainScreen(Screen[None]):
     ]
 
     def __init__(self, project_root: Path | None = None) -> None:
+        """Initialize the screen, resolving the project root (defaults to cwd).
+
+        Args:
+            project_root: Project directory the screen operates on; falls back
+                to the current working directory.
+        """
         super().__init__()
         self._project_root = (project_root or Path.cwd()).resolve()
 
     def compose(self) -> ComposeResult:
+        """Yield the banner, menu, and hint widgets."""
         yield Vertical(
             Static(_render_banner(self._project_root), id="banner"),
             id="banner-box",
@@ -132,68 +158,87 @@ class MainScreen(Screen[None]):
         )
 
     def action_open_repos(self) -> None:
+        """Push the registered-repositories screen."""
         from aim.tui.screens.repos_screen import ReposScreen
 
         self.app.push_screen(ReposScreen())
 
     def action_open_skills(self) -> None:
+        """Push the skills browse/search/install screen."""
         from aim.tui.screens.skills_screen import SkillsScreen
 
         self.app.push_screen(SkillsScreen())
 
     def action_open_agents(self) -> None:
+        """Push the sub-agents browse/search/install screen."""
         from aim.tui.screens.agents_screen import AgentsScreen
 
         self.app.push_screen(AgentsScreen())
 
     def action_open_mcp(self) -> None:
+        """Push the MCP servers screen for the current project."""
         from aim.tui.screens.mcp_screen import McpScreen
 
         self.app.push_screen(McpScreen(project_root=self._project_root))
 
     def action_open_rules(self) -> None:
+        """Push the global rules library screen."""
         from aim.tui.screens.rules_screen import RulesScreen
 
         self.app.push_screen(RulesScreen())
 
     def action_open_templates(self) -> None:
+        """Push the project templates screen for the current project."""
         from aim.tui.screens.project_templates_screen import ProjectTemplatesScreen
 
         self.app.push_screen(ProjectTemplatesScreen(project_root=self._project_root))
 
     def action_open_project(self) -> None:
+        """Push the installed-artifacts screen for the current project."""
         from aim.tui.screens.project_screen import ProjectScreen
 
         self.app.push_screen(ProjectScreen(project_root=self._project_root))
 
     def action_open_config(self) -> None:
+        """Push the config screen for the current project."""
         from aim.tui.screens.config_screen import ConfigScreen
 
         self.app.push_screen(ConfigScreen(project_root=self._project_root))
 
     def on_screen_resume(self) -> None:
+        """Refresh the banner when the screen regains focus."""
         self.query_one("#banner", Static).update(_render_banner(self._project_root))
 
     def action_open_layout_profiles(self) -> None:
+        """Push the layout profiles screen for the current project."""
         from aim.tui.screens.layout_profiles_screen import LayoutProfilesScreen
 
         self.app.push_screen(LayoutProfilesScreen(project_root=self._project_root))
 
     def action_open_init(self) -> None:
+        """Open the init modal and run init with its returned config."""
         self.app.push_screen(InitModal(project_root=self._project_root), self._run_init)
 
     def action_open_lock(self) -> None:
+        """Run the lock operation on a background worker thread."""
         self.run_worker(self._do_lock_thread, exclusive=True, thread=True)
 
     def action_open_sync(self) -> None:
+        """Open the init modal in sync mode and run sync with its config."""
         self.app.push_screen(
             InitModal(project_root=self._project_root, sync_mode=True), self._run_sync
         )
 
     def action_open_prune(self) -> None:
+        """Plan a prune on a background worker thread."""
         self.run_worker(self._plan_prune_thread, exclusive=True, thread=True)
 
     def _plan_prune_thread(self) -> None:
+        """Compute the prune plan off-thread and prompt for confirmation if needed.
+
+        Notifies on failure or when there is nothing to prune; otherwise pushes a
+        confirmation modal listing the items that would be removed.
+        """
         try:
             plan_result = prune_mod.plan(prune_mod.PruneOptions(project_root=self._project_root))
         except Exception as exc:
@@ -216,11 +261,17 @@ class MainScreen(Screen[None]):
         )
 
     def _on_prune_confirm(self, confirmed: bool | None) -> None:
+        """Run the prune on a worker thread once the user confirms.
+
+        Args:
+            confirmed: Modal result; only ``True`` proceeds with removal.
+        """
         if confirmed is not True:
             return
         self.run_worker(self._do_prune_thread, exclusive=True, thread=True)
 
     def _do_lock_thread(self) -> None:
+        """Run the async lock operation off-thread and notify of the outcome."""
         import asyncio
 
         try:
@@ -255,6 +306,7 @@ class MainScreen(Screen[None]):
             self.app.call_from_thread(self.app.notify, err, severity="error")
 
     def _do_prune_thread(self) -> None:
+        """Re-plan and apply the prune off-thread, notifying of each removal."""
         try:
             plan_result = prune_mod.plan(prune_mod.PruneOptions(project_root=self._project_root))
             removals = [i for i in plan_result.removed if i.action == "would-remove"]
@@ -277,6 +329,11 @@ class MainScreen(Screen[None]):
         )
 
     def _run_init(self, config: InitConfig | None) -> None:
+        """Run init from the modal's config and notify of the result.
+
+        Args:
+            config: Configuration returned by the init modal; ``None`` cancels.
+        """
         if config is None:
             return
         try:
@@ -294,12 +351,18 @@ class MainScreen(Screen[None]):
         self.app.notify("Run Lock, then Sync, to apply the declarations to disk.")
 
     def _run_sync(self, config: InitConfig | None) -> None:
+        """Stash the sync config and run sync on a worker thread.
+
+        Args:
+            config: Configuration returned by the sync modal; ``None`` cancels.
+        """
         if config is None:
             return
         self._syncing_config = config
         self.run_worker(self._do_sync_thread, exclusive=True, thread=True)
 
     def _do_sync_thread(self) -> None:
+        """Run the async sync operation off-thread and notify of the outcome."""
         import asyncio
 
         config = getattr(self, "_syncing_config", None)

@@ -21,10 +21,16 @@ class AliasNameError(ValueError):
 
 
 def is_valid_mirror_name(name: str) -> bool:
-    """Reject `../etc/passwd.md`, absolute paths, weird chars.
+    """Validate a mirror filename, rejecting path traversal and bad chars.
 
     Rules: letters/digits/`_`/`-`/`.` only, must start with alnum, must end
-    with `.md`. Single segment (no `/` or `\\`).
+    with `.md`, and must be a single segment (no `/` or `\\`).
+
+    Args:
+        name: Candidate mirror filename.
+
+    Returns:
+        True if the name is a safe single-segment `.md` filename.
     """
     if "/" in name or "\\" in name:
         return False
@@ -35,6 +41,12 @@ def is_valid_alias(name: str) -> bool:
     """Validate a repo/MCP alias.
 
     Rules: lowercase letters, digits, `_`, `-`; must start with alnum.
+
+    Args:
+        name: Candidate alias.
+
+    Returns:
+        True if the alias matches the allowed pattern.
     """
     return bool(_ALIAS_RE.fullmatch(name))
 
@@ -44,6 +56,12 @@ def is_valid_agent_name(name: str) -> bool:
 
     Mirrors alias rules to avoid `.`, `..`, path separators, and shell-special
     characters ending up in `.claude/agents/<name>.md`.
+
+    Args:
+        name: Candidate sub-agent name.
+
+    Returns:
+        True if the name matches the allowed pattern.
     """
     return bool(_ALIAS_RE.fullmatch(name))
 
@@ -53,15 +71,27 @@ def is_valid_rule_name(name: str) -> bool:
 
     Mirrors alias rules to avoid `.`, `..`, path separators, and shell-special
     characters ending up in `.claude/rules/<name>.md`.
+
+    Args:
+        name: Candidate rule file stem.
+
+    Returns:
+        True if the name matches the allowed pattern.
     """
     return bool(_ALIAS_RE.fullmatch(name))
 
 
 def is_safe_repo_path(path: str) -> bool:
-    """Return True if `path` is safe to pass back to git as a pathspec.
+    """Check whether a path is safe to pass back to git as a pathspec.
 
     Rejects absolute paths, `..` segments, and the git pathspec-magic prefix
     `:(`.
+
+    Args:
+        path: Candidate repo-relative path.
+
+    Returns:
+        True if the path is safe to use as a git pathspec.
     """
     if not path:
         return True

@@ -18,6 +18,8 @@ from aim.tui.widgets import ToggleRow
 
 @dataclass(frozen=True)
 class InitConfig:
+    """Hold the user's choices for initializing or syncing a project."""
+
     project_root: Path
     layout_profile: str | None
     sync_agents: bool
@@ -25,12 +27,20 @@ class InitConfig:
 
 
 class InitModal(ModalScreen[InitConfig | None]):
+    """Modal screen for configuring an `init` (or sync) run on a project."""
+
     BINDINGS = [
         Binding("escape", "cancel", "Cancel", priority=True),
         Binding("enter", "submit", "Initialize", priority=True),
     ]
 
     def __init__(self, *, project_root: Path | None = None, sync_mode: bool = False) -> None:
+        """Initialize the modal with an optional project root and sync mode.
+
+        Args:
+            project_root: Project directory to pre-fill; defaults to the current directory.
+            sync_mode: Render the modal as a "Sync project" flow instead of "Initialize".
+        """
         super().__init__()
         self._initial_project = (project_root or Path.cwd()).resolve()
         self._profile_options: list[tuple[str, str]] = []
@@ -38,10 +48,19 @@ class InitModal(ModalScreen[InitConfig | None]):
 
     @staticmethod
     def _build_profile_options(project_root: Path) -> list[tuple[str, str]]:
+        """Build (label, value) options for the layout-profile select.
+
+        Args:
+            project_root: Project directory whose available layout profiles are listed.
+
+        Returns:
+            A list of (display name, profile name) tuples for the Select widget.
+        """
         profiles = layout_profiles.list_profiles(project_root)
         return [(p.display_name or p.name, p.name) for p in profiles]
 
     def compose(self) -> ComposeResult:
+        """Build the modal's widget tree."""
         self._profile_options = self._build_profile_options(self._initial_project)
 
         common_widgets = [
@@ -70,35 +89,48 @@ class InitModal(ModalScreen[InitConfig | None]):
         )
 
     def on_mount(self) -> None:
+        """Focus the project-root input when the modal mounts."""
         self.query_one("#project-root", Input).focus()
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
+        """Submit on the primary button, otherwise dismiss the modal."""
         if event.button.id == "go":
             self._submit()
         else:
             self.dismiss(None)
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
+        """Submit when the project-root input is confirmed with enter."""
         if event.input.id == "project-root":
             self._submit()
 
     def action_submit(self) -> None:
+        """Submit the modal."""
         self._submit()
 
     def action_cancel(self) -> None:
+        """Dismiss the modal without a result."""
         self.dismiss(None)
 
     def on_key(self, event) -> None:
+        """Cancel on escape, stopping propagation so the binding does not double-fire."""
         if event.key == "escape":
             event.stop()
             self.action_cancel()
 
     def _error(self, msg: str, focus_id: str) -> None:
+        """Show a validation error and focus the offending field.
+
+        Args:
+            msg: Error message to display in the modal and a notification.
+            focus_id: Widget id to focus so the user can correct the input.
+        """
         self.query_one("#error", Static).update(msg)
         self.query_one(f"#{focus_id}", Input).focus()
         self.app.notify(msg, severity="error", title="Init")
 
     def _submit(self) -> None:
+        """Validate inputs and dismiss the modal with an InitConfig, or show an error."""
         project_root_str = self.query_one("#project-root", Input).value.strip()
         if not project_root_str:
             self._error("project root is required", "project-root")

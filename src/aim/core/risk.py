@@ -34,7 +34,14 @@ _SEVERITY_TO_LEVEL: dict[str, int] = {"low": 0, "medium": 1, "high": 2}
 
 
 def _split_reason(reason: str) -> tuple[str, str]:
-    """Split a `rule_id: evidence` reason into its parts (rule, evidence)."""
+    """Split a `rule_id: evidence` reason string into its parts.
+
+    Args:
+        reason: A reason string, ideally formatted "rule_id: evidence".
+
+    Returns:
+        A (rule, evidence) tuple; ("", reason) when no separator is present.
+    """
     rule, sep, evidence = reason.partition(": ")
     return (rule, evidence) if sep else ("", rule)
 
@@ -56,6 +63,7 @@ class RiskBlockedError(ValueError):
         violations: list[tuple[str, str]] | None = None,
         override_hint: str = "",
     ) -> None:
+        """Initialize the error with its message and structured verdict fields."""
         super().__init__(message)
         self.source = source
         self.level = level
@@ -69,17 +77,29 @@ class RiskDependencyError(RuntimeError):
 
 
 class RiskLevel(IntEnum):
+    """Ordered severity of a risk verdict, comparable against thresholds."""
+
     LOW = 0
     MEDIUM = 1
     HIGH = 2
 
     @classmethod
     def from_severity(cls, severity: str) -> RiskLevel:
+        """Map a policy severity string to a level, defaulting unknowns to HIGH.
+
+        Args:
+            severity: A severity label such as "low", "medium", or "high".
+
+        Returns:
+            The matching RiskLevel; HIGH when the label is unrecognized.
+        """
         return cls(_SEVERITY_TO_LEVEL.get(severity, 2))
 
 
 @dataclass(frozen=True)
 class RiskVerdict:
+    """A classifier's outcome: a level plus the reasons and originating backend."""
+
     level: RiskLevel
     reasons: list[str] = field(default_factory=list)
     source: str = ""
@@ -87,6 +107,8 @@ class RiskVerdict:
 
 @dataclass(frozen=True)
 class RiskConfig:
+    """Resolved risk settings for a deploy, derived from the governing policy."""
+
     mode: str  # warn | block
     classifier: bool  # run the local ONNX screen
     llm_judge: bool  # run the DSPy judge (both on -> screen then escalate to judge)
@@ -104,6 +126,14 @@ class RiskConfig:
 
 
 def config_from_policy(pol: policy.Policy) -> RiskConfig:
+    """Build a RiskConfig from a resolved policy's `[risk]` section.
+
+    Args:
+        pol: The governing policy whose risk settings and active rules apply.
+
+    Returns:
+        The RiskConfig used to drive classification and enforcement.
+    """
     r = pol.risk
     return RiskConfig(
         mode=r.mode,
@@ -118,27 +148,42 @@ def config_from_policy(pol: policy.Policy) -> RiskConfig:
     )
 
 
-# ---------- classifier protocol + backends (all heavy imports are lazy) ----------
-
-
 class RiskClassifier(Protocol):
-    def classify(self, text: str, *, source: str | None = None) -> RiskVerdict: ...
+    """Protocol for a risk backend that classifies artifact text into a verdict."""
+
+    def classify(self, text: str, *, source: str | None = None) -> RiskVerdict:
+        """Classify `text` and return its risk verdict."""
+        ...
 
 
 class NullClassifier:
+    """No-op classifier that always returns a LOW verdict (risk disabled)."""
+
     def classify(self, text: str, *, source: str | None = None) -> RiskVerdict:
+        """Return a LOW verdict regardless of input."""
         return RiskVerdict(RiskLevel.LOW, [], "null")
 
 
 def risk_model_dir() -> Path:
-    """Cache location for local risk models — under platformdirs' user cache, so
-    aim never downloads into the cwd or a stray HF default."""
+    """Return the cache directory for local risk models under the user cache.
+
+    Kept under platformdirs' user cache so aim never downloads into the cwd or a
+    stray HF default.
+    """
     return paths.user_cache_dir() / "risk-model"
 
 
 def _injection_label_index(config_path: Path) -> int:
-    """Which output index means 'injection/unsafe', read from the model config.
-    Defaults to 1 (ProtectAI convention: 0=SAFE, 1=INJECTION)."""
+    """Read which output index means 'injection/unsafe' from the model config.
+
+    Defaults to 1 (ProtectAI convention: 0=SAFE, 1=INJECTION).
+
+    Args:
+        config_path: Path to the model's `config.json`.
+
+    Returns:
+        The output index corresponding to the unsafe/injection label.
+    """
     try:
         id2label = json.loads(config_path.read_text(encoding="utf-8")).get("id2label", {})
     except (OSError, json.JSONDecodeError):
@@ -150,6 +195,14 @@ def _injection_label_index(config_path: Path) -> int:
 
 
 def _injection_score_to_level(score: float) -> RiskLevel:
+    """Bucket an injection probability into a RiskLevel.
+
+    Args:
+        score: Injection/jailbreak likelihood in [0, 1].
+
+    Returns:
+        HIGH at >= 0.9, MEDIUM at >= 0.5, otherwise LOW.
+    """
     if score >= 0.9:
         return RiskLevel.HIGH
     if score >= 0.5:
@@ -159,8 +212,18 @@ def _injection_score_to_level(score: float) -> RiskLevel:
 
 @functools.lru_cache(maxsize=4)
 def _load_onnx_model(model_id: str) -> tuple[Any, Any, int, tuple[str, ...]]:
-    """Download (to platformdirs) and load an ONNX text-classification model once.
-    Returns (session, tokenizer, injection_index, input_names). Cached per model_id."""
+    """Download and load an ONNX text-classification model once, cached per model_id.
+
+    Args:
+        model_id: Hugging Face model identifier to fetch and load.
+
+    Returns:
+        A tuple of (session, tokenizer, injection_index, input_names).
+
+    Raises:
+        RiskDependencyError: The `risk` extra is missing, or the model lacks a
+            usable `.onnx` file or fast tokenizer.
+    """
     try:
         import onnxruntime as ort
         from huggingface_hub import snapshot_download
@@ -199,13 +262,25 @@ def _load_onnx_model(model_id: str) -> tuple[Any, Any, int, tuple[str, ...]]:
 
 @dataclass
 class LocalOnnxClassifier:
-    """Cheap injection/jailbreak screen backed by a local ONNX text-classification
-    model (default deberta-v3-base-prompt-injection-v2). On-device, no egress.
-    Raises RiskDependencyError if the `risk` extra is not installed."""
+    """Cheap on-device injection/jailbreak screen backed by a local ONNX model.
+
+    Uses a local ONNX text-classification model (default
+    deberta-v3-base-prompt-injection-v2) with no network egress. Raises
+    RiskDependencyError if the `risk` extra is not installed.
+    """
 
     model_id: str
 
     def classify(self, text: str, *, source: str | None = None) -> RiskVerdict:
+        """Score `text` for injection/jailbreak likelihood into a verdict.
+
+        Args:
+            text: The artifact text to screen.
+            source: Optional label for the artifact being scanned.
+
+        Returns:
+            A verdict whose level reflects the model's injection probability.
+        """
         import numpy as np
 
         session, tokenizer, injection_index, input_names = _load_onnx_model(self.model_id)
@@ -230,7 +305,14 @@ class LocalOnnxClassifier:
 
 
 def _parse_findings(raw: str) -> list[dict]:
-    """Tolerantly parse the judge's findings JSON (strip code fences / surrounding prose)."""
+    """Tolerantly parse the judge's findings JSON, stripping fences and stray prose.
+
+    Args:
+        raw: The judge's raw output, possibly wrapped in code fences or text.
+
+    Returns:
+        The list of finding dicts, or an empty list when parsing fails.
+    """
     text = raw.strip()
     if text.startswith("```"):
         text = text.strip("`")
@@ -246,8 +328,18 @@ def _parse_findings(raw: str) -> list[dict]:
 
 
 def _judge_verdict(findings: list[dict], rules: list[policy.RiskRule]) -> RiskVerdict:
-    """Fold per-rule findings into one verdict: level = max severity among violated
-    rules; reasons name the rule that fired and its evidence."""
+    """Fold per-rule findings into a single verdict.
+
+    Level is the max severity among violated rules; reasons name the rule that
+    fired and its evidence.
+
+    Args:
+        findings: Parsed per-rule findings from the judge.
+        rules: The active rules, used to resolve each finding's severity.
+
+    Returns:
+        A verdict aggregating the violated rules, or LOW when none violated.
+    """
     severity_by_id = {r.id: r.severity for r in rules}
     violated = [f for f in findings if f.get("violated") in (True, "true", "True", 1)]
     if not violated:
@@ -270,8 +362,16 @@ def _judge_verdict(findings: list[dict], rules: list[policy.RiskRule]) -> RiskVe
 
 @functools.lru_cache(maxsize=4)
 def _judge_lm(judge: str) -> Any:
-    """Build a DSPy LM once per model string — reused across scans so we don't pay
-    client/connection setup on every classify call."""
+    """Build a DSPy LM once per model string, reused across scans.
+
+    Cached so client/connection setup is not paid on every classify call.
+
+    Args:
+        judge: The DSPy model string (e.g. "ollama_chat/llama3").
+
+    Returns:
+        The constructed DSPy LM instance.
+    """
     import dspy
 
     return dspy.LM(judge)
@@ -279,8 +379,10 @@ def _judge_lm(judge: str) -> Any:
 
 @functools.lru_cache(maxsize=1)
 def _rule_judge_signature() -> Any:
-    """The judge Signature, defined once. Re-declaring it per call made DSPy reparse
-    it every scan."""
+    """Return the judge DSPy Signature, built once and cached.
+
+    Re-declaring it per call made DSPy reparse it every scan.
+    """
     import dspy
 
     class _RuleJudge(dspy.Signature):
@@ -300,19 +402,34 @@ def _rule_judge_signature() -> Any:
 
 @dataclass
 class JudgeClassifier:
-    """Evaluates the artifact against the policy's explicit rule set via DSPy,
-    returning per-rule findings. Lazily loads DSPy; raises RiskDependencyError if
-    the `risk-judge` extra is not installed.
+    """Evaluate the artifact against the policy's rule set via a DSPy judge.
+
+    Returns per-rule findings. Lazily loads DSPy; raises RiskDependencyError if the
+    `risk-judge` extra is not installed.
 
     aim only needs DSPy here — DSPy accesses the configured language model on its
     own via the model string in `[risk].judge` (e.g. "ollama_chat/llama3" or
     "openai/gpt-4o"). How that model is hosted and authenticated (local server,
-    remote endpoint, env credentials) is the user's concern, not aim's."""
+    remote endpoint, env credentials) is the user's concern, not aim's.
+    """
 
     config: RiskConfig
     lm: Any = None  # pre-built DSPy LM; tests/advanced users inject one here
 
     def classify(self, text: str, *, source: str | None = None) -> RiskVerdict:
+        """Judge `text` against the active rules and return a verdict.
+
+        Args:
+            text: The artifact text to assess.
+            source: Optional label for the artifact being scanned.
+
+        Returns:
+            A verdict folding the judge's per-rule findings; LOW when no rules apply.
+
+        Raises:
+            RiskDependencyError: The `risk-judge` extra is missing, or no judge
+                model is configured or available.
+        """
         try:
             import dspy
         except ImportError as exc:
@@ -340,7 +457,9 @@ class JudgeClassifier:
 
 @dataclass
 class TieredClassifier:
-    """The local injection screen is the first gate. It runs BEFORE the judge: if it
+    """Run the cheap local screen first and only escalate clean text to the judge.
+
+    The local injection screen is the first gate. It runs BEFORE the judge: if it
     flags (level >= escalate_threshold) the verdict is returned as-is and the judge is
     never consulted — an injection hit is not one of the judge's rules, so it must not
     be merged into the judge's findings. Only a clean screen falls through to the judge.
@@ -351,6 +470,16 @@ class TieredClassifier:
     escalate_threshold: RiskLevel
 
     def classify(self, text: str, *, source: str | None = None) -> RiskVerdict:
+        """Screen `text` locally, escalating to the judge only when below threshold.
+
+        Args:
+            text: The artifact text to classify.
+            source: Optional label for the artifact being scanned.
+
+        Returns:
+            The screen's verdict if it meets the escalate threshold, else the
+            judge's verdict, or LOW when neither backend is configured.
+        """
         if self.local is not None:
             base = self.local.classify(text, source=source)
             if base.level >= self.escalate_threshold:
@@ -370,11 +499,21 @@ def set_classifier(classifier: RiskClassifier | None) -> None:
 
 
 def reset_classifier() -> None:
+    """Clear any classifier override, restoring policy-driven selection."""
     global _override
     _override = None
 
 
 def get_classifier(config: RiskConfig) -> RiskClassifier:
+    """Select the classifier for `config`, honoring any test override.
+
+    Args:
+        config: The resolved risk settings selecting which backends run.
+
+    Returns:
+        A tiered classifier when both backends are on, the single enabled
+        backend, the override when set, or a NullClassifier when risk is off.
+    """
     if _override is not None:
         return _override
     if not config.active:
@@ -389,10 +528,16 @@ def get_classifier(config: RiskConfig) -> RiskClassifier:
 
 
 def prewarm(project_root: Path | None) -> None:
-    """Best-effort: load the active risk model(s) in a daemon thread so the expensive
-    one-time init (ONNX session build, DSPy import) overlaps the artifact fetch instead
-    of blocking the scan. A no-op when risk is off. Never raises — policy resolution and
-    load errors are swallowed; the real scan inside the deploy surfaces them."""
+    """Best-effort: warm the active risk model(s) in a daemon thread.
+
+    The expensive one-time init (ONNX session build, DSPy import) overlaps the
+    artifact fetch instead of blocking the scan. A no-op when risk is off. Never
+    raises — policy resolution and load errors are swallowed; the real scan inside
+    the deploy surfaces them.
+
+    Args:
+        project_root: Project directory used to resolve the effective policy.
+    """
     try:
         config = config_from_policy(policy.effective_policy(project_root))
     except Exception:
@@ -401,6 +546,7 @@ def prewarm(project_root: Path | None) -> None:
         return
 
     def _load() -> None:
+        """Warm the active backend, swallowing any load error."""
         try:
             if config.classifier:
                 # The screen gates the judge, so only warm the screen here — eagerly
@@ -416,17 +562,31 @@ def prewarm(project_root: Path | None) -> None:
     threading.Thread(target=_load, daemon=True).start()
 
 
-# ---------- verdict store: per-artifact history (last 3), keyed by content hash ----------
-
 _HISTORY = 3
 
 
 def _verdict_store_path(qualified_name: str) -> Path:
+    """Return the per-artifact verdict-history file path, sanitizing the name.
+
+    Args:
+        qualified_name: The artifact's qualified name, used as the file stem.
+
+    Returns:
+        The cache path holding that artifact's verdict history.
+    """
     safe = re.sub(r"[^a-zA-Z0-9_.-]", "_", qualified_name)
     return paths.user_cache_dir() / "risk-verdicts" / f"{safe}.json"
 
 
 def _load_history(qualified_name: str) -> list[dict]:
+    """Load an artifact's stored verdict history, or empty on missing/corrupt file.
+
+    Args:
+        qualified_name: The artifact whose history to read.
+
+    Returns:
+        The list of stored verdict entries, or an empty list.
+    """
     path = _verdict_store_path(qualified_name)
     if not path.exists():
         return []
@@ -438,9 +598,18 @@ def _load_history(qualified_name: str) -> list[dict]:
 
 
 def config_fingerprint(config: RiskConfig) -> str:
-    """Identity of the classifier configuration: a cached verdict is only valid for
-    the same fingerprint, so changing the rules/backend/judge/thresholds correctly
-    invalidates stale verdicts instead of reusing a level computed under old rules."""
+    """Compute a stable identity hash of the classifier configuration.
+
+    A cached verdict is only valid for the same fingerprint, so changing the
+    rules/backend/judge/thresholds correctly invalidates stale verdicts instead of
+    reusing a level computed under old rules.
+
+    Args:
+        config: The risk configuration to fingerprint.
+
+    Returns:
+        A 16-character hex digest identifying the configuration.
+    """
     payload = json.dumps(
         {
             "classifier": config.classifier,
@@ -458,6 +627,16 @@ def config_fingerprint(config: RiskConfig) -> str:
 def verdict_cache_get(
     qualified_name: str, content_hash: str, fingerprint: str
 ) -> RiskVerdict | None:
+    """Return a cached verdict matching the content hash and config fingerprint.
+
+    Args:
+        qualified_name: The artifact whose history to search.
+        content_hash: Hash of the exact content scanned.
+        fingerprint: Config fingerprint the cached verdict must match.
+
+    Returns:
+        The matching verdict, or None when no valid cache entry exists.
+    """
     for entry in _load_history(qualified_name):
         if entry.get("content_hash") == content_hash and entry.get("fingerprint") == fingerprint:
             return RiskVerdict(RiskLevel(entry["level"]), list(entry.get("reasons", [])), "cache")
@@ -470,6 +649,14 @@ _store_lock = threading.Lock()
 def verdict_cache_put(
     qualified_name: str, content_hash: str, fingerprint: str, verdict: RiskVerdict
 ) -> None:
+    """Store a verdict in the artifact's bounded history, replacing any stale match.
+
+    Args:
+        qualified_name: The artifact whose history to update.
+        content_hash: Hash of the exact content scanned.
+        fingerprint: Config fingerprint under which the verdict was produced.
+        verdict: The verdict to persist.
+    """
     path = _verdict_store_path(qualified_name)
     key = (content_hash, fingerprint)
     with _store_lock:  # sync fans gates out across threads; serialize the RMW + write
@@ -494,25 +681,22 @@ def verdict_cache_put(
         os.replace(tmp, path)  # atomic publish (intra-process lock only)
 
 
-# ---------- advisory warnings buffer (drained by the CLI/TUI) ----------
-
 _risk_warnings: list[str] = []
 _warnings_lock = threading.Lock()
 
 
 def _warn(message: str) -> None:
+    """Append an advisory risk message to the thread-safe warnings buffer."""
     with _warnings_lock:
         _risk_warnings.append(message)
 
 
 def take_risk_warnings() -> list[str]:
+    """Drain and return the buffered advisory risk warnings."""
     with _warnings_lock:
         out = list(_risk_warnings)
         _risk_warnings.clear()
     return out
-
-
-# ---------- enforcement entry ----------
 
 
 def assert_acceptable_risk(
@@ -521,10 +705,23 @@ def assert_acceptable_risk(
     """Classify `text` and enforce the policy's risk mode.
 
     Returns a LOW verdict immediately when risk is disabled (the default). Caches
-    verdicts by content hash so re-scans are deterministic and cheap. Raises
-    RiskBlockedError only when the policy sets `mode = "block"` and the verdict
-    meets the block threshold (unless `override_risk`). Sub-block findings are pushed
-    to the advisory warnings buffer; the reasons are always populated.
+    verdicts by content hash so re-scans are deterministic and cheap. Sub-block
+    findings are pushed to the advisory warnings buffer; the reasons are always
+    populated.
+
+    Args:
+        text: The artifact content to classify.
+        source: Qualified name of the artifact, used for caching and messages.
+        config: The resolved risk configuration to enforce.
+        override_risk: Bypass blocking when the policy permits overrides.
+
+    Returns:
+        The computed (or cached) risk verdict.
+
+    Raises:
+        RiskBlockedError: The policy sets `mode = "block"` and the verdict meets
+            the block threshold (and no honored override applies), or block mode
+            is required but the classifier dependency is unavailable.
     """
     if not config.active:
         return RiskVerdict(RiskLevel.LOW, [], "disabled")
@@ -576,8 +773,16 @@ def assert_acceptable_risk(
 def gate(
     content: str, *, qualified_name: str, pol: policy.Policy, override_risk: bool = False
 ) -> None:
-    """Convenience wrapper for the deploy chokepoints: classify+enforce using the
-    governing policy's risk settings. No-op when risk is disabled."""
+    """Classify and enforce content at a deploy chokepoint using the policy's risk settings.
+
+    A no-op when risk is disabled.
+
+    Args:
+        content: The artifact content to gate.
+        qualified_name: Qualified name of the artifact, used as the source label.
+        pol: The governing policy supplying risk settings.
+        override_risk: Bypass blocking when the policy permits overrides.
+    """
     assert_acceptable_risk(
         content,
         source=qualified_name,

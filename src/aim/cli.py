@@ -140,8 +140,19 @@ def _render_risk_block(exc: risk_mod.RiskBlockedError) -> None:
 
 
 def _friendly(fn: Callable[..., Any]) -> Callable[..., Any]:
+    """Wrap a command so domain exceptions become friendly CLI errors.
+
+    Args:
+        fn: The command function to wrap.
+
+    Returns:
+        A wrapper that renders known errors as `error:` messages, exits with
+        code 1, and drains any buffered install/risk warnings.
+    """
+
     @functools.wraps(fn)
     def wrapper(*args: Any, **kwargs: Any) -> Any:
+        """Run the wrapped command, mapping domain errors to CLI exits."""
         try:
             return fn(*args, **kwargs)
         except risk_mod.RiskBlockedError as exc:
@@ -180,6 +191,7 @@ def _here(project: Path | None) -> Path:
 
 
 def _version_callback(value: bool) -> None:
+    """Print the version and exit when `--version` is passed."""
     if value:
         typer.echo(f"aim {__version__}")
         raise typer.Exit()
@@ -308,6 +320,7 @@ def _resolve_or_register_repo(
 
 
 def _looks_like_url(target: str) -> bool:
+    """Return whether `target` looks like a git URL (scheme or `git@host:`)."""
     t = target.strip()
     return "://" in t or (t.startswith("git@") and ":" in t)
 
@@ -426,9 +439,6 @@ def main(
 
         run_tui(project_root=project, profile_name=profile)
         raise typer.Exit()
-
-
-# ---------- init ----------
 
 
 @app.command("check")
@@ -1232,6 +1242,7 @@ def prune_cmd(
 
 
 def _print_prune_apply_result(console: Console, result: prune_mod.PruneResult) -> None:
+    """Print removed entries, skipped/error items, and warnings from a prune."""
     for item in result.removed:
         if item.action == "removed":
             console.print(f"[red]removed[/red] {item.kind} {item.path}")
@@ -1245,6 +1256,7 @@ def _print_prune_apply_result(console: Console, result: prune_mod.PruneResult) -
 
 
 def _print_diffs(changes: list) -> None:  # type: ignore[type-arg]
+    """Print a unified diff for each change's before/after text."""
     import difflib
 
     for change in changes:
@@ -1260,9 +1272,6 @@ def _print_diffs(changes: list) -> None:  # type: ignore[type-arg]
         for line in diff:
             typer.echo(line, nl=False)
         typer.echo("")
-
-
-# ---------- rule ----------
 
 
 @rule_app.command("list")
@@ -1406,9 +1415,6 @@ def rule_rollback(
     typer.echo(f"rolled back rule {qualified_name} -> {rolled.current.identifier()}")
 
 
-# ---------- repo ----------
-
-
 @repo_app.command("add")
 @_friendly
 def repo_add(
@@ -1511,9 +1517,6 @@ def repo_refresh(
         typer.echo(f"refreshed {a}: HEAD={sha}")
     if failures:
         raise typer.Exit(code=1)
-
-
-# ---------- skill ----------
 
 
 @skill_app.command("list")
@@ -1728,9 +1731,6 @@ def skill_rollback(
     typer.echo(f"rolled back {qualified_name} -> {rolled.current.identifier()}")
 
 
-# ---------- agent ----------
-
-
 @subagent_app.command("list")
 @_friendly
 def agent_list(
@@ -1931,6 +1931,11 @@ def agent_rollback(
 
 
 def _parse_key_value_list(items: list[str]) -> dict[str, str]:
+    """Parse `NAME=VALUE` strings into a dict.
+
+    Raises:
+        typer.BadParameter: An item is missing the `=` separator.
+    """
     out: dict[str, str] = {}
     for item in items:
         if "=" not in item:
@@ -1941,6 +1946,11 @@ def _parse_key_value_list(items: list[str]) -> dict[str, str]:
 
 
 def _parse_header_list(items: list[str]) -> dict[str, str]:
+    """Parse `Name:Value` header strings into a dict, stripping whitespace.
+
+    Raises:
+        typer.BadParameter: An item is missing the `:` separator.
+    """
     out: dict[str, str] = {}
     for item in items:
         if ":" not in item:

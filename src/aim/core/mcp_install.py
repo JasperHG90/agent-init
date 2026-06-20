@@ -36,7 +36,7 @@ class McpServerNotInstalledError(KeyError):
 
 
 class McpNoHistoryToRollbackError(RuntimeError):
-    pass
+    """No prior version is recorded for the alias, so rollback is impossible."""
 
 
 class McpLocalEditsError(RuntimeError):
@@ -56,10 +56,20 @@ class McpOverrideEntry(BaseModel):
 
 
 def _load_manifest(project_root: Path) -> Manifest:
+    """Load the project manifest, creating it if it does not yet exist."""
     return manifest.load_or_create(project_root)
 
 
 def _find_installed(m: Manifest, alias: str) -> InstalledMcpServer | None:
+    """Return the installed MCP server matching the alias, or None.
+
+    Args:
+        m: The loaded project manifest to search.
+        alias: The alias to look up among managed MCP servers.
+
+    Returns:
+        The matching installed server, or None if no alias matches.
+    """
     for s in m.mcp_servers:
         if s.alias == alias:
             return s
@@ -73,11 +83,23 @@ class McpOverrideError(ValueError):
 def _apply_overrides(
     entry: McpClaudeEntry, overrides: dict[str, object], *, allow_insecure: bool = False
 ) -> McpClaudeEntry:
-    """Apply simple override hints to a mapped entry.
+    """Apply pre-parsed override hints to a mapped Claude entry.
 
-    Recognised keys: `command`, `url`, plus list/dict values for `args`,
-    `env`, `headers` if passed as already-parsed objects. CLI helpers pass
-    pre-parsed values; strings replace the corresponding scalar field.
+    Recognised keys are `command`, `url`, `type` (scalars) plus list/dict
+    values for `args`, `env`, and `headers`. CLI helpers pass pre-parsed
+    values; scalars replace the corresponding field.
+
+    Args:
+        entry: The base entry produced from the registry mapping.
+        overrides: Pre-parsed override values keyed by field name.
+        allow_insecure: Permit non-HTTPS `url` overrides when True.
+
+    Returns:
+        A new validated entry with the overrides applied.
+
+    Raises:
+        McpOverrideError: An override value has the wrong shape or an
+            unsupported key was supplied.
     """
     data = entry.model_dump()
     for key, value in overrides.items():
@@ -110,6 +132,19 @@ def _check_alias_available(
     registry_name: str,
     force: bool,
 ) -> None:
+    """Verify an alias is well-formed and free to use for this registry name.
+
+    Args:
+        project_root: Root of the project whose `.mcp.json` and manifest are checked.
+        alias: The alias requested for the server.
+        registry_name: Canonical registry name the alias should map to.
+        force: Allow reassigning or taking over a conflicting alias when True.
+
+    Raises:
+        McpAliasInvalidError: The alias fails repo-style validation.
+        McpAliasConflictError: The alias is already used by another managed or
+            unmanaged server and force is False.
+    """
     if not validation.is_valid_alias(alias):
         raise McpAliasInvalidError(
             f"alias {alias!r} invalid: must be lowercase alphanumeric, _, or -"
@@ -135,6 +170,17 @@ def _check_alias_available(
 
 
 def _check_local_edits(project_root: Path, installed: InstalledMcpServer, *, force: bool) -> None:
+    """Guard against overwriting hand-edited `.mcp.json` entries.
+
+    Args:
+        project_root: Root of the project whose `.mcp.json` is inspected.
+        installed: The managed server record holding the expected entry hash.
+        force: Skip the check and allow overwriting when True.
+
+    Raises:
+        McpLocalEditsError: The on-disk entry hash differs from the recorded
+            hash and force is False.
+    """
     if force:
         return
     data = mcp_registry.read_mcp_json(project_root)
@@ -162,12 +208,20 @@ def install(
     force: bool = False,
     allow_insecure: bool = False,
 ) -> InstalledMcpServer:
-    """Install (or replace) a managed MCP server entry under `alias`.
+    """Install (or replace) a managed MCP server entry under an alias.
 
-    - `registry_name` is the canonical `server.name` from the registry.
-    - `preferred_transport` may be `stdio`, `http`, `sse`, or `ws`.
-    - `overrides` is an optional dict of pre-parsed CLI/TUI escape-hatch
-      values (`command`, `args`, `env`, `url`, `headers`).
+    Args:
+        project_root: Root of the target project.
+        registry_name: Canonical `server.name` from the registry.
+        alias: Alias under which to record the server.
+        preferred_transport: Transport hint; one of `stdio`, `http`, `sse`, or `ws`.
+        overrides: Optional pre-parsed CLI/TUI escape-hatch values
+            (`command`, `args`, `env`, `url`, `headers`).
+        force: Bypass alias-conflict and local-edit guards when True.
+        allow_insecure: Permit non-HTTPS URLs when True.
+
+    Returns:
+        The installed or updated server record.
     """
     _check_alias_available(project_root, alias, registry_name, force=force)
     policy.assert_mcp_allowed(policy.effective_policy(project_root), alias, registry_name)
@@ -225,8 +279,19 @@ def update(
     """Refresh a managed MCP server from the registry.
 
     Re-fetches the server by its recorded `registry_name`, rebuilds the mapped
-    entry, and writes it back. Refuses if the `.mcp.json` entry has been hand
-    edited unless `force=True`.
+    entry, and writes it back, preserving any recorded overrides.
+
+    Args:
+        project_root: Root of the target project.
+        alias: Alias of the managed server to refresh.
+        force: Overwrite a hand-edited `.mcp.json` entry when True.
+        allow_insecure: Permit non-HTTPS URLs when True.
+
+    Returns:
+        The updated server record (unchanged if the registry yielded no diff).
+
+    Raises:
+        McpServerNotInstalledError: No managed server matches the alias.
     """
     m = _load_manifest(project_root)
     installed = _find_installed(m, alias)
@@ -268,7 +333,15 @@ def update(
 
 
 def delete(project_root: Path, alias: str) -> None:
-    """Remove a managed MCP server from `.mcp.json` and the manifest."""
+    """Remove a managed MCP server from `.mcp.json` and the manifest.
+
+    Args:
+        project_root: Root of the target project.
+        alias: Alias of the managed server to remove.
+
+    Raises:
+        McpServerNotInstalledError: No managed server matches the alias.
+    """
     m = _load_manifest(project_root)
     installed = _find_installed(m, alias)
     if installed is None:
@@ -280,7 +353,19 @@ def delete(project_root: Path, alias: str) -> None:
 
 
 def rollback(project_root: Path, alias: str) -> InstalledMcpServer:
-    """Restore `history[0]` as the current `.mcp.json` entry."""
+    """Restore `history[0]` as the current `.mcp.json` entry.
+
+    Args:
+        project_root: Root of the target project.
+        alias: Alias of the managed server to roll back.
+
+    Returns:
+        The rolled-back server record.
+
+    Raises:
+        McpServerNotInstalledError: No managed server matches the alias.
+        McpNoHistoryToRollbackError: The server has no recorded prior version.
+    """
     m = _load_manifest(project_root)
     installed = _find_installed(m, alias)
     if installed is None:

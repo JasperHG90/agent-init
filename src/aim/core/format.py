@@ -19,6 +19,8 @@ from rich.table import Table
 
 
 class OutputFormat:
+    """Enumerate the supported CLI output format identifiers."""
+
     TABLE = "table"
     JSON = "json"
     COMPACT = "compact"
@@ -97,6 +99,15 @@ def _get_attr_raw(row: Any, attr: str) -> Any:
 
 
 def _resolve_attr_path(row: Any, attr: str) -> Any:
+    """Walk a dotted attribute path through dicts and objects, returning the value.
+
+    Args:
+        row: object or dict to traverse.
+        attr: dot-separated path, e.g. ``current.identifier``.
+
+    Returns:
+        The resolved value, or None if any path segment is missing.
+    """
     value: Any = row
     for part in attr.split("."):
         if value is None:
@@ -109,6 +120,7 @@ def _resolve_attr_path(row: Any, attr: str) -> Any:
 
 
 def _cell(value: Any) -> str:
+    """Convert a value to its string representation for a table cell."""
     if value is None:
         return ""
     if isinstance(value, bool):

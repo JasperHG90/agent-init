@@ -22,10 +22,33 @@ _AGENT_FROM_FILENAME = {
 
 
 def agent_for_filename(filename: str) -> str | None:
+    """Return the agent slug for a managed instruction filename, or None for AGENTS.md.
+
+    Args:
+        filename: Basename of an instruction file, e.g. ``CLAUDE.md``.
+
+    Returns:
+        The agent slug (e.g. ``"claude"``) or None if the filename is unknown or is
+        the canonical ``AGENTS.md``.
+    """
     return _AGENT_FROM_FILENAME.get(filename)
 
 
 def _detect_region_drift(filename: str, body: str, stored_hashes: dict[str, str]) -> list[str]:
+    """Compare on-disk region content against stored hashes and report edited regions.
+
+    Args:
+        filename: Name of the file being checked, used in warning messages.
+        body: Full current text of the file on disk.
+        stored_hashes: Previously recorded hash per managed region name.
+
+    Returns:
+        A warning string for each managed region whose in-region content changed
+        since the last write.
+
+    Raises:
+        agents_md.RegionError: If the file's aim region markers are malformed.
+    """
     warnings: list[str] = []
     try:
         regions = agents_md.parse(body)
@@ -49,6 +72,16 @@ def _render_regions(
     *,
     rules_mode: str,
 ) -> dict[str, str]:
+    """Render a template and return its region bodies keyed by region name.
+
+    Args:
+        template_name: Name of the instruction template to render.
+        applied_rules: Rules already prepared for rendering.
+        rules_mode: Rendering mode for rules, supplied by the layout profile.
+
+    Returns:
+        A mapping of region name to its rendered body.
+    """
     rendered = templates.render(
         template_name,
         {"rules": applied_rules, "rules_mode": rules_mode},
@@ -63,6 +96,16 @@ def _render_for_template(
     *,
     rules_mode: str,
 ) -> str:
+    """Render a template to its full canonical text.
+
+    Args:
+        template_name: Name of the instruction template to render.
+        applied_rules: Rules already prepared for rendering.
+        rules_mode: Rendering mode for rules, supplied by the layout profile.
+
+    Returns:
+        The fully rendered instruction file text.
+    """
     return templates.render(
         template_name,
         {"rules": applied_rules, "rules_mode": rules_mode},
@@ -76,7 +119,17 @@ def write_agent_files(
     *,
     force: bool = False,
 ) -> list[str]:
-    """Render and write AGENTS.md and symlinks. Return drift warnings."""
+    """Render AGENTS.md plus its symlinks to disk and return drift warnings.
+
+    Args:
+        project_root: Directory the managed files are written into.
+        m: The Manifest describing rules, template, symlinks, and stored hashes.
+        profile: Layout profile selecting the AGENTS.md path and rules mode.
+        force: Overwrite existing files even when their content has drifted.
+
+    Returns:
+        Warning strings describing region drift or symlink targets left untouched.
+    """
     from aim.core.models import Manifest
 
     assert isinstance(m, Manifest)

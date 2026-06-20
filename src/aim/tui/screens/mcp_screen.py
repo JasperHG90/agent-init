@@ -15,6 +15,8 @@ from aim.tui.modals.mcp_install import McpInstallConfig, McpInstallModal
 
 
 class McpScreen(Screen[None]):
+    """Browse the public MCP registry and install servers into a project."""
+
     BINDINGS = [
         ("escape", "app.pop_screen", "Back"),
         ("b", "app.pop_screen", "Back"),
@@ -26,6 +28,11 @@ class McpScreen(Screen[None]):
     ]
 
     def __init__(self, project_root: Path | None = None) -> None:
+        """Initialize the screen for the given project root.
+
+        Args:
+            project_root: Project directory to install servers into; defaults to cwd.
+        """
         super().__init__()
         self._project_root = (project_root or Path.cwd()).resolve()
         self._results: list[mcp_registry.McpSearchResult] = []
@@ -36,6 +43,7 @@ class McpScreen(Screen[None]):
         self._installing: tuple[mcp_registry.McpServer, McpInstallConfig] | None = None
 
     def compose(self) -> ComposeResult:
+        """Build the title, search bar, results table, status and hint widgets."""
         yield Static("MCP servers", id="title", markup=False)
         yield Input(placeholder="search registry…", id="search-bar")
         yield DataTable(id="mcp-table", cursor_type="row")
@@ -47,6 +55,7 @@ class McpScreen(Screen[None]):
         )
 
     def on_mount(self) -> None:
+        """Set up table columns and load installed and default servers."""
         table = self.query_one(DataTable)
         table.add_columns("name", "version", "description", "status")
         self._installed_results = self._load_installed()
@@ -58,6 +67,11 @@ class McpScreen(Screen[None]):
             table.focus()
 
     def _load_installed(self) -> list[mcp_registry.McpSearchResult]:
+        """Read the project manifest and return its installed MCP servers.
+
+        Returns:
+            Search results for each installed server, or an empty list on failure.
+        """
         try:
             m = manifest.load_or_default(self._project_root)
         except Exception:
@@ -79,6 +93,7 @@ class McpScreen(Screen[None]):
         return out
 
     def _load_defaults(self) -> None:
+        """Seed the default servers and cached servers off-thread, then hand them back."""
         worker = get_current_worker()
         if worker.is_cancelled:
             return
@@ -96,6 +111,11 @@ class McpScreen(Screen[None]):
         self.app.call_from_thread(self._on_defaults_loaded, defaults, cached)
 
     def _load_cached_servers(self) -> list[mcp_registry.McpSearchResult]:
+        """Return locally cached servers as search results with freshness metadata.
+
+        Returns:
+            Cached server results, or an empty list if the worker was cancelled.
+        """
         worker = get_current_worker()
         if worker.is_cancelled:
             return []
@@ -118,12 +138,23 @@ class McpScreen(Screen[None]):
         defaults: list[mcp_registry.McpSearchResult],
         cached: list[mcp_registry.McpSearchResult],
     ) -> None:
+        """Store loaded defaults and cached servers, then populate the table.
+
+        Args:
+            defaults: Default server search results.
+            cached: Locally cached server search results.
+        """
         self._default_results = defaults
         self._cached_results = cached
         self._populate("")
         self.query_one("#mcp-table", DataTable).focus()
 
     def _populate(self, query: str) -> None:
+        """Show cached/default rows for an empty query, else search the registry.
+
+        Args:
+            query: The raw search string entered by the user.
+        """
         table = self.query_one(DataTable)
         table.clear()
         self._results = []
@@ -141,6 +172,11 @@ class McpScreen(Screen[None]):
         )
 
     def _search_worker(self, q: str) -> None:
+        """Query the registry off-thread and dispatch results or an error to the UI.
+
+        Args:
+            q: The search query.
+        """
         worker = get_current_worker()
         if worker.is_cancelled:
             return
@@ -156,6 +192,12 @@ class McpScreen(Screen[None]):
         results: list[mcp_registry.McpSearchResult],
         next_cursor: str | None,
     ) -> None:
+        """Render search results, preserving the cursor and noting if more exist.
+
+        Args:
+            results: Server results returned by the registry search.
+            next_cursor: Pagination cursor, truthy when more results are available.
+        """
         table = self.query_one(DataTable)
         selected = self._selected_name()
         self._results = results
@@ -173,10 +215,16 @@ class McpScreen(Screen[None]):
         self._status(f"{len(results)} result(s){tail}")
 
     def _on_search_error(self, message: str) -> None:
+        """Notify the user and update status after a failed registry search.
+
+        Args:
+            message: The error detail to surface.
+        """
         self.app.notify(f"registry search failed: {message}", severity="error")
         self._status("registry search failed")
 
     def _show_cached(self) -> None:
+        """Render installed, then cached, then default servers without duplicates."""
         installed = self._installed_results or []
         installed_names = {i.server.name for i in installed}
         cached = self._cached_results or []
@@ -209,6 +257,11 @@ class McpScreen(Screen[None]):
         )
 
     def _selected_name(self) -> str | None:
+        """Return the row key (server name) under the cursor, or None.
+
+        Returns:
+            The selected server name, or None if no row is selected.
+        """
         table = self.query_one(DataTable)
         if table.row_count == 0 or not self._results:
             return None
@@ -216,6 +269,11 @@ class McpScreen(Screen[None]):
         return str(row_key.value) if row_key and row_key.value is not None else None
 
     def _add_rows(self, results: list[mcp_registry.McpSearchResult]) -> None:
+        """Add a table row per result, deriving a status label from its metadata.
+
+        Args:
+            results: Server results to render; duplicates by name are skipped.
+        """
         table = self.query_one(DataTable)
         seen: set[str] = set()
         for r in results:
@@ -251,15 +309,22 @@ class McpScreen(Screen[None]):
             )
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
+        """Run a registry search when the search bar is submitted."""
         if event.input.id == "search-bar":
             self._populate(event.value)
             self.query_one("#mcp-table", DataTable).focus()
             return
 
     def action_focus_search(self) -> None:
+        """Move focus to the search input."""
         self.query_one("#search-bar", Input).focus()
 
     def _selected(self) -> mcp_registry.McpSearchResult | None:
+        """Return the full search result for the row under the cursor, or None.
+
+        Returns:
+            The selected search result, or None if no matching row is selected.
+        """
         table = self.query_one(DataTable)
         if table.row_count == 0 or not self._results:
             return None
@@ -273,6 +338,7 @@ class McpScreen(Screen[None]):
         return None
 
     def action_enter(self) -> None:
+        """View the selected row, unless the search bar already handled Enter."""
         # If the search bar is focused, submitting the Input already ran the
         # search. Otherwise view the currently selected row.
         focused = self.app.focused
@@ -281,6 +347,7 @@ class McpScreen(Screen[None]):
         self._do_view()
 
     def _do_view(self) -> None:
+        """Open a read-only install modal for the selected server."""
         r = self._selected()
         if r is None:
             self._status("no row selected")
@@ -291,6 +358,7 @@ class McpScreen(Screen[None]):
         )
 
     def action_install_current(self) -> None:
+        """Open an editable install modal and install the selected server on confirm."""
         r = self._selected()
         if r is None:
             self._status("no row selected")
@@ -301,6 +369,12 @@ class McpScreen(Screen[None]):
         )
 
     def _install(self, server: mcp_registry.McpServer, cfg: McpInstallConfig | None) -> None:
+        """Validate the alias and kick off installation in a background worker.
+
+        Args:
+            server: The registry server to install.
+            cfg: Install configuration from the modal, or None if cancelled.
+        """
         if cfg is None:
             return
         if not validation.is_valid_alias(cfg.alias):
@@ -314,6 +388,7 @@ class McpScreen(Screen[None]):
         self.run_worker(self._do_install_thread, exclusive=True, thread=True)
 
     def _do_install_thread(self) -> None:
+        """Perform the install off-thread, reporting success or failure to the UI."""
         installing = getattr(self, "_installing", None)
         if installing is None:
             return
@@ -346,6 +421,7 @@ class McpScreen(Screen[None]):
         self.app.call_from_thread(self._status, f"installed {server.name} as {cfg.alias}")
 
     def on_worker_state_changed(self, event) -> None:  # type: ignore[no-untyped-def]
+        """Update status while installing and clear install state when the worker ends."""
         installing = getattr(self, "_installing", None)
         if installing is not None:
             if event.state == WorkerState.RUNNING:
@@ -355,4 +431,5 @@ class McpScreen(Screen[None]):
                 self._installing = None
 
     def _status(self, msg: str) -> None:
+        """Update the status line with the given message."""
         self.query_one("#status", Static).update(msg)

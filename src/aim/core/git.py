@@ -21,7 +21,7 @@ from typing import Protocol
 
 
 class GitError(RuntimeError):
-    pass
+    """Raised when a `git` (or `tar`) invocation fails or is unavailable."""
 
 
 # Disable interactive credential prompts so a misconfigured remote can't hang
@@ -32,22 +32,58 @@ _GIT_TIMEOUT_SECONDS = 300
 
 @dataclass(frozen=True)
 class TagInfo:
+    """A git tag paired with the object SHA it points at."""
+
     name: str
     sha: str
 
 
 class GitBackend(Protocol):
-    def clone_bare(self, url: str, dest: Path) -> None: ...
-    def fetch(self, repo_dir: Path) -> None: ...
-    def resolve_ref(self, repo_dir: Path, ref: str) -> str: ...
-    def list_tags(self, repo_dir: Path) -> list[TagInfo]: ...
-    def latest_tag(self, repo_dir: Path, ref: str) -> str | None: ...
-    def ls_tree(self, repo_dir: Path, sha: str, path: str = "") -> list[str]: ...
-    def cat_file(self, repo_dir: Path, sha: str, path: str) -> str: ...
-    def cat_file_bytes(self, repo_dir: Path, sha: str, path: str) -> bytes: ...
-    def cat_file_batch(self, repo_dir: Path, sha: str, paths: list[str]) -> dict[str, bytes]: ...
-    def archive(self, repo_dir: Path, sha: str, source_path: str, dest_dir: Path) -> None: ...
-    def last_touching_sha(self, repo_dir: Path, ref: str, source_path: str) -> str: ...
+    """Read/fetch interface over a bare git clone; tests inject fakes."""
+
+    def clone_bare(self, url: str, dest: Path) -> None:
+        """Clone `url` into `dest` as a bare/mirror repo."""
+        ...
+
+    def fetch(self, repo_dir: Path) -> None:
+        """Fetch updated refs and tags into the bare clone at `repo_dir`."""
+        ...
+
+    def resolve_ref(self, repo_dir: Path, ref: str) -> str:
+        """Resolve `ref` to its full object SHA."""
+        ...
+
+    def list_tags(self, repo_dir: Path) -> list[TagInfo]:
+        """List all tags in the repo with their target SHAs."""
+        ...
+
+    def latest_tag(self, repo_dir: Path, ref: str) -> str | None:
+        """Return the most recent tag reachable from `ref`, or None."""
+        ...
+
+    def ls_tree(self, repo_dir: Path, sha: str, path: str = "") -> list[str]:
+        """List file paths in the tree at `sha`, optionally under `path`."""
+        ...
+
+    def cat_file(self, repo_dir: Path, sha: str, path: str) -> str:
+        """Read the blob at `sha:path` as decoded text."""
+        ...
+
+    def cat_file_bytes(self, repo_dir: Path, sha: str, path: str) -> bytes:
+        """Read the blob at `sha:path` as raw bytes."""
+        ...
+
+    def cat_file_batch(self, repo_dir: Path, sha: str, paths: list[str]) -> dict[str, bytes]:
+        """Read many blobs at `sha` in one pass, keyed by path."""
+        ...
+
+    def archive(self, repo_dir: Path, sha: str, source_path: str, dest_dir: Path) -> None:
+        """Extract the `source_path` subtree at `sha` into `dest_dir`."""
+        ...
+
+    def last_touching_sha(self, repo_dir: Path, ref: str, source_path: str) -> str:
+        """Return the SHA of the last commit touching `source_path`."""
+        ...
 
 
 def _run(
@@ -57,6 +93,20 @@ def _run(
     input_bytes: bytes | None = None,
     timeout: int | None = None,
 ) -> bytes:
+    """Run a git/tar command and return its stdout, mapping failures to GitError.
+
+    Args:
+        args: The full argv to execute.
+        cwd: Working directory for the subprocess.
+        input_bytes: Optional bytes piped to the process's stdin.
+        timeout: Hard ceiling in seconds; falls back to the module default.
+
+    Returns:
+        The process's stdout bytes.
+
+    Raises:
+        GitError: If the executable is missing, exits non-zero, or times out.
+    """
     try:
         result = subprocess.run(
             list(args),
@@ -78,6 +128,8 @@ def _run(
 
 
 class RealGitBackend:
+    """Default `GitBackend` that shells out to the `git` executable."""
+
     def clone_bare(self, url: str, dest: Path) -> None:
         """Clone as a `--mirror` (bare + auto-configured `+refs/*:refs/*` refspec).
 
@@ -98,15 +150,22 @@ class RealGitBackend:
         _run(["git", "clone", "--mirror", "--quiet", "--", url, str(dest)])
 
     def fetch(self, repo_dir: Path) -> None:
+        """Mirror the remote's refs and tags into the bare clone, pruning deletions."""
         _run(["git", "-C", str(repo_dir), "fetch", "--quiet", "--tags", "--prune", "origin"])
 
     def resolve_ref(self, repo_dir: Path, ref: str) -> str:
+        """Resolve `ref` to its full object SHA.
+
+        Raises:
+            GitError: If `ref` starts with '-' (would be parsed as an option).
+        """
         if ref.startswith("-"):
             raise GitError(f"ref must not start with '-': {ref!r}")
         out = _run(["git", "-C", str(repo_dir), "rev-parse", ref])
         return out.decode().strip()
 
     def list_tags(self, repo_dir: Path) -> list[TagInfo]:
+        """List all tags in the repo with their target SHAs."""
         out = _run(
             [
                 "git",
@@ -126,6 +185,11 @@ class RealGitBackend:
         return tags
 
     def latest_tag(self, repo_dir: Path, ref: str) -> str | None:
+        """Return the most recent tag reachable from `ref`, or None if none exist.
+
+        Raises:
+            GitError: If `ref` starts with '-' (would be parsed as an option).
+        """
         if ref.startswith("-"):
             raise GitError(f"ref must not start with '-': {ref!r}")
         try:
@@ -146,6 +210,7 @@ class RealGitBackend:
         return name or None
 
     def ls_tree(self, repo_dir: Path, sha: str, path: str = "") -> list[str]:
+        """List file paths recursively in the tree at `sha`, optionally under `path`."""
         args = ["git", "-C", str(repo_dir), "ls-tree", "-r", "--name-only", sha]
         if path:
             args += ["--", path]
@@ -153,10 +218,12 @@ class RealGitBackend:
         return [line for line in out.decode().splitlines() if line]
 
     def cat_file(self, repo_dir: Path, sha: str, path: str) -> str:
+        """Read the blob at `sha:path` as decoded text."""
         out = _run(["git", "-C", str(repo_dir), "show", f"{sha}:{path}"])
         return out.decode()
 
     def cat_file_bytes(self, repo_dir: Path, sha: str, path: str) -> bytes:
+        """Read the blob at `sha:path` as raw bytes."""
         return _run(["git", "-C", str(repo_dir), "show", f"{sha}:{path}"])
 
     def cat_file_batch(self, repo_dir: Path, sha: str, paths: list[str]) -> dict[str, bytes]:
@@ -185,8 +252,9 @@ class RealGitBackend:
         return result
 
     def archive(self, repo_dir: Path, sha: str, source_path: str, dest_dir: Path) -> None:
-        """Extract `source_path` subtree at `sha` into `dest_dir`, flattened so
-        the contents of source_path/ land directly under dest_dir.
+        """Extract the `source_path` subtree at `sha` into `dest_dir`, flattened.
+
+        The contents of `source_path/` land directly under `dest_dir`.
 
         Implementation: run `git archive` to bytes first (catching git failures
         cleanly), then feed those bytes to `tar -x`. Avoids a pipe deadlock and
@@ -242,6 +310,14 @@ class RealGitBackend:
         _ = tar_result
 
     def last_touching_sha(self, repo_dir: Path, ref: str, source_path: str) -> str:
+        """Return the SHA of the last commit reachable from `ref` touching `source_path`.
+
+        Args:
+            source_path: Subtree path; falls back to "SKILL.md" when empty.
+
+        Raises:
+            GitError: If `ref` starts with '-', or no commit touches the path.
+        """
         if ref.startswith("-"):
             raise GitError(f"ref must not start with '-': {ref!r}")
         path_spec = source_path or "SKILL.md"
@@ -265,6 +341,7 @@ class RealGitBackend:
 
 
 def remove_clone(repo_dir: Path) -> None:
+    """Delete the bare clone at `repo_dir` if it exists."""
     if repo_dir.exists():
         shutil.rmtree(repo_dir)
 
@@ -273,6 +350,7 @@ _default_backend: GitBackend = RealGitBackend()
 
 
 def get_backend() -> GitBackend:
+    """Return the active git backend."""
     return _default_backend
 
 
@@ -283,5 +361,6 @@ def set_backend(backend: GitBackend) -> None:
 
 
 def reset_backend() -> None:
+    """Restore the active git backend to a fresh `RealGitBackend`."""
     global _default_backend
     _default_backend = RealGitBackend()

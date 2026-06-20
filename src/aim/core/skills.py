@@ -28,7 +28,14 @@ from aim.core.models import SkillIndex
 
 
 def split_csv(value: str) -> list[str]:
-    """Helper to read a CSV field back into a list."""
+    """Split a comma-separated string into a list of non-empty trimmed parts.
+
+    Args:
+        value: Comma-separated field value.
+
+    Returns:
+        List of trimmed, non-empty entries.
+    """
     return [p for p in (s.strip() for s in value.split(",")) if p]
 
 
@@ -37,6 +44,15 @@ _SKILL_RE = re.compile(r"^(?P<path>.*)/SKILL\.md$|^SKILL\.md$")
 
 # Canonical paths win at the same depth; arbitrary paths are still discovered.
 def _prefix_rank(path: str) -> int:
+    """Rank a SKILL.md path by prefix canonicality (lower wins).
+
+    Args:
+        path: SKILL.md path relative to the repo root.
+
+    Returns:
+        0 for canonical `skills/` or root paths, 1 for `.claude/skills/`,
+        2 for any other location.
+    """
     if path.startswith("skills/") or path == "SKILL.md":
         return 0
     if path.startswith(".claude/skills/"):
@@ -45,6 +61,8 @@ def _prefix_rank(path: str) -> int:
 
 
 class DiscoveredSkill(NamedTuple):
+    """A skill located during discovery, before it is written to the index."""
+
     name: str
     source_path: str  # path of the skill DIRECTORY relative to repo root
     skill_md_path: str  # path of the SKILL.md file relative to repo root
@@ -52,6 +70,8 @@ class DiscoveredSkill(NamedTuple):
 
 @dataclass(frozen=True)
 class IndexResult:
+    """Outcome of discovering skills in a repo: winners and shadowed duplicates."""
+
     repo_alias: str
     sha: str
     indexed: list[DiscoveredSkill]
@@ -59,6 +79,15 @@ class IndexResult:
 
 
 def discover(repo_alias: str) -> IndexResult:
+    """Find all SKILL.md skills in a registered repo, resolving duplicates.
+
+    Args:
+        repo_alias: Alias of the registered repo to scan.
+
+    Returns:
+        An IndexResult holding the resolved SHA, the winning skills, and any
+        shadowed duplicates that lost on precedence.
+    """
     repo = repos.get(repo_alias)
     repo_dir = repos.clone_dir(repo_alias)
     sha = git.get_backend().resolve_ref(repo_dir, repo.default_ref)
@@ -204,11 +233,21 @@ def _parse_skill_md(
 
 
 class SkillNotIndexedError(KeyError):
-    """The requested qualified_name doesn't appear in the skill index."""
+    """Raised when the requested qualified_name is absent from the skill index."""
 
 
 def read_skill_content(qualified_name: str) -> str:
-    """Return the raw SKILL.md bytes for an indexed skill."""
+    """Return the raw SKILL.md content for an indexed skill.
+
+    Args:
+        qualified_name: The `repo_alias/skill_name` key of the indexed skill.
+
+    Returns:
+        The SKILL.md file content at the indexed SHA.
+
+    Raises:
+        SkillNotIndexedError: If no index row exists or its path is unresolvable.
+    """
     with db.session() as session:
         row = session.get(SkillIndex, qualified_name)
     if row is None:
@@ -225,6 +264,14 @@ def read_skill_content(qualified_name: str) -> str:
 
 
 def list_skills(repo_alias: str | None = None) -> list[SkillIndex]:
+    """Return indexed skills sorted by qualified name, optionally repo-filtered.
+
+    Args:
+        repo_alias: If given, restrict results to this repo's skills.
+
+    Returns:
+        Skill index rows ordered by qualified_name.
+    """
     with db.session() as session:
         stmt = select(SkillIndex)
         if repo_alias is not None:
@@ -235,7 +282,17 @@ def list_skills(repo_alias: str | None = None) -> list[SkillIndex]:
 
 
 def search(query: str) -> list[SkillIndex]:
-    """Case-insensitive substring search across qualified_name, title, description."""
+    """Search indexed skills by case-insensitive substring across key fields.
+
+    Matches against qualified_name, title, and description. An empty query
+    returns all skills.
+
+    Args:
+        query: Substring to look for.
+
+    Returns:
+        Matching skill index rows.
+    """
     q = query.strip().lower()
     if not q:
         return list_skills()

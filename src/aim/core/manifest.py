@@ -32,6 +32,15 @@ _TABLE_HEADER_RE = re.compile(r"^(\[\[?)(\w+)((?:\.\w+)*)?(\]\]?)$")
 
 
 def _singularize_table_headers(text: str) -> str:
+    """Rewrite plural TOML table headers to their singular array-of-table form.
+
+    Args:
+        text: Serialized TOML text using plural model field names as headers.
+
+    Returns:
+        The TOML text with mapped headers singularized (e.g. ``[[skills]]`` to
+        ``[[skill]]``); unmapped headers are left unchanged.
+    """
     out: list[str] = []
     for line in text.splitlines():
         match = _TABLE_HEADER_RE.match(line.strip())
@@ -45,10 +54,23 @@ def _singularize_table_headers(text: str) -> str:
 
 
 class ManifestNotFoundError(FileNotFoundError):
+    """Raised when no manifest lockfile or legacy JSON exists for a project."""
+
     pass
 
 
 def load(project_root: Path) -> Manifest:
+    """Load the project manifest, migrating a legacy JSON file if present.
+
+    Args:
+        project_root: Project root directory containing the manifest.
+
+    Returns:
+        The validated Manifest read from the TOML lockfile (or migrated JSON).
+
+    Raises:
+        ManifestNotFoundError: If neither a lockfile nor legacy JSON exists.
+    """
     lock_path = paths.project_lock_path(project_root)
     if lock_path.exists():
         raw = tomllib.loads(lock_path.read_text(encoding="utf-8"))
@@ -72,6 +94,14 @@ def load(project_root: Path) -> Manifest:
 
 
 def load_or_default(project_root: Path) -> Manifest:
+    """Load the project manifest, returning an empty Manifest if none exists.
+
+    Args:
+        project_root: Project root directory containing the manifest.
+
+    Returns:
+        The loaded Manifest, or a default empty Manifest when absent.
+    """
     try:
         return load(project_root)
     except ManifestNotFoundError:
@@ -84,6 +114,12 @@ def load_or_create(project_root: Path) -> Manifest:
     Used by install/update/delete paths so that the first artifact written to
     a project still produces a lockfile with instruction_template, symlinks, rules,
     and layout profile copied from the user's declarations.
+
+    Args:
+        project_root: Project root directory containing the manifest.
+
+    Returns:
+        The loaded Manifest, or a newly seeded Manifest from declarations.
     """
     try:
         return load(project_root)
@@ -102,6 +138,12 @@ def load_or_create(project_root: Path) -> Manifest:
 
 
 def save(project_root: Path, manifest: Manifest) -> None:
+    """Serialize the manifest to the project's TOML lockfile.
+
+    Args:
+        project_root: Project root directory to write the lockfile into.
+        manifest: Manifest to serialize.
+    """
     path = paths.project_lock_path(project_root)
     data = manifest.model_dump(mode="json", exclude_none=True)
     text = tomli_w.dumps(data)

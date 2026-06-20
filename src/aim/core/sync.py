@@ -61,6 +61,8 @@ class SyncRepoError(RuntimeError):
 
 @dataclass
 class SyncOptions:
+    """Configuration for a single `aim sync` run."""
+
     project_root: Path
     force: bool = False
     sync_agents: bool = True
@@ -71,6 +73,8 @@ class SyncOptions:
 
 @dataclass
 class SyncResult:
+    """Outcome of a sync run: what was reconciled and any warnings or errors."""
+
     project_root: Path
     synced_skills: list[str] = field(default_factory=list)
     synced_agents: list[str] = field(default_factory=list)
@@ -83,6 +87,14 @@ class SyncResult:
 def _notify(
     callback: Callable[[str, str, str], object] | None, kind: str, name: str, status: str
 ) -> None:
+    """Invoke the optional progress callback, swallowing any error it raises.
+
+    Args:
+        callback: User-supplied progress hook, or None to do nothing.
+        kind: Artifact category (e.g. "skill", "agent", "rule", "mcp").
+        name: Identifier of the artifact being reported on.
+        status: Lifecycle status such as "syncing", "ok", or "error".
+    """
     if callback is not None:
         try:
             callback(kind, name, status)
@@ -91,6 +103,17 @@ def _notify(
 
 
 def _load_lock(project_root: Path) -> Manifest:
+    """Load the lockfile for a project, raising SyncError if it is missing.
+
+    Args:
+        project_root: Directory expected to contain `aim.lock.toml`.
+
+    Returns:
+        The parsed manifest.
+
+    Raises:
+        SyncError: No lockfile was found in `project_root`.
+    """
     try:
         return manifest.load(project_root)
     except manifest.ManifestNotFoundError as exc:
@@ -100,6 +123,16 @@ def _load_lock(project_root: Path) -> Manifest:
 def _resolve_profile(
     project_root: Path, m: Manifest, layout_profile: str | None
 ) -> layout_profiles.LayoutProfile:
+    """Resolve the active layout profile, falling back to the built-in Claude one.
+
+    Args:
+        project_root: Project directory used to look up custom profiles.
+        m: Loaded manifest providing the lockfile's default profile name.
+        layout_profile: Explicit profile name that overrides the manifest's.
+
+    Returns:
+        The resolved profile, or the built-in Claude profile if none matches.
+    """
     active_name = layout_profile or m.layout_profile
     if active_name:
         try:
@@ -110,7 +143,14 @@ def _resolve_profile(
 
 
 def _locked_repo_pairs(m: Manifest) -> dict[str, str]:
-    """Map repo_alias -> repo_url for every skill, agent, and rule in the lock."""
+    """Collect the repo_alias to repo_url mapping for all locked artifacts.
+
+    Args:
+        m: Loaded manifest whose skills, agents, and rules are scanned.
+
+    Returns:
+        A mapping of repo alias to repo URL for every locked artifact.
+    """
     pairs: dict[str, str] = {}
     for s in m.skills:
         pairs[s.repo_alias] = s.repo_url
@@ -122,7 +162,16 @@ def _locked_repo_pairs(m: Manifest) -> dict[str, str]:
 
 
 def _register_repo(alias: str, url: str, allow_insecure: bool) -> str | None:
-    """Register a repo and index its artifacts. Return an error string or None."""
+    """Register a source repo if needed and index its artifacts.
+
+    Args:
+        alias: Local alias to register the repo under.
+        url: Remote URL to clone when the repo is not yet registered.
+        allow_insecure: Permit insecure (e.g. non-HTTPS) transports.
+
+    Returns:
+        An error string describing a registration failure, or None on success.
+    """
     try:
         repos.get(alias)
         # Already registered; just make sure indexes are current.
@@ -140,11 +189,20 @@ def _register_repo(alias: str, url: str, allow_insecure: bool) -> str | None:
 
 
 async def _ensure_repos(pairs: dict[str, str], allow_insecure: bool) -> list[str]:
-    """Concurrently register missing repos. Return list of error strings."""
+    """Concurrently register and index every repo in the alias-to-url mapping.
+
+    Args:
+        pairs: Mapping of repo alias to remote URL to ensure.
+        allow_insecure: Permit insecure transports when cloning.
+
+    Returns:
+        A list of error strings, one per repo that failed to register.
+    """
     if not pairs:
         return []
 
     async def _one(alias: str, url: str) -> str | None:
+        """Register one repo off the event loop and return its error or None."""
         return await asyncio.to_thread(_register_repo, alias, url, allow_insecure)
 
     results = await asyncio.gather(*(_one(alias, url) for alias, url in pairs.items()))
@@ -152,6 +210,18 @@ async def _ensure_repos(pairs: dict[str, str], allow_insecure: bool) -> list[str
 
 
 def _resolve_target_dir(project_root: Path, target_dir: str) -> Path:
+    """Resolve a skill target directory, rejecting paths that escape the root.
+
+    Args:
+        project_root: Project root that the target must stay within.
+        target_dir: Relative target directory from the lockfile.
+
+    Returns:
+        The resolved absolute target directory.
+
+    Raises:
+        SyncError: The target directory escapes `project_root`.
+    """
     safe = paths.safe_project_path(project_root, target_dir)
     if safe is None:
         raise SyncError(f"target_dir escapes project root: {target_dir!r}")
@@ -159,6 +229,18 @@ def _resolve_target_dir(project_root: Path, target_dir: str) -> Path:
 
 
 def _resolve_agent_target(project_root: Path, target_path: str) -> Path:
+    """Resolve an agent target path, rejecting paths that escape the root.
+
+    Args:
+        project_root: Project root that the target must stay within.
+        target_path: Relative target file path from the lockfile.
+
+    Returns:
+        The resolved absolute target path.
+
+    Raises:
+        SyncError: The target path escapes `project_root`.
+    """
     safe = paths.safe_project_path(project_root, target_path)
     if safe is None:
         raise SyncError(f"target_path escapes project root: {target_path!r}")
@@ -171,7 +253,19 @@ def _sync_skill(
     *,
     force: bool,
 ) -> tuple[str | None, str | None]:
-    """Reconcile a single skill. Returns (synced_qn or None, error or None)."""
+    """Reconcile a single skill against its locked snapshot.
+
+    Args:
+        installed: Locked skill record describing the target and version.
+        force: Overwrite local edits instead of raising on drift.
+
+    Returns:
+        A tuple of (synced qualified name or None, error string or None). The
+        qualified name is None when the skill was already up to date.
+
+    Raises:
+        SyncDriftError: The target was edited since install and `force` is False.
+    """
     try:
         target = _resolve_target_dir(project_root, installed.target_dir)
     except SyncError as exc:
@@ -213,13 +307,23 @@ async def _sync_skills(
     force: bool,
     callback: Callable[[str, str, str], object] | None,
 ) -> tuple[list[str], list[str]]:
-    """Reconcile all skills concurrently. Returns (synced, errors)."""
+    """Reconcile all locked skills concurrently.
+
+    Args:
+        skills: Locked skill records to reconcile.
+        force: Overwrite local edits instead of treating drift as an error.
+        callback: Optional progress hook invoked per skill.
+
+    Returns:
+        A tuple of (synced qualified names, error strings).
+    """
     if not skills:
         return [], []
 
     async def _one(
         skill: InstalledSkill, cb: Callable[[str, str, str], object] | None
     ) -> tuple[str | None, str | None]:
+        """Reconcile one skill off-thread and emit its progress notifications."""
         _notify(cb, "skill", skill.qualified_name, "syncing")
         try:
             synced, error = await asyncio.to_thread(_sync_skill, project_root, skill, force=force)
@@ -238,6 +342,14 @@ async def _sync_skills(
 
 
 def _read_agent_at_sha(installed: InstalledAgent) -> str:
+    """Read an agent's source content at its locked commit.
+
+    Args:
+        installed: Locked agent record providing the repo, sha, and source path.
+
+    Returns:
+        The agent instruction file contents at the locked sha.
+    """
     repo_dir = repos.clone_dir(installed.repo_alias)
     if installed.source_path.endswith(".md"):
         artifact_path = installed.source_path
@@ -252,7 +364,19 @@ def _sync_agent(
     *,
     force: bool,
 ) -> tuple[str | None, str | None]:
-    """Reconcile a single agent. Returns (synced_qn or None, error or None)."""
+    """Reconcile a single agent instruction file against its locked content.
+
+    Args:
+        installed: Locked agent record describing the target and version.
+        force: Overwrite local edits instead of raising on drift.
+
+    Returns:
+        A tuple of (synced qualified name or None, error string or None). The
+        qualified name is None when the agent was already up to date.
+
+    Raises:
+        SyncDriftError: The target was edited since install and `force` is False.
+    """
     try:
         target = _resolve_agent_target(project_root, installed.target_path)
     except SyncError as exc:
@@ -296,12 +420,23 @@ async def _sync_agents(
     force: bool,
     callback: Callable[[str, str, str], object] | None,
 ) -> tuple[list[str], list[str]]:
+    """Reconcile all locked agents concurrently.
+
+    Args:
+        agents: Locked agent records to reconcile.
+        force: Overwrite local edits instead of treating drift as an error.
+        callback: Optional progress hook invoked per agent.
+
+    Returns:
+        A tuple of (synced qualified names, error strings).
+    """
     if not agents:
         return [], []
 
     async def _one(
         agent: InstalledAgent, cb: Callable[[str, str, str], object] | None
     ) -> tuple[str | None, str | None]:
+        """Reconcile one agent off-thread and emit its progress notifications."""
         _notify(cb, "agent", agent.qualified_name, "syncing")
         try:
             synced, error = await asyncio.to_thread(_sync_agent, project_root, agent, force=force)
@@ -320,6 +455,14 @@ async def _sync_agents(
 
 
 def _read_rule_at_sha(installed: InstalledRule) -> str:
+    """Read a rule's source content at its locked commit.
+
+    Args:
+        installed: Locked rule record providing the repo, sha, and source path.
+
+    Returns:
+        The rule file contents at the locked sha.
+    """
     repo_dir = repos.clone_dir(installed.repo_alias)
     return git.get_backend().cat_file(repo_dir, installed.current.sha, installed.source_path)
 
@@ -331,9 +474,22 @@ def _sync_rule(
     *,
     force: bool,
 ) -> tuple[str | None, str | None]:
-    """Reconcile a single rule. In inline mode the body is composed into
-    AGENTS.md by the render step, so there is nothing to deploy here. In files
-    mode the body is written to `<rules_dir>/<name>.md` with a drift guard."""
+    """Reconcile a single rule against its locked content.
+
+    In inline mode the body is composed into AGENTS.md by the render step, so
+    there is nothing to deploy here. In files mode the body is written to
+    `<rules_dir>/<name>.md` with a drift guard.
+
+    Args:
+        profile: Active layout profile deciding files vs inline rule mode.
+        force: Overwrite local edits instead of raising on drift.
+
+    Returns:
+        A tuple of (synced qualified name or None, error string or None).
+
+    Raises:
+        SyncDriftError: The target was edited since install and `force` is False.
+    """
     if profile.rules_mode != "files":
         return installed.qualified_name, None
 
@@ -381,12 +537,24 @@ async def _sync_rules(
     force: bool,
     callback: Callable[[str, str, str], object] | None,
 ) -> tuple[list[str], list[str]]:
+    """Reconcile all locked rules concurrently.
+
+    Args:
+        rules: Locked rule records to reconcile.
+        profile: Active layout profile deciding files vs inline rule mode.
+        force: Overwrite local edits instead of treating drift as an error.
+        callback: Optional progress hook invoked per rule.
+
+    Returns:
+        A tuple of (synced qualified names, error strings).
+    """
     if not rules:
         return [], []
 
     async def _one(
         rule: InstalledRule, cb: Callable[[str, str, str], object] | None
     ) -> tuple[str | None, str | None]:
+        """Reconcile one rule off-thread and emit its progress notifications."""
         _notify(cb, "rule", rule.qualified_name, "syncing")
         try:
             synced, error = await asyncio.to_thread(
@@ -412,7 +580,15 @@ def _sync_mcp(
     *,
     force: bool,
 ) -> tuple[str | None, str | None]:
-    """Reconcile a single MCP entry. Returns (synced_alias or None, error or None)."""
+    """Reconcile a single MCP server entry against its locked configuration.
+
+    Args:
+        installed: Locked MCP server record with alias, registry name, and entry.
+        force: Overwrite local edits instead of failing on them.
+
+    Returns:
+        A tuple of (synced alias or None, error string or None).
+    """
     try:
         policy.assert_mcp_allowed(
             policy.effective_policy(project_root), installed.alias, installed.registry_name
@@ -439,12 +615,23 @@ async def _sync_mcps(
     force: bool,
     callback: Callable[[str, str, str], object] | None,
 ) -> tuple[list[str], list[str]]:
+    """Reconcile all locked MCP servers concurrently.
+
+    Args:
+        mcps: Locked MCP server records to reconcile.
+        force: Overwrite local edits instead of treating them as an error.
+        callback: Optional progress hook invoked per MCP server.
+
+    Returns:
+        A tuple of (synced aliases, error strings).
+    """
     if not mcps:
         return [], []
 
     async def _one(
         mcp: InstalledMcpServer, cb: Callable[[str, str, str], object] | None
     ) -> tuple[str | None, str | None]:
+        """Reconcile one MCP server off-thread and emit progress notifications."""
         _notify(cb, "mcp", mcp.alias, "syncing")
         synced, error = await asyncio.to_thread(_sync_mcp, project_root, mcp, force=force)
         if error:
@@ -466,62 +653,81 @@ def _render_agent_files(
     *,
     force: bool,
 ) -> list[str]:
-    """Re-render AGENTS.md and recreate symlinks. Returns drift warnings."""
+    """Re-render AGENTS.md and recreate symlinks for the project.
+
+    Args:
+        m: Loaded manifest supplying the artifacts to render.
+        profile: Active layout profile controlling file placement.
+        force: Overwrite locally edited generated files.
+
+    Returns:
+        A list of drift warnings for files that were skipped or overwritten.
+    """
     return agent_files.write_agent_files(project_root, m, profile, force=force)
 
 
 async def run(options: SyncOptions) -> SyncResult:
+    """Reconcile the project to the state recorded in its lockfile.
+
+    Registers source repos, then reconciles rules, skills, agents, and MCP
+    servers, optionally re-renders agent files, and persists any refreshed
+    content hashes back to the lockfile.
+
+    Args:
+        options: Sync configuration including the project root and flags.
+
+    Returns:
+        A SyncResult summarizing what was reconciled and any drift warnings.
+
+    Raises:
+        SyncError: The lockfile is missing or at least one artifact failed to
+            reconcile (partial progress is saved before raising).
+    """
     project_root = options.project_root.resolve()
     m = _load_lock(project_root)
     profile = _resolve_profile(project_root, m, options.layout_profile)
 
     result = SyncResult(project_root=project_root)
 
-    # 1. Ensure repos.
     _notify(options.progress_callback, "repos", "all", "syncing")
     repo_pairs = _locked_repo_pairs(m)
     result.repo_errors = await _ensure_repos(repo_pairs, options.allow_insecure)
     _notify(options.progress_callback, "repos", "all", "ok")
 
-    # 2. Reconcile rules (files mode deploys + drift-guards each file; inline
-    # mode renders into AGENTS.md in step 6).
+    # In files mode each rule is deployed and drift-guarded here; in inline mode
+    # the rule bodies are instead rendered into AGENTS.md by the later step.
     rules_synced, rule_errors = await _sync_rules(
         project_root, m.rules, profile, force=options.force, callback=options.progress_callback
     )
     result.rules_applied = rules_synced
 
-    # 3. Reconcile skills.
     skills_synced, skill_errors = await _sync_skills(
         project_root, m.skills, force=options.force, callback=options.progress_callback
     )
     result.synced_skills = skills_synced
 
-    # 4. Reconcile agents.
     agents_synced, agent_errors = await _sync_agents(
         project_root, m.agents, force=options.force, callback=options.progress_callback
     )
     result.synced_agents = agents_synced
 
-    # 5. Reconcile MCP servers.
     mcps_synced, mcp_errors = await _sync_mcps(
         project_root, m.mcp_servers, force=options.force, callback=options.progress_callback
     )
     result.synced_mcp = mcps_synced
 
-    # 6. Re-render AGENTS.md and symlinks when requested.
     if options.sync_agents:
         result.drift_warnings = await asyncio.to_thread(
             _render_agent_files, project_root, m, profile, force=options.force
         )
 
-    # 7. Persist the lockfile (content_hash fields may have been refreshed).
-    # Keep this on the main thread to avoid concurrent manifest writes.
+    # Persist on the main thread (content_hash fields may have been refreshed)
+    # to avoid concurrent manifest writes from the worker threads.
     manifest.save(project_root, m)
 
-    # Surface the first blocking error so callers get a clear failure.
     all_errors = result.repo_errors + rule_errors + skill_errors + agent_errors + mcp_errors
     if all_errors:
-        # We already saved the partial state so re-run picks up progress.
+        # Partial state was already saved above, so a re-run resumes progress.
         raise SyncError("; ".join(all_errors))
 
     return result

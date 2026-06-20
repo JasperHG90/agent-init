@@ -17,6 +17,8 @@ from aim.core.models import RuleIndex
 
 @dataclass(frozen=True)
 class RulePick:
+    """Result of the rule picker: the chosen rule's qualified name."""
+
     name: str  # qualified name "<alias>/<rule>"
 
 
@@ -24,6 +26,7 @@ class _PickerDataTable(DataTable):
     """DataTable that forwards Enter to the picker's pick action."""
 
     def on_key(self, event: events.Key) -> None:
+        """Forward the Enter key to the picker's pick action."""
         if event.key == "enter":
             event.stop()
             screen = self.screen
@@ -34,6 +37,8 @@ class _PickerDataTable(DataTable):
 
 
 class RulePickerModal(ModalScreen[RulePick | None]):
+    """Modal screen for searching and selecting a registered rule."""
+
     BINDINGS = [
         Binding("escape", "action_cancel", "Cancel", priority=True),
         Binding("slash", "focus_search", "Search", priority=True),
@@ -41,10 +46,12 @@ class RulePickerModal(ModalScreen[RulePick | None]):
     ]
 
     def __init__(self) -> None:
+        """Initialize the modal with an empty list of rule entries."""
         super().__init__()
         self._entries: list[RuleIndex] = []
 
     def compose(self) -> ComposeResult:
+        """Build the modal's title, search bar, rules table, and buttons."""
         yield Vertical(
             Static("Add rule", classes="modal-title", markup=False),
             Input(placeholder="search…", id="search-bar"),
@@ -59,12 +66,18 @@ class RulePickerModal(ModalScreen[RulePick | None]):
         )
 
     def on_mount(self) -> None:
+        """Set up the table columns, populate all rules, and focus search."""
         table = self.query_one("#rules-table", DataTable)
         table.add_columns("qualified name", "description")
         self._populate("")
         self.query_one("#search-bar", Input).focus()
 
     def _populate(self, query: str) -> None:
+        """Fill the table with rules matching the search query.
+
+        Args:
+            query: Substring to filter rules by; lists all rules when blank.
+        """
         table = self.query_one("#rules-table", DataTable)
         table.clear()
         q = query.strip()
@@ -81,17 +94,25 @@ class RulePickerModal(ModalScreen[RulePick | None]):
         self._status(f"{len(self._entries)} rule(s)")
 
     def on_input_changed(self, event: Input.Changed) -> None:
+        """Re-filter the rules table as the search text changes."""
         if event.input.id == "search-bar":
             self._populate(event.value)
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
+        """Pick the current selection when the search input is submitted."""
         if event.input.id == "search-bar":
             self.action_pick()
 
     def action_focus_search(self) -> None:
+        """Move focus to the search bar."""
         self.query_one("#search-bar", Input).focus()
 
     def _selected(self) -> str | None:
+        """Return the qualified name of the highlighted rule.
+
+        Returns:
+            The selected rule's qualified name, or None if no row is selected.
+        """
         table = self.query_one("#rules-table", DataTable)
         if table.row_count == 0:
             return None
@@ -99,6 +120,7 @@ class RulePickerModal(ModalScreen[RulePick | None]):
         return str(row_key.value) if row_key and row_key.value is not None else None
 
     def action_pick(self) -> None:
+        """Dismiss with the selected rule, or report that none is chosen."""
         name = self._selected()
         if name is None:
             self._status("no rule selected")
@@ -106,13 +128,16 @@ class RulePickerModal(ModalScreen[RulePick | None]):
         self.dismiss(RulePick(name=name))
 
     def action_cancel(self) -> None:
+        """Dismiss the modal without selecting a rule."""
         self.dismiss(None)
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
+        """Pick on the Add button and cancel on any other button."""
         if event.button.id == "go":
             self.action_pick()
         else:
             self.action_cancel()
 
     def _status(self, msg: str) -> None:
+        """Update the modal's status line with the given message."""
         self.query_one("#status", Static).update(msg)

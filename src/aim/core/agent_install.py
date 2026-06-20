@@ -42,7 +42,7 @@ class AgentLocalEditsError(RuntimeError):
 
 
 class AgentNoHistoryToRollbackError(RuntimeError):
-    pass
+    """No prior version exists to roll the installed agent back to."""
 
 
 class AgentManifestPathEscapeError(ValueError):
@@ -53,6 +53,7 @@ class AgentNameMismatchWarning:
     """Frontmatter `name` differs from the directory-derived target name."""
 
     def __init__(self, expected: str, found: str | None):
+        """Record the expected and actually-found agent names."""
         self.expected = expected
         self.found = found
 
@@ -68,10 +69,17 @@ def take_install_warnings() -> list[str]:
 
 
 def _load_manifest(project_root: Path) -> Manifest:
+    """Load the project manifest, creating an empty one if absent."""
     return manifest.load_or_create(project_root)
 
 
 def _find_installed(m: Manifest, qualified_name: str) -> InstalledAgent | None:
+    """Return the installed agent matching the qualified name, or None.
+
+    Args:
+        m: The loaded project manifest.
+        qualified_name: The repo-qualified agent name to look up.
+    """
     for a in m.agents:
         if a.qualified_name == qualified_name:
             return a
@@ -79,6 +87,14 @@ def _find_installed(m: Manifest, qualified_name: str) -> InstalledAgent | None:
 
 
 def _agent_index_row(qualified_name: str) -> agents.AgentIndex:
+    """Fetch the agent index row for a qualified name.
+
+    Args:
+        qualified_name: The repo-qualified agent name to look up.
+
+    Raises:
+        AgentNotIndexedError: The agent is absent from the index.
+    """
     from aim.core.models import AgentIndex
 
     with agents.db.session() as session:
@@ -89,6 +105,15 @@ def _agent_index_row(qualified_name: str) -> agents.AgentIndex:
 
 
 def _target_path(project_root: Path, agent_name: str) -> Path:
+    """Resolve the on-disk deploy path for an agent under the active layout.
+
+    Args:
+        project_root: Root of the target project.
+        agent_name: Bare agent name (used as the Markdown file stem).
+
+    Raises:
+        ValueError: The name is unsafe or the resolved path escapes the project.
+    """
     if not validation.is_valid_agent_name(agent_name):
         raise ValueError(f"agent name {agent_name!r} is not a safe file name")
     profile = layout_profiles.resolve_active(project_root)
@@ -100,7 +125,15 @@ def _target_path(project_root: Path, agent_name: str) -> Path:
 
 
 def _resolve_target_path(project_root: Path, target_path: str) -> Path:
-    """Validate a manifest-originated target_path and return its absolute path."""
+    """Validate a manifest-originated target_path and return its absolute path.
+
+    Args:
+        project_root: Root of the target project.
+        target_path: Project-relative path recorded in the manifest.
+
+    Raises:
+        AgentManifestPathEscapeError: The path resolves outside the project root.
+    """
     safe = paths.safe_project_path(project_root, target_path)
     if safe is None:
         raise AgentManifestPathEscapeError(
@@ -110,6 +143,16 @@ def _resolve_target_path(project_root: Path, target_path: str) -> Path:
 
 
 def _check_local_edits(project_root: Path, installed: InstalledAgent, *, force: bool) -> None:
+    """Raise if the deployed agent file was hand-edited since install.
+
+    Args:
+        project_root: Root of the target project.
+        installed: Manifest record holding the expected content hash.
+        force: When True, skip the check and allow an overwrite.
+
+    Raises:
+        AgentLocalEditsError: The file's current hash differs from the recorded one.
+    """
     if force or installed.content_hash is None:
         return
     target = _resolve_target_path(project_root, installed.target_path)
@@ -124,6 +167,7 @@ def _check_local_edits(project_root: Path, installed: InstalledAgent, *, force: 
 
 
 def _repo_url(alias: str) -> str:
+    """Return the URL for a repo alias, or empty string if unknown."""
     try:
         return agents.repos.get(alias).url
     except agents.repos.RepoNotFoundError:
@@ -133,8 +177,17 @@ def _repo_url(alias: str) -> str:
 def _gate_agent(
     project_root: Path, qualified_name: str, content: str, *, override_risk: bool = False
 ) -> None:
-    """Single content gate for agents: every deploy path (install/update/rollback/
-    sync) funnels through here, so security/policy/risk checks live in one place."""
+    """Run the unified security/policy/risk gate for an agent's content.
+
+    Every deploy path (install/update/rollback/sync) funnels through here, so the
+    checks live in one place.
+
+    Args:
+        project_root: Root of the target project.
+        qualified_name: Repo-qualified agent name (alias derives from it).
+        content: Full agent Markdown to be vetted.
+        override_risk: When True, downgrade risk-gate failures to allow the deploy.
+    """
     pol = policy.effective_policy(project_root)
     alias = qualified_name.split("/", 1)[0]
     policy.assert_repo_allowed(pol, alias, _repo_url(alias))
@@ -151,7 +204,15 @@ def _write_agent(
     *,
     override_risk: bool = False,
 ) -> str:
-    """Gate then write the agent file; return its content hash."""
+    """Gate the content, write the agent file, and return its content hash.
+
+    Args:
+        project_root: Root of the target project.
+        qualified_name: Repo-qualified agent name.
+        content: Full agent Markdown to write.
+        target: Absolute destination path for the file.
+        override_risk: When True, bypass risk-gate failures.
+    """
     _gate_agent(project_root, qualified_name, content, override_risk=override_risk)
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(content, encoding="utf-8")
@@ -166,13 +227,26 @@ def install(
     pin: str | None = None,
     override_risk: bool = False,
 ) -> InstalledAgent:
-    """Install a sub-agent into the project's agents directory."""
+    """Install a sub-agent into the project's agents directory.
+
+    Args:
+        project_root: Root of the target project.
+        qualified_name: Repo-qualified agent name to install.
+        track: Optional branch/tag track to resolve the version against.
+        pin: Optional explicit version to pin the install to.
+        override_risk: When True, bypass risk-gate failures.
+
+    Returns:
+        The created or updated manifest record for the installed agent.
+    """
     row = _agent_index_row(qualified_name)
     version = resolve_install_version(
         row.repo_alias, row.source_path, track=track, pin=pin, artifact_name="AGENT.md"
     )
     content = agents.read_agent_content(qualified_name)
 
+    # Warn (don't fail) when frontmatter name disagrees with the directory name;
+    # the directory name remains authoritative for the deployed file.
     frontmatter, _ = agents._extract_frontmatter(content)
     fm_name = frontmatter.get("name")
     if isinstance(fm_name, str) and fm_name != row.agent_name:
@@ -225,7 +299,21 @@ def update(
     force: bool = False,
     override_risk: bool = False,
 ) -> InstalledAgent:
-    """Refresh an installed sub-agent from its source repo."""
+    """Refresh an installed sub-agent from its source repo.
+
+    Args:
+        project_root: Root of the target project.
+        qualified_name: Repo-qualified agent name to update.
+        force: When True, overwrite even if the file was edited locally.
+        override_risk: When True, bypass risk-gate failures.
+
+    Returns:
+        The updated manifest record, unchanged if already at the resolved version.
+
+    Raises:
+        AgentNotInstalledError: The agent has no manifest entry.
+        AgentSourcePathChangedError: Upstream source_path moved since install.
+    """
     m = _load_manifest(project_root)
     existing = _find_installed(m, qualified_name)
     if existing is None:
@@ -266,11 +354,23 @@ def update_many(
     only_outdated: bool = False,
     force: bool = False,
 ) -> list[dict]:
-    """Update all (or a filtered subset of) installed agents in a project."""
+    """Update all (or a filtered subset of) installed agents in a project.
+
+    Args:
+        project_root: Root of the target project.
+        repo_alias: When set, only update agents from this repo alias.
+        only_outdated: When True, skip agents already at their resolved HEAD.
+        force: When True, overwrite agents edited locally.
+
+    Returns:
+        One result dict per agent with keys ``qualified_name``, ``status``, ``detail``.
+    """
     from dataclasses import dataclass
 
     @dataclass
     class Outcome:
+        """Per-agent result of a bulk update pass."""
+
         qualified_name: str
         status: str
         detail: str = ""
@@ -305,7 +405,15 @@ def update_many(
 
 
 def delete(project_root: Path, qualified_name: str) -> None:
-    """Remove an installed sub-agent file and its manifest entry."""
+    """Remove an installed sub-agent file and its manifest entry.
+
+    Args:
+        project_root: Root of the target project.
+        qualified_name: Repo-qualified agent name to remove.
+
+    Raises:
+        AgentNotInstalledError: The agent has no manifest entry.
+    """
     m = _load_manifest(project_root)
     existing = _find_installed(m, qualified_name)
     if existing is None:
@@ -319,7 +427,20 @@ def delete(project_root: Path, qualified_name: str) -> None:
 
 
 def rollback(project_root: Path, qualified_name: str, *, force: bool = False) -> InstalledAgent:
-    """Restore `history[0]` as the current installed sub-agent."""
+    """Restore `history[0]` as the current installed sub-agent.
+
+    Args:
+        project_root: Root of the target project.
+        qualified_name: Repo-qualified agent name to roll back.
+        force: When True, overwrite even if the file was edited locally.
+
+    Returns:
+        The updated manifest record after the rollback.
+
+    Raises:
+        AgentNotInstalledError: The agent has no manifest entry.
+        AgentNoHistoryToRollbackError: No prior version exists to restore.
+    """
     m = _load_manifest(project_root)
     existing = _find_installed(m, qualified_name)
     if existing is None:

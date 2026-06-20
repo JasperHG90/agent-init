@@ -36,10 +36,14 @@ _NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
 
 
 class ProfileNameError(ValueError):
+    """Raised when a profile name fails the naming rules."""
+
     pass
 
 
 class ProfileNotFoundError(KeyError):
+    """Raised when a named profile does not exist on disk."""
+
     pass
 
 
@@ -50,6 +54,8 @@ class ProfileTomlError(ValueError):
 
 
 class ProfileSkill(BaseModel):
+    """A skill reference in a profile, by qualified name with optional pin/track."""
+
     model_config = ConfigDict(extra="forbid")
 
     qualified_name: str
@@ -58,6 +64,8 @@ class ProfileSkill(BaseModel):
 
 
 class ProfileAgent(BaseModel):
+    """A subagent reference in a profile, by qualified name with optional pin/track."""
+
     model_config = ConfigDict(extra="forbid")
 
     qualified_name: str
@@ -66,6 +74,8 @@ class ProfileAgent(BaseModel):
 
 
 class ProfileMcpServer(BaseModel):
+    """An MCP server reference in a profile, by registry name and local alias."""
+
     model_config = ConfigDict(extra="forbid")
 
     registry_name: str
@@ -75,6 +85,8 @@ class ProfileMcpServer(BaseModel):
 
 
 class Profile(BaseModel):
+    """A named bundle of init settings and artifact references for stamping projects."""
+
     model_config = ConfigDict(extra="forbid")
 
     name: str
@@ -89,6 +101,17 @@ class Profile(BaseModel):
     @field_validator("name")
     @classmethod
     def _validate_name_field(cls, value: str) -> str:
+        """Validate the profile name against the allowed character set.
+
+        Args:
+            value: The proposed profile name.
+
+        Returns:
+            The validated name unchanged.
+
+        Raises:
+            ProfileNameError: If the name is not lowercase alphanumeric/_/-.
+        """
         if not _NAME_RE.fullmatch(value):
             raise ProfileNameError(
                 f"profile name {value!r} invalid: must be lowercase alphanumeric, _, or -"
@@ -98,6 +121,14 @@ class Profile(BaseModel):
     @field_validator("symlinks")
     @classmethod
     def _validate_symlink_names(cls, values: list[str]) -> list[str]:
+        """Validate each symlink entry as a legal mirror filename.
+
+        Returns:
+            The validated list unchanged.
+
+        Raises:
+            ValueError: If any entry is not a valid mirror name.
+        """
         for value in values:
             if not is_valid_mirror_name(value):
                 raise ValueError(f"filename {value!r} invalid")
@@ -106,6 +137,14 @@ class Profile(BaseModel):
     @field_validator("rules")
     @classmethod
     def _validate_rule_names(cls, values: list[str]) -> list[str]:
+        """Validate each rule entry as a qualified ``<alias>/<rule>`` name.
+
+        Returns:
+            The validated list unchanged.
+
+        Raises:
+            ValueError: If any entry is not a valid qualified rule name.
+        """
         # Rules are repo-sourced; each entry is a qualified name "<alias>/<rule>".
         for value in values:
             _alias, _, name = value.partition("/")
@@ -115,10 +154,16 @@ class Profile(BaseModel):
 
 
 def _profile_path(name: str) -> Path:
+    """Return the on-disk JSON path for a profile of the given name."""
     return paths.user_config_dir() / "profiles" / f"{name}.json"
 
 
 def _validate_name(name: str) -> None:
+    """Raise if the profile name is not lowercase alphanumeric/_/-.
+
+    Raises:
+        ProfileNameError: If the name violates the naming rules.
+    """
     if not _NAME_RE.fullmatch(name):
         raise ProfileNameError(
             f"profile name {name!r} invalid: must be lowercase alphanumeric, _, or -"
@@ -126,6 +171,7 @@ def _validate_name(name: str) -> None:
 
 
 def save(profile: Profile) -> Path:
+    """Write a profile to disk as JSON and return its path."""
     _validate_name(profile.name)
     paths.ensure_global_dirs()
     path = _profile_path(profile.name)
@@ -135,6 +181,11 @@ def save(profile: Profile) -> Path:
 
 
 def load(name: str) -> Profile:
+    """Load a profile by name from disk.
+
+    Raises:
+        ProfileNotFoundError: If no profile file exists for the name.
+    """
     _validate_name(name)
     path = _profile_path(name)
     if not path.exists():
@@ -143,6 +194,7 @@ def load(name: str) -> Profile:
 
 
 def list_profiles() -> list[Profile]:
+    """Load and return all valid profiles, skipping corrupt files."""
     dir_ = paths.user_config_dir() / "profiles"
     if not dir_.exists():
         return []
@@ -158,6 +210,11 @@ def list_profiles() -> list[Profile]:
 
 
 def delete(name: str) -> bool:
+    """Delete a profile by name.
+
+    Returns:
+        True if the profile existed and was removed, False otherwise.
+    """
     _validate_name(name)
     path = _profile_path(name)
     if not path.exists():
@@ -176,9 +233,19 @@ _TOML_KEY_MAP = {
 def parse_toml(text: str, *, source: str | None = None) -> Profile:
     """Parse a project profile from a TOML string.
 
-    TOML uses singular array-of-table headers per item:
-        [[skill]], [[subagent]], [[mcp_server]]
-    These are mapped to the plural field names on the Profile model.
+    TOML uses singular array-of-table headers per item (``[[skill]]``,
+    ``[[subagent]]``, ``[[mcp_server]]``); these are mapped to the plural
+    field names on the Profile model.
+
+    Args:
+        text: The raw TOML content.
+        source: Optional label for the source, used in error messages.
+
+    Returns:
+        The parsed and validated Profile.
+
+    Raises:
+        ProfileTomlError: If the TOML is invalid or fails profile validation.
     """
     try:
         raw = tomllib.loads(text)
@@ -234,7 +301,10 @@ def render_toml(profile: Profile) -> str:
 
 
 def _escape_toml_string(value: str) -> str:
+    """Escape a string for safe inclusion in a TOML basic (double-quoted) string."""
+
     def _replace(match: re.Match[str]) -> str:
+        """Return the TOML escape sequence for a single matched control char."""
         char = match.group(0)
         if char == "\\":
             return "\\\\"
@@ -251,6 +321,7 @@ def _escape_toml_string(value: str) -> str:
 
 
 def _render_string_list(values: list[str]) -> str:
+    """Render a list of strings as a TOML inline array of escaped strings."""
     if not values:
         return "[]"
     parts = [f'"{_escape_toml_string(v)}"' for v in values]
@@ -258,6 +329,7 @@ def _render_string_list(values: list[str]) -> str:
 
 
 def _render_toml_value(value: object) -> str:
+    """Render a scalar value as its TOML literal, falling back to a string."""
     if isinstance(value, str):
         return f'"{_escape_toml_string(value)}"'
     if isinstance(value, bool):
@@ -323,6 +395,8 @@ def from_project(name: str, project_root: Path) -> Profile:
 
 @dataclass
 class ProfileApplyResult:
+    """Outcome of applying a profile: installed and skipped artifacts per kind."""
+
     project_root: Path
     init_result: object
     installed_skills: list[str] = field(default_factory=list)
@@ -336,7 +410,20 @@ class ProfileApplyResult:
 
 
 def apply(name: str, project_root: Path, *, allow_insecure: bool = False) -> ProfileApplyResult:
-    """Apply a profile to a project: init declarations, lock them, install skills/agents/MCP, sync."""
+    """Apply a profile to a project, then install its artifacts and sync.
+
+    Runs init from the profile, locks declarations, installs skills, agents,
+    MCP servers and rules (skipping any that cannot be resolved), and syncs
+    agent instruction files.
+
+    Args:
+        name: The profile to apply.
+        project_root: The project directory to apply the profile to.
+        allow_insecure: Permit insecure sources during lock and sync.
+
+    Returns:
+        A ProfileApplyResult recording installed and skipped artifacts.
+    """
     profile = load(name)
     init_result = init_mod.run(
         init_mod.InitOptions(

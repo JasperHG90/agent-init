@@ -22,6 +22,8 @@ from aim.tui.widgets import ToggleRow
 
 @dataclass(frozen=True)
 class TemplateEditResult:
+    """Captured selections from the template edit modal."""
+
     name: str
     instruction_template: str
     layout_profile: str | None
@@ -32,21 +34,38 @@ class TemplateEditResult:
 
 
 class TemplateEditModal(ModalScreen[TemplateEditResult | None]):
+    """Modal screen for editing a saved project template's fields."""
+
     BINDINGS = [
         ("escape", "cancel", "Cancel"),
         Binding("enter", "submit", "Save", priority=True),
     ]
 
     def __init__(self, profile: profiles_mod.Profile) -> None:
+        """Initialize the modal with the profile to edit.
+
+        Args:
+            profile: The saved project template profile to edit.
+        """
         super().__init__()
         self._profile = profile
         self._rule_names: list[str] = []
 
     def _toggle_id(self, kind: str, key: str) -> str:
+        """Build a DOM-safe widget id for a toggle row.
+
+        Args:
+            kind: The item category (rule, skill, agent, mcp).
+            key: The item key to sanitize into the id.
+
+        Returns:
+            A unique id string combining the kind and sanitized key.
+        """
         safe = "".join(c if c.isalnum() or c in "_-" else "-" for c in key)
         return f"{kind}-{safe}"
 
     def compose(self) -> ComposeResult:
+        """Build the modal layout with toggle rows and input fields."""
         self._rule_names = [r.qualified_name for r in repo_rules_mod.list_rules()]
 
         rule_toggles = [
@@ -111,34 +130,54 @@ class TemplateEditModal(ModalScreen[TemplateEditResult | None]):
         )
 
     def on_mount(self) -> None:
+        """Focus the template name input when the modal mounts."""
         self.query_one("#name", Input).focus()
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
+        """Submit on Save, otherwise dismiss the modal."""
         if event.button.id == "go":
             self._submit()
         else:
             self.dismiss(None)
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
+        """Submit the form when a text input is confirmed."""
         if event.input.id in ("name", "instruction-template", "layout-profile"):
             self._submit()
 
     def action_cancel(self) -> None:
+        """Dismiss the modal without saving."""
         self.dismiss(None)
 
     def action_submit(self) -> None:
+        """Validate and submit the edited template."""
         self._submit()
 
     def _error(self, msg: str) -> None:
+        """Show an error message inline and via a notification.
+
+        Args:
+            msg: The error message to display.
+        """
         self.query_one("#error", Static).update(msg)
         self.app.notify(msg, severity="error", title="Edit template")
 
     def _checked_keys(self, kind: str, keys: list[str]) -> list[str]:
+        """Return the keys whose toggle rows are currently checked.
+
+        Args:
+            kind: The item category used to resolve toggle ids.
+            keys: The candidate keys to filter by checked state.
+
+        Returns:
+            The subset of keys whose toggle is checked.
+        """
         return [
             key for key in keys if self.query_one(f"#{self._toggle_id(kind, key)}", ToggleRow).value
         ]
 
     def _submit(self) -> None:
+        """Validate inputs and dismiss with the edited template result."""
         name = self.query_one("#name", Input).value.strip()
         instruction_template = self.query_one("#instruction-template", Input).value.strip()
         if not name:

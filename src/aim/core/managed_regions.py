@@ -21,6 +21,8 @@ from re import Pattern
 
 @dataclass(frozen=True)
 class Dialect:
+    """Describe how a comment dialect opens, closes, and matches a region."""
+
     name: str
     begin: Callable[[str], str]
     end: Callable[[str], str]
@@ -63,7 +65,14 @@ DIALECTS: dict[str, Dialect] = {
 
 
 def for_filename(filename: str) -> Dialect:
-    """Pick a sensible dialect from a filename. Defaults to HTML."""
+    """Pick a sensible dialect from a filename, defaulting to HTML.
+
+    Args:
+        filename: Name of the file whose comment dialect should be inferred.
+
+    Returns:
+        The HASH dialect for YAML/TOML/shell-style files, otherwise HTML.
+    """
     lower = filename.lower()
     if lower.endswith((".md", ".html", ".htm")):
         return HTML_DIALECT
@@ -75,16 +84,30 @@ def for_filename(filename: str) -> Dialect:
 
 
 class RegionError(ValueError):
-    pass
+    """Raise when aim markers in a file are malformed or unbalanced."""
 
 
 @dataclass(frozen=True)
 class Region:
+    """Hold a single managed region's name and body text."""
+
     name: str
     body: str
 
 
 def parse(text: str, dialect: Dialect = HTML_DIALECT) -> list[Region]:
+    """Extract all managed regions from text, validating marker balance.
+
+    Args:
+        text: Source content to scan for aim-managed regions.
+        dialect: Comment dialect whose markers delimit the regions.
+
+    Returns:
+        Every region found, in document order.
+
+    Raises:
+        RegionError: If begin and end markers do not balance.
+    """
     regions = [
         Region(name=m.group("name"), body=m.group("body")) for m in dialect.region_re.finditer(text)
     ]
@@ -103,11 +126,25 @@ def merge(
     new_regions: dict[str, str],
     dialect: Dialect = HTML_DIALECT,
 ) -> str:
-    """Same semantics as agents_md.merge but parameterised by dialect."""
+    """Replace or append managed regions in existing text.
+
+    Mirrors the semantics of ``agents_md.merge`` but is parameterised by
+    dialect. Regions whose names appear in ``new_regions`` are rewritten in
+    place; any remaining new regions are appended to the end.
+
+    Args:
+        existing: Current file content to merge into.
+        new_regions: Mapping of region name to replacement body.
+        dialect: Comment dialect whose markers delimit the regions.
+
+    Returns:
+        The merged content with all new regions present.
+    """
     parse(existing, dialect)
     handled: set[str] = set()
 
     def _replace(match: re.Match[str]) -> str:
+        """Rewrite one matched region's body if a replacement is supplied."""
         name = match.group("name")
         if name not in new_regions:
             return match.group(0)
@@ -137,6 +174,15 @@ def merge(
 
 
 def build(regions: Iterable[tuple[str, str]], dialect: Dialect = HTML_DIALECT) -> str:
+    """Render a fresh file body from name/body region pairs.
+
+    Args:
+        regions: Iterable of ``(name, body)`` pairs to emit as regions.
+        dialect: Comment dialect whose markers delimit the regions.
+
+    Returns:
+        The concatenated regions as a single trailing-newline string.
+    """
     parts: list[str] = []
     for name, body in regions:
         if not body.startswith("\n"):

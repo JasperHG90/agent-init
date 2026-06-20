@@ -16,11 +16,15 @@ from aim.core import layout_profiles
 
 @dataclass(frozen=True)
 class LayoutProfileResult:
+    """Outcome of the modal: the edited profile plus its prior name, if any."""
+
     profile: layout_profiles.LayoutProfile
     original_name: str | None = None
 
 
 class LayoutProfileModal(ModalScreen[LayoutProfileResult | None]):
+    """Modal screen for adding or editing a layout profile."""
+
     BINDINGS = [("escape", "cancel", "Cancel")]
 
     def __init__(
@@ -29,6 +33,12 @@ class LayoutProfileModal(ModalScreen[LayoutProfileResult | None]):
         *,
         profile: layout_profiles.LayoutProfile | None = None,
     ) -> None:
+        """Initialize the modal.
+
+        Args:
+            project_root: Repository root the profile applies to.
+            profile: Existing profile to edit, or None to add a new one.
+        """
         super().__init__()
         self._project_root = project_root
         self._original = profile
@@ -38,6 +48,7 @@ class LayoutProfileModal(ModalScreen[LayoutProfileResult | None]):
         )
 
     def compose(self) -> ComposeResult:
+        """Build the modal's form widgets."""
         p = self._original
         yield Vertical(
             Static(
@@ -106,6 +117,7 @@ class LayoutProfileModal(ModalScreen[LayoutProfileResult | None]):
         )
 
     def on_mount(self) -> None:
+        """Focus the name field and preselect radios matching the edited profile."""
         self.query_one("#name", Input).focus()
         if self._original:
             scope = self._original.scope
@@ -123,15 +135,23 @@ class LayoutProfileModal(ModalScreen[LayoutProfileResult | None]):
                 files_btn.value = True
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
+        """Submit on Save; dismiss without a result otherwise."""
         if event.button.id == "save":
             self._submit()
         else:
             self.dismiss(None)
 
     def action_cancel(self) -> None:
+        """Dismiss the modal without a result."""
         self.dismiss(None)
 
     def _error(self, msg: str, focus_id: str) -> None:
+        """Show an inline error, focus the offending field, and notify the user.
+
+        Args:
+            msg: Error message to display.
+            focus_id: Widget id to focus so the user can correct the input.
+        """
         self.query_one("#error", Static).update(msg)
         widget = self.query_one(f"#{focus_id}")
         if hasattr(widget, "focus"):
@@ -139,6 +159,12 @@ class LayoutProfileModal(ModalScreen[LayoutProfileResult | None]):
         self.app.notify(msg, severity="error", title="Layout profile")
 
     def _submit(self) -> None:
+        """Validate the form, build a profile, and dismiss with the result.
+
+        Shows an inline error and returns early when the name is missing, the
+        profile fails validation, or an existing built-in profile would be
+        overwritten under its own name.
+        """
         name = self.query_one("#name", Input).value.strip()
         if not name:
             self._error("name is required", "name")
@@ -181,6 +207,7 @@ class LayoutProfileModal(ModalScreen[LayoutProfileResult | None]):
         self.dismiss(LayoutProfileResult(profile=profile, original_name=original_name))
 
     def _read_scope(self) -> layout_profiles.LayoutProfileScope:
+        """Return the selected scope, defaulting to PROJECT."""
         rs = self.query_one("#scope", RadioSet)
         pressed = rs.pressed_button
         if pressed is not None and pressed.id == "scope-global":
@@ -188,6 +215,7 @@ class LayoutProfileModal(ModalScreen[LayoutProfileResult | None]):
         return layout_profiles.LayoutProfileScope.PROJECT
 
     def _read_rules_mode(self) -> Literal["files", "inline"]:
+        """Return the selected rules mode, defaulting to "files"."""
         rs = self.query_one("#rules-mode", RadioSet)
         pressed = rs.pressed_button
         if pressed is not None and pressed.id == "rules-mode-inline":

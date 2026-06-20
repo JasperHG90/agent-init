@@ -42,6 +42,14 @@ _BOM = 0xFEFF
 
 
 def _is_hidden(codepoint: int) -> bool:
+    """Return whether a code point is treated as hidden/invisible.
+
+    Args:
+        codepoint: The Unicode code point to classify.
+
+    Returns:
+        True if the code point is a BOM, surrogate, or in a hidden range.
+    """
     if codepoint == _BOM:
         return True
     if _SURROGATE_RANGE[0] <= codepoint <= _SURROGATE_RANGE[1]:
@@ -53,6 +61,14 @@ def _is_hidden(codepoint: int) -> bool:
 
 
 def _char_description(codepoint: int) -> str:
+    """Return a human-readable label for a hidden code point.
+
+    Args:
+        codepoint: The Unicode code point to describe.
+
+    Returns:
+        A ``U+XXXX`` label, annotated with a mnemonic when one is known.
+    """
     name = {
         0x200B: "ZWSP",
         0x200C: "ZWNJ",
@@ -78,6 +94,15 @@ def _char_description(codepoint: int) -> str:
 
 
 def _find_hidden(text: str, source: str | None = None) -> list[str]:
+    """Collect human-readable findings for hidden characters in text.
+
+    Args:
+        text: The text to scan character by character.
+        source: Optional label prefixed to each finding for context.
+
+    Returns:
+        A list of findings, each naming the character and its line/column.
+    """
     findings: list[str] = []
     line = 1
     col = 1
@@ -97,22 +122,44 @@ def _find_hidden(text: str, source: str | None = None) -> list[str]:
 
 
 def scan_text(text: str, *, source: str | None = None) -> list[str]:
-    """Return a list of human-readable hidden-Unicode findings in `text`."""
+    """Return human-readable hidden-Unicode findings in ``text``.
+
+    Args:
+        text: The text to scan.
+        source: Optional label prefixed to each finding for context.
+
+    Returns:
+        A list of findings, empty when no hidden characters are present.
+    """
     return _find_hidden(text, source)
 
 
 def scan_file(path: Path, *, source: str | None = None) -> list[str]:
-    """Scan a single UTF-8 file for hidden Unicode characters."""
+    """Scan a single UTF-8 file for hidden Unicode characters.
+
+    Args:
+        path: The file to read and scan.
+        source: Optional label for findings; defaults to the file path.
+
+    Returns:
+        A list of findings, empty when no hidden characters are present.
+    """
     label = source or str(path)
     text = path.read_text(encoding="utf-8")
     return _find_hidden(text, label)
 
 
 def scan_directory(root: Path, *, pattern: str = "**/*") -> list[str]:
-    """Scan every UTF-8 file under `root` matching `pattern`.
+    """Scan every UTF-8 file under ``root`` matching ``pattern``.
 
-    Files that are not valid UTF-8 are skipped rather than treated as attacks.
+    Args:
+        root: The directory whose files are scanned recursively.
+        pattern: A glob pattern selecting which files to scan.
+
+    Returns:
+        A list of findings aggregated across all scanned files.
     """
+    # Files that are not valid UTF-8 are skipped rather than treated as attacks.
     findings: list[str] = []
     for path in root.glob(pattern):
         if not path.is_file() or path.is_symlink():
@@ -126,17 +173,32 @@ def scan_directory(root: Path, *, pattern: str = "**/*") -> list[str]:
 
 
 def assert_no_hidden_unicode(text: str, *, source: str | None = None) -> None:
-    """Raise `HiddenUnicodeError` if hidden Unicode characters are found."""
+    """Raise if hidden Unicode characters are found in ``text``.
+
+    Args:
+        text: The text to validate.
+        source: Optional label prefixed to findings for context.
+
+    Raises:
+        HiddenUnicodeError: If any hidden Unicode characters are present.
+    """
     findings = _find_hidden(text, source)
     if findings:
         raise HiddenUnicodeError("; ".join(findings))
 
 
 def require_secure_url(url: str, *, allow_insecure: bool = False) -> None:
-    """Reject plain http:// URLs unless `allow_insecure` is True.
+    """Reject plain http:// URLs unless ``allow_insecure`` is True.
 
     Allows https://, file://, ssh://, git@host:path, and any other non-HTTP
     scheme.
+
+    Args:
+        url: The URL whose transport scheme is checked.
+        allow_insecure: When True, permit plain http:// instead of rejecting.
+
+    Raises:
+        InsecureTransportError: If the scheme is http:// and not allowed.
     """
     scheme = urlparse(url).scheme.lower()
     if scheme == "http" and not allow_insecure:

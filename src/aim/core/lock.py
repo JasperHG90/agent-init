@@ -59,6 +59,8 @@ class LockError(RuntimeError):
 
 @dataclass
 class LockOptions:
+    """Inputs controlling a single lock run."""
+
     project_root: Path
     progress_callback: Callable[[str, str, str], object] | None = None
     allow_insecure: bool = False
@@ -67,6 +69,8 @@ class LockOptions:
 
 @dataclass
 class LockResult:
+    """Outcome of a lock run: which artifacts were locked, plus warnings/errors."""
+
     project_root: Path
     locked_skills: list[str] = field(default_factory=list)
     locked_agents: list[str] = field(default_factory=list)
@@ -80,6 +84,14 @@ class LockResult:
 def _notify(
     callback: Callable[[str, str, str], object] | None, kind: str, name: str, status: str
 ) -> None:
+    """Invoke the progress callback, swallowing any exception it raises.
+
+    Args:
+        callback: Optional progress sink; a no-op when None.
+        kind: Artifact category (e.g. "skill", "agent", "mcp", "rule").
+        name: Identifier of the artifact being reported on.
+        status: Lifecycle status (e.g. "locking", "ok", "error").
+    """
     if callback is not None:
         try:
             callback(kind, name, status)
@@ -88,6 +100,11 @@ def _notify(
 
 
 def _load_declarations(project_root: Path) -> ProjectDeclarations:
+    """Load `aim.toml` declarations for the project.
+
+    Raises:
+        LockError: if no `aim.toml` exists at the project root.
+    """
     try:
         return declarations.load(project_root)
     except declarations.DeclarationsNotFoundError as exc:
@@ -97,6 +114,15 @@ def _load_declarations(project_root: Path) -> ProjectDeclarations:
 def _resolve_profile(
     project_root: Path, decl: ProjectDeclarations
 ) -> layout_profiles.LayoutProfile:
+    """Resolve the declared layout profile, falling back to the built-in default.
+
+    Args:
+        project_root: Project root used to locate custom profile definitions.
+        decl: Loaded project declarations whose `layout_profile` is honored.
+
+    Returns:
+        The named profile, or `BUILTIN_CLAUDE` when none is declared or it is missing.
+    """
     if decl.layout_profile:
         try:
             return layout_profiles.get_profile(project_root, decl.layout_profile)
@@ -106,6 +132,16 @@ def _resolve_profile(
 
 
 def _ensure_repo(alias: str, url: str, allow_insecure: bool) -> str | None:
+    """Ensure a declared repo is registered, auto-registering it if missing.
+
+    Args:
+        alias: Repo alias as referenced by declarations.
+        url: Clone URL to register the repo under when not already present.
+        allow_insecure: Permit insecure transports when registering.
+
+    Returns:
+        None on success, or an error message string if registration failed.
+    """
     try:
         repos.get(alias)
         skills.index_repo(alias)
@@ -121,6 +157,15 @@ def _ensure_repo(alias: str, url: str, allow_insecure: bool) -> str | None:
 
 
 async def _ensure_repos(decl: ProjectDeclarations, allow_insecure: bool) -> list[str]:
+    """Register all declared repos concurrently.
+
+    Args:
+        decl: Project declarations whose `repos` mapping is registered.
+        allow_insecure: Permit insecure transports when registering.
+
+    Returns:
+        A list of per-repo error messages; empty if every repo registered cleanly.
+    """
     pairs = {alias: url for alias, url in decl.repos.items()}
     if not pairs:
         return []
@@ -144,6 +189,15 @@ _ref_cache_lock = threading.Lock()
 
 
 def _resolve_ref_cached(repo_dir: Path, ref: str) -> str:
+    """Resolve a git ref to a SHA, caching the result for the current lock run.
+
+    Args:
+        repo_dir: Path to the cloned repo to resolve within.
+        ref: Ref to resolve (branch, tag, or "HEAD").
+
+    Returns:
+        The resolved commit SHA.
+    """
     key = (str(repo_dir), ref)
     with _ref_cache_lock:
         sha = _ref_cache.get(key)
@@ -156,6 +210,7 @@ def _resolve_ref_cached(repo_dir: Path, ref: str) -> str:
 
 
 def _resolve_skill_version(skill: DeclaredSkill) -> SkillVersion:
+    """Resolve a declared skill's pin/track to a concrete SkillVersion."""
     repo_dir = repos.clone_dir(skill.repo_alias)
     sha = _resolve_ref_cached(repo_dir, skill.pin or skill.track or "HEAD")
     return SkillVersion(
@@ -166,6 +221,15 @@ def _resolve_skill_version(skill: DeclaredSkill) -> SkillVersion:
 
 
 def _hash_skill_at_sha(skill: DeclaredSkill, sha: str) -> str:
+    """Compute a stable content hash of a skill's tree at a given SHA.
+
+    Args:
+        skill: Declared skill whose `source_path` subtree is hashed.
+        sha: Commit SHA to read the tree at.
+
+    Returns:
+        A hex SHA-256 digest over the source-relative paths and blob contents.
+    """
     repo_dir = repos.clone_dir(skill.repo_alias)
     paths_in_tree = sorted(git.get_backend().ls_tree(repo_dir, sha, skill.source_path))
     blobs = git.get_backend().cat_file_batch(repo_dir, sha, paths_in_tree)
@@ -183,6 +247,18 @@ def _hash_skill_at_sha(skill: DeclaredSkill, sha: str) -> str:
 def _lock_skill(
     skill: DeclaredSkill, cached: InstalledSkill | None = None
 ) -> tuple[InstalledSkill | None, str | None]:
+    """Lock a single declared skill to a concrete InstalledSkill.
+
+    Reuses the cached content hash when the resolved SHA and source path are
+    unchanged, avoiding a redundant tree hash.
+
+    Args:
+        skill: Declared skill to resolve and hash.
+        cached: Prior installed skill from an existing lockfile, if any.
+
+    Returns:
+        A `(InstalledSkill, None)` pair on success, or `(None, error message)`.
+    """
     try:
         version = _resolve_skill_version(skill)
         if (
@@ -215,12 +291,23 @@ async def _lock_skills(
     callback: Callable[[str, str, str], object] | None,
     cached_by_name: dict[str, InstalledSkill] | None = None,
 ) -> tuple[list[InstalledSkill], list[str]]:
+    """Lock all declared skills concurrently, reporting progress per skill.
+
+    Args:
+        skills: Declared skills to lock.
+        callback: Optional progress sink notified as each skill is locked.
+        cached_by_name: Prior installed skills keyed by qualified name, for hash reuse.
+
+    Returns:
+        A `(locked skills, error messages)` pair.
+    """
     if not skills:
         return [], []
 
     lookup = cached_by_name or {}
 
     async def _one(skill: DeclaredSkill) -> tuple[InstalledSkill | None, str | None]:
+        """Lock one skill off-thread and emit progress notifications."""
         _notify(callback, "skill", skill.qualified_name, "locking")
         installed, error = await asyncio.to_thread(
             _lock_skill, skill, lookup.get(skill.qualified_name)
@@ -238,6 +325,7 @@ async def _lock_skills(
 
 
 def _resolve_agent_version(agent: DeclaredAgent) -> SkillVersion:
+    """Resolve a declared agent's pin/track to a concrete SkillVersion."""
     repo_dir = repos.clone_dir(agent.repo_alias)
     sha = _resolve_ref_cached(repo_dir, agent.pin or agent.track or "HEAD")
     return SkillVersion(
@@ -248,6 +336,15 @@ def _resolve_agent_version(agent: DeclaredAgent) -> SkillVersion:
 
 
 def _read_agent_at_sha(agent: DeclaredAgent, sha: str) -> str:
+    """Read an agent's artifact body at a given SHA.
+
+    Args:
+        agent: Declared agent whose source path locates the artifact.
+        sha: Commit SHA to read at.
+
+    Returns:
+        The artifact text; for a directory source path, reads its `AGENT.md`.
+    """
     repo_dir = repos.clone_dir(agent.repo_alias)
     if agent.source_path.endswith(".md"):
         artifact_path = agent.source_path
@@ -259,6 +356,18 @@ def _read_agent_at_sha(agent: DeclaredAgent, sha: str) -> str:
 def _lock_agent(
     agent: DeclaredAgent, cached: InstalledAgent | None = None
 ) -> tuple[InstalledAgent | None, str | None]:
+    """Lock a single declared agent to a concrete InstalledAgent.
+
+    Reuses the cached content hash when the resolved SHA and source path are
+    unchanged.
+
+    Args:
+        agent: Declared agent to resolve and hash.
+        cached: Prior installed agent from an existing lockfile, if any.
+
+    Returns:
+        An `(InstalledAgent, None)` pair on success, or `(None, error message)`.
+    """
     try:
         version = _resolve_agent_version(agent)
         if (
@@ -292,12 +401,23 @@ async def _lock_agents(
     callback: Callable[[str, str, str], object] | None,
     cached_by_name: dict[str, InstalledAgent] | None = None,
 ) -> tuple[list[InstalledAgent], list[str]]:
+    """Lock all declared agents concurrently, reporting progress per agent.
+
+    Args:
+        agents: Declared agents to lock.
+        callback: Optional progress sink notified as each agent is locked.
+        cached_by_name: Prior installed agents keyed by qualified name, for hash reuse.
+
+    Returns:
+        A `(locked agents, error messages)` pair.
+    """
     if not agents:
         return [], []
 
     lookup = cached_by_name or {}
 
     async def _one(agent: DeclaredAgent) -> tuple[InstalledAgent | None, str | None]:
+        """Lock one agent off-thread and emit progress notifications."""
         _notify(callback, "agent", agent.qualified_name, "locking")
         installed, error = await asyncio.to_thread(
             _lock_agent, agent, lookup.get(agent.qualified_name)
@@ -315,6 +435,7 @@ async def _lock_agents(
 
 
 def _resolve_rule_version(rule: DeclaredRule) -> SkillVersion:
+    """Resolve a declared rule's pin/track to a concrete SkillVersion."""
     repo_dir = repos.clone_dir(rule.repo_alias)
     sha = _resolve_ref_cached(repo_dir, rule.pin or rule.track or "HEAD")
     return SkillVersion(
@@ -325,6 +446,7 @@ def _resolve_rule_version(rule: DeclaredRule) -> SkillVersion:
 
 
 def _read_rule_at_sha(rule: DeclaredRule, sha: str) -> str:
+    """Read a rule's body text at a given SHA."""
     repo_dir = repos.clone_dir(rule.repo_alias)
     return git.get_backend().cat_file(repo_dir, sha, rule.source_path)
 
@@ -332,6 +454,18 @@ def _read_rule_at_sha(rule: DeclaredRule, sha: str) -> str:
 def _lock_rule(
     rule: DeclaredRule, cached: InstalledRule | None = None
 ) -> tuple[InstalledRule | None, str | None]:
+    """Lock a single declared rule to a concrete InstalledRule.
+
+    Reuses the cached content hash when the resolved SHA and source path are
+    unchanged.
+
+    Args:
+        rule: Declared rule to resolve and hash.
+        cached: Prior installed rule from an existing lockfile, if any.
+
+    Returns:
+        An `(InstalledRule, None)` pair on success, or `(None, error message)`.
+    """
     try:
         version = _resolve_rule_version(rule)
         if (
@@ -364,12 +498,23 @@ async def _lock_rules(
     callback: Callable[[str, str, str], object] | None,
     cached_by_name: dict[str, InstalledRule] | None = None,
 ) -> tuple[list[InstalledRule], list[str]]:
+    """Lock all declared rules concurrently, reporting progress per rule.
+
+    Args:
+        rules: Declared rules to lock.
+        callback: Optional progress sink notified as each rule is locked.
+        cached_by_name: Prior installed rules keyed by qualified name, for hash reuse.
+
+    Returns:
+        A `(locked rules, error messages)` pair.
+    """
     if not rules:
         return [], []
 
     lookup = cached_by_name or {}
 
     async def _one(rule: DeclaredRule) -> tuple[InstalledRule | None, str | None]:
+        """Lock one rule off-thread and emit progress notifications."""
         _notify(callback, "rule", rule.qualified_name, "locking")
         installed, error = await asyncio.to_thread(
             _lock_rule, rule, lookup.get(rule.qualified_name)
@@ -387,6 +532,14 @@ async def _lock_rules(
 
 
 def _lock_mcp(mcp: DeclaredMcpServer) -> tuple[InstalledMcpServer | None, str | None]:
+    """Lock a single declared MCP server from its registry entry.
+
+    Args:
+        mcp: Declared MCP server to resolve against the registry.
+
+    Returns:
+        An `(InstalledMcpServer, None)` pair on success, or `(None, error message)`.
+    """
     try:
         server = mcp_registry.find_server(mcp.registry_name, exact_name=mcp.registry_name)
         entry = mcp_registry.map_to_claude_entry(
@@ -411,10 +564,20 @@ async def _lock_mcps(
     mcps: list[DeclaredMcpServer],
     callback: Callable[[str, str, str], object] | None,
 ) -> tuple[list[InstalledMcpServer], list[str]]:
+    """Lock all declared MCP servers concurrently, reporting progress per server.
+
+    Args:
+        mcps: Declared MCP servers to lock.
+        callback: Optional progress sink notified as each server is locked.
+
+    Returns:
+        A `(locked MCP servers, error messages)` pair.
+    """
     if not mcps:
         return [], []
 
     async def _one(mcp: DeclaredMcpServer) -> tuple[InstalledMcpServer | None, str | None]:
+        """Lock one MCP server off-thread and emit progress notifications."""
         _notify(callback, "mcp", mcp.alias, "locking")
         installed, error = await asyncio.to_thread(_lock_mcp, mcp)
         if error:
@@ -434,11 +597,23 @@ def _compute_region_hashes(
     profile: layout_profiles.LayoutProfile,
     locked_rules: list[InstalledRule],
 ) -> dict[str, str]:
-    """Compute hashes for the rendered AGENTS.md regions from the locked rule
-    bodies (read at their pinned SHAs) and the template."""
+    """Compute per-region hashes of the rendered AGENTS.md for drift detection.
+
+    The regions come from rendering the instruction template over the locked rule
+    bodies read at their pinned SHAs.
+
+    Args:
+        decl: Project declarations supplying the instruction template.
+        profile: Layout profile controlling rules mode and directory.
+        locked_rules: Rules already resolved to pinned SHAs.
+
+    Returns:
+        A mapping of region name to the hash of that region's body.
+    """
     applied: list[RenderRule] = [repo_rules.render_rule(r) for r in locked_rules]
 
     def _render_for_agent(agent: str | None) -> str:
+        """Render the instruction template for one agent (or the canonical None)."""
         return templates.render(
             decl.instruction_template,
             {
@@ -455,6 +630,7 @@ def _compute_region_hashes(
 
 
 def _skill_key(s: InstalledSkill) -> tuple:
+    """Build the identity tuple used to detect whether a locked skill changed."""
     return (
         s.qualified_name,
         s.repo_alias,
@@ -470,6 +646,7 @@ def _skill_key(s: InstalledSkill) -> tuple:
 
 
 def _agent_key(a: InstalledAgent) -> tuple:
+    """Build the identity tuple used to detect whether a locked agent changed."""
     return (
         a.qualified_name,
         a.repo_alias,
@@ -485,6 +662,7 @@ def _agent_key(a: InstalledAgent) -> tuple:
 
 
 def _rule_key(r: InstalledRule) -> tuple:
+    """Build the identity tuple used to detect whether a locked rule changed."""
     return (
         r.qualified_name,
         r.repo_alias,
@@ -499,6 +677,7 @@ def _rule_key(r: InstalledRule) -> tuple:
 
 
 def _mcp_key(m: InstalledMcpServer) -> tuple:
+    """Build the identity tuple used to detect whether a locked MCP server changed."""
     return (
         m.alias,
         m.registry_name,
@@ -511,6 +690,7 @@ def _mcp_key(m: InstalledMcpServer) -> tuple:
 
 
 def _top_level_key(m: Manifest) -> tuple:
+    """Build the identity tuple for a manifest's non-artifact (top-level) fields."""
     return (
         m.instruction_template,
         m.layout_profile,
@@ -524,6 +704,15 @@ def _top_level_key(m: Manifest) -> tuple:
 
 
 def _lockfile_unchanged(existing: Manifest, new: Manifest) -> bool:
+    """Report whether two manifests are equivalent across all identity keys.
+
+    Args:
+        existing: Manifest currently on disk.
+        new: Manifest just computed by this lock run.
+
+    Returns:
+        True if every top-level field and artifact list matches.
+    """
     if _top_level_key(existing) != _top_level_key(new):
         return False
     if [_skill_key(s) for s in existing.skills] != [_skill_key(s) for s in new.skills]:
@@ -538,9 +727,15 @@ def _lockfile_unchanged(existing: Manifest, new: Manifest) -> bool:
 
 
 def _preserve_unchanged_metadata(existing: Manifest | None, new: Manifest) -> None:
-    """For items whose comparison key matches an entry in `existing`, restore the
-    prior `installed_at` and `history` so unchanged items don't show a fresh
-    timestamp (and don't lose rollback history) on a partial-change re-lock.
+    """Restore prior version metadata for artifacts unchanged since the last lock.
+
+    For each new item whose comparison key matches an existing entry, the prior
+    `current` (with its `installed_at`) and `history` are copied over, so unchanged
+    items keep their original timestamp and rollback history on a partial re-lock.
+
+    Args:
+        existing: Manifest from a previous lock, or None on a first lock.
+        new: Manifest mutated in place to carry forward preserved metadata.
     """
     if existing is None:
         return
@@ -577,7 +772,16 @@ def _preserve_unchanged_metadata(existing: Manifest | None, new: Manifest) -> No
 def _enforce_policy(
     decl: ProjectDeclarations, resolved: policy.ResolvedPolicy, *, effective_profile: str
 ) -> None:
-    """Refuse to lock declarations that the governing policy disallows."""
+    """Refuse to lock declarations that the governing policy disallows.
+
+    Args:
+        decl: Project declarations to validate against policy.
+        resolved: The effective resolved policy.
+        effective_profile: Layout profile name the lockfile will record.
+
+    Raises:
+        Exception: propagated from policy assertions when something is disallowed.
+    """
     pol = resolved.policy
     for alias, url in decl.repos.items():
         policy.assert_repo_allowed(pol, alias, url)
@@ -595,6 +799,19 @@ def _enforce_policy(
 
 
 async def run(options: LockOptions) -> LockResult:
+    """Resolve `aim.toml` into `aim.lock.toml`, writing the lockfile if it changed.
+
+    Args:
+        options: Lock inputs (project root, progress callback, force, insecure).
+
+    Returns:
+        A LockResult summarizing locked artifacts, warnings, and errors. Its
+        `unchanged` flag is set when an existing lockfile already matches.
+
+    Raises:
+        LockError: if `aim.toml` is missing, policy disallows a declaration, or
+            the lock completes only partially (some artifacts failed to resolve).
+    """
     with _ref_cache_lock:
         _ref_cache.clear()
     project_root = options.project_root.resolve()

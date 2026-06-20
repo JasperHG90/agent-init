@@ -55,18 +55,30 @@ _RULE_PREFIXES = ("rules/", ".claude/rules/")
 
 
 def _prefix_rank(path: str) -> int:
+    """Return the precedence rank for a rule path's location prefix.
+
+    Args:
+        path: Rule `.md` path relative to the repo root.
+
+    Returns:
+        0 for `rules/`, 1 for `.claude/rules/` (lower wins).
+    """
     if path.startswith("rules/"):
         return 0
     return 1  # ".claude/rules/"
 
 
 class DiscoveredRule(NamedTuple):
+    """A rule found in a repo: its name and source `.md` path."""
+
     name: str
     rule_md_path: str  # path of the .md file relative to repo root
 
 
 @dataclass(frozen=True)
 class IndexResult:
+    """Outcome of discovering rules in a repo at a resolved SHA."""
+
     repo_alias: str
     sha: str
     indexed: list[DiscoveredRule]
@@ -74,6 +86,14 @@ class IndexResult:
 
 
 def discover(repo_alias: str) -> IndexResult:
+    """Discover installable rules in a registered repo at its default ref.
+
+    Args:
+        repo_alias: Alias of the registered source repo to scan.
+
+    Returns:
+        An IndexResult with the winning rules and any shadowed duplicates.
+    """
     repo = repos.get(repo_alias)
     repo_dir = repos.clone_dir(repo_alias)
     sha = git.get_backend().resolve_ref(repo_dir, repo.default_ref)
@@ -115,7 +135,14 @@ def discover(repo_alias: str) -> IndexResult:
 
 
 def index_repo(repo_alias: str) -> IndexResult:
-    """Discover rules in a registered repo and write RuleIndex rows."""
+    """Discover rules in a registered repo and write RuleIndex rows.
+
+    Args:
+        repo_alias: Alias of the registered source repo to index.
+
+    Returns:
+        The IndexResult produced by discovery.
+    """
     result = discover(repo_alias)
     with db.session() as session:
         session.exec(delete(RuleIndex).where(RuleIndex.repo_alias == repo_alias))  # type: ignore[arg-type]
@@ -137,7 +164,14 @@ def index_repo(repo_alias: str) -> IndexResult:
 
 
 def _extract_frontmatter(body: str) -> tuple[dict[str, Any], str]:
-    """Parse YAML frontmatter if present; return (fields, remainder)."""
+    """Parse YAML frontmatter if present.
+
+    Args:
+        body: Raw Markdown file content.
+
+    Returns:
+        A tuple of the parsed frontmatter fields and the remaining body.
+    """
     fm_match = re.match(r"\A---\n(.*?)\n---\n", body, re.DOTALL)
     if not fm_match:
         return {}, body
@@ -155,10 +189,18 @@ def _extract_frontmatter(body: str) -> tuple[dict[str, Any], str]:
 
 
 def _parse_rule_md(repo_alias: str, sha: str, path: str) -> tuple[str | None, str | None]:
-    """Pull (title, description) from a rule .md file.
+    """Pull a title and description from a rule `.md` file.
 
     Frontmatter (YAML) is optional. Recognized keys: `title`, `name`, `description`.
-    Falls back to first Markdown heading or first non-empty line.
+    Falls back to the first Markdown heading or first non-empty line for the title.
+
+    Args:
+        repo_alias: Alias of the repo containing the rule.
+        sha: Resolved commit SHA to read the file at.
+        path: Path of the rule `.md` file relative to the repo root.
+
+    Returns:
+        A tuple of the title and description, each possibly None.
     """
     repo_dir = repos.clone_dir(repo_alias)
     try:
@@ -187,6 +229,7 @@ def _parse_rule_md(repo_alias: str, sha: str, path: str) -> tuple[str | None, st
 
 
 def _as_str(value: Any) -> str | None:
+    """Coerce a frontmatter value to a string, preserving None."""
     if value is None:
         return None
     if isinstance(value, str):
@@ -199,9 +242,17 @@ class RuleNotIndexedError(KeyError):
 
 
 def render_rule(installed: object) -> RenderRule:
-    """Build the AGENTS.md render view of an installed rule, reading its body at
-    the pinned SHA. Frontmatter (if any) is stripped from the rendered body and
-    its `description`/`title` surfaced separately."""
+    """Build the AGENTS.md render view of an installed rule.
+
+    The body is read at the rule's pinned SHA. Frontmatter (if any) is stripped
+    from the rendered body and its `description`/`title` surfaced separately.
+
+    Args:
+        installed: The InstalledRule to render (typed as object for late import).
+
+    Returns:
+        A RenderRule with the rule name, body, and optional description.
+    """
     from aim.core.models import InstalledRule
 
     assert isinstance(installed, InstalledRule)
@@ -233,6 +284,14 @@ def read_rule_content(qualified_name: str) -> str:
 
 
 def list_rules(repo_alias: str | None = None) -> list[RuleIndex]:
+    """Return indexed rules sorted by qualified name, optionally filtered by repo.
+
+    Args:
+        repo_alias: If given, restrict results to this repo's rules.
+
+    Returns:
+        The matching RuleIndex rows, sorted by qualified name.
+    """
     with db.session() as session:
         stmt = select(RuleIndex)
         if repo_alias is not None:

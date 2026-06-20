@@ -20,6 +20,8 @@ _AGENT_DEPLOY_ERRORS: tuple[type[BaseException], ...] = (  # noqa: RUF005
 
 
 class AgentsScreen(Screen[None]):
+    """Browse, search, view, and install indexed sub-agents."""
+
     BINDINGS = [
         ("escape", "app.pop_screen", "Back"),
         ("b", "app.pop_screen", "Back"),
@@ -32,11 +34,13 @@ class AgentsScreen(Screen[None]):
     ]
 
     def __init__(self) -> None:
+        """Initialize the screen with no active repo filter or pending install."""
         super().__init__()
         self._repo_filter: str | None = None
         self._installing: tuple[str, AgentInstallConfig] | None = None
 
     def compose(self) -> ComposeResult:
+        """Build the title, search bar, agents table, status line, and hint."""
         yield Static("Subagents", id="title", markup=False)
         yield Input(placeholder="search…", id="search-bar")
         yield DataTable(id="agents-table", cursor_type="row")
@@ -48,16 +52,23 @@ class AgentsScreen(Screen[None]):
         )
 
     def on_mount(self) -> None:
+        """Set up table columns, populate all agents, and focus the table."""
         table = self.query_one(DataTable)
         table.add_columns("qualified name", "title", "description", "model")
         self._populate("")
         table.focus()
 
     def on_screen_resume(self) -> None:
+        """Refresh the table using the current search query when resumed."""
         query = self.query_one("#search-bar", Input).value
         self._populate(query)
 
     def _populate(self, query: str) -> None:
+        """Repopulate the table with agents matching the query and repo filter.
+
+        Args:
+            query: Free-text search string; lists all agents when empty.
+        """
         table = self.query_one(DataTable)
         selected = self._selected()
         table.clear()
@@ -92,6 +103,7 @@ class AgentsScreen(Screen[None]):
         self._status(f"{len(rows)} subagent(s){filter_label}")
 
     def action_cycle_repo_filter(self) -> None:
+        """Advance the repo filter to the next alias, wrapping back to no filter."""
         aliases = [r.alias for r in repos.list_repos()]
         if not aliases:
             self.app.notify("no repos to filter by", severity="warning")
@@ -108,13 +120,20 @@ class AgentsScreen(Screen[None]):
         self._populate(query)
 
     def on_input_changed(self, event: Input.Changed) -> None:
+        """Repopulate the table live as the search bar text changes."""
         if event.input.id == "search-bar":
             self._populate(event.value)
 
     def action_focus_search(self) -> None:
+        """Move keyboard focus to the search bar."""
         self.query_one("#search-bar", Input).focus()
 
     def _selected(self) -> str | None:
+        """Return the qualified name of the currently selected row, if any.
+
+        Returns:
+            The selected agent's qualified name, or None when no row is selected.
+        """
         table = self.query_one(DataTable)
         if table.row_count == 0:
             return None
@@ -122,6 +141,7 @@ class AgentsScreen(Screen[None]):
         return str(row_key.value) if row_key and row_key.value is not None else None
 
     def action_view_current(self) -> None:
+        """Open a modal showing the source of the selected agent."""
         qn = self._selected()
         if qn is None:
             if self.query_one(DataTable).row_count == 0:
@@ -137,6 +157,7 @@ class AgentsScreen(Screen[None]):
         self.app.push_screen(AgentViewModal(qn, content))
 
     def action_install_current(self) -> None:
+        """Open the install modal for the selected agent and install on confirm."""
         qn = self._selected()
         if qn is None:
             if self.query_one(DataTable).row_count == 0:
@@ -150,6 +171,12 @@ class AgentsScreen(Screen[None]):
         )
 
     def _install(self, qualified_name: str, cfg: AgentInstallConfig | None) -> None:
+        """Kick off a background install worker for the given agent.
+
+        Args:
+            qualified_name: Fully qualified name of the agent to install.
+            cfg: Install configuration from the modal; None when cancelled.
+        """
         if cfg is None:
             return
         # Run off the UI thread: the risk scan can pull a model or call a judge.
@@ -158,6 +185,7 @@ class AgentsScreen(Screen[None]):
         self.run_worker(self._do_install_thread, exclusive=True, thread=True)
 
     def _do_install_thread(self) -> None:
+        """Perform the install on a worker thread and report results to the UI."""
         if self._installing is None:
             return
         qualified_name, cfg = self._installing
@@ -181,4 +209,5 @@ class AgentsScreen(Screen[None]):
             self.app.call_from_thread(self.app.notify, warn, severity="warning", title="risk")
 
     def _status(self, msg: str) -> None:
+        """Update the status line with the given message."""
         self.query_one("#status", Static).update(msg)

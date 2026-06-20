@@ -12,10 +12,8 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlmodel import Field as SQLField
 from sqlmodel import SQLModel
 
-# ---------- DB tables ----------
 
-
-class RegisteredRepo(SQLModel, table=True):  # type: ignore[call-arg]  # type: ignore[call-arg]
+class RegisteredRepo(SQLModel, table=True):  # type: ignore[call-arg]
     """A skill source repo registered globally on this machine."""
 
     alias: str = SQLField(primary_key=True)
@@ -50,8 +48,10 @@ class Template(SQLModel, table=True):  # type: ignore[call-arg]
 
 
 class LayoutProfile(SQLModel, table=True):  # type: ignore[call-arg]
-    """Cached global layout profile. Repo-side global profiles are authoritative;
-    the DB is a cache for sharing across projects."""
+    """Cache a global layout profile for sharing across projects.
+
+    Repo-side global profiles are authoritative; the DB is only a cache.
+    """
 
     name: str = SQLField(primary_key=True)
     content_hash: str
@@ -101,12 +101,12 @@ class McpServerCache(SQLModel, table=True):  # type: ignore[call-arg]
     fetched_at: datetime
 
 
-# ---------- Project declarations (aim.toml) ----------
-
 CURRENT_DECLARATIONS_VERSION = 4  # v4 adds the [policy] governance table
 
 
 class DeclaredRepo(BaseModel):
+    """Declare a skill source repo in `aim.toml`."""
+
     model_config = ConfigDict(extra="forbid")
 
     alias: str
@@ -115,6 +115,8 @@ class DeclaredRepo(BaseModel):
 
 
 class DeclaredSkill(BaseModel):
+    """Declare a skill to install in `aim.toml`."""
+
     model_config = ConfigDict(extra="forbid")
 
     qualified_name: str
@@ -126,6 +128,8 @@ class DeclaredSkill(BaseModel):
 
 
 class DeclaredAgent(BaseModel):
+    """Declare a sub-agent to install in `aim.toml`."""
+
     model_config = ConfigDict(extra="forbid")
 
     qualified_name: str
@@ -137,6 +141,8 @@ class DeclaredAgent(BaseModel):
 
 
 class DeclaredRule(BaseModel):
+    """Declare a rule to install in `aim.toml`."""
+
     model_config = ConfigDict(extra="forbid")
 
     qualified_name: str
@@ -147,6 +153,8 @@ class DeclaredRule(BaseModel):
 
 
 class DeclaredMcpServer(BaseModel):
+    """Declare an MCP server to install in `aim.toml`."""
+
     model_config = ConfigDict(extra="forbid")
 
     alias: str
@@ -176,13 +184,13 @@ class ProjectDeclarations(BaseModel):
     mcp_servers: list[DeclaredMcpServer] = Field(default_factory=list)
 
 
-# ---------- Manifest (per-project lockfile, committed) ----------
-
 CURRENT_MANIFEST_VERSION = 10  # v10: pin the org policy commit SHA (policy_ref)
 HISTORY_CAP = 10
 
 
 class SkillVersion(BaseModel):
+    """Record a single installed version of a skill (tag, SHA, timestamp)."""
+
     model_config = ConfigDict(extra="forbid")
 
     tag: str | None = None
@@ -190,12 +198,14 @@ class SkillVersion(BaseModel):
     installed_at: datetime
 
     def identifier(self) -> str:
-        """User-facing composite identifier per plan: `<tag>+<short_sha>` or SHA-only."""
+        """Return the user-facing composite identifier `<tag>+<short_sha>` or SHA-only."""
         short = self.sha[:7]
         return f"{self.tag}+{short}" if self.tag else short
 
 
 class InstalledSkill(BaseModel):
+    """Record an installed skill and its version history in the manifest."""
+
     model_config = ConfigDict(extra="forbid")
 
     qualified_name: str  # "<repo_alias>/<skill_name>" at install time
@@ -211,6 +221,7 @@ class InstalledSkill(BaseModel):
     track: str | None = None  # "latest-tag" | "<branch>" | "<ref>" — overrides repo.default_ref
 
     def push_history(self, new_current: SkillVersion) -> None:
+        """Promote new_current to current, pushing the old one onto capped history."""
         self.history.insert(0, self.current)
         self.current = new_current
         if len(self.history) > HISTORY_CAP:
@@ -231,6 +242,8 @@ class McpClaudeEntry(BaseModel):
 
 
 class McpServerVersion(BaseModel):
+    """Record a single installed version of an MCP server definition."""
+
     model_config = ConfigDict(extra="forbid")
 
     definition_hash: str  # sha256 of canonical registry definition JSON
@@ -240,10 +253,13 @@ class McpServerVersion(BaseModel):
     overrides: dict[str, object] | None = None  # overrides active for this version
 
     def identifier(self) -> str:
+        """Return the registry version, falling back to a short definition hash."""
         return self.registry_version or self.definition_hash[:7]
 
 
 class InstalledMcpServer(BaseModel):
+    """Record an installed MCP server and its version history in the manifest."""
+
     model_config = ConfigDict(extra="forbid")
 
     alias: str  # local project alias (user-editable)
@@ -255,6 +271,7 @@ class InstalledMcpServer(BaseModel):
     overrides: dict[str, object] | None = None  # overrides to re-apply on update/lock
 
     def push_history(self, new_current: McpServerVersion) -> None:
+        """Promote new_current to current, pushing the old one onto capped history."""
         self.history.insert(0, self.current)
         self.current = new_current
         if len(self.history) > HISTORY_CAP:
@@ -278,6 +295,7 @@ class InstalledAgent(BaseModel):
     track: str | None = None
 
     def push_history(self, new_current: SkillVersion) -> None:
+        """Promote new_current to current, pushing the old one onto capped history."""
         self.history.insert(0, self.current)
         self.current = new_current
         if len(self.history) > HISTORY_CAP:
@@ -302,6 +320,7 @@ class InstalledRule(BaseModel):
     track: str | None = None
 
     def push_history(self, new_current: SkillVersion) -> None:
+        """Promote new_current to current, pushing the old one onto capped history."""
         self.history.insert(0, self.current)
         self.current = new_current
         if len(self.history) > HISTORY_CAP:
@@ -318,6 +337,8 @@ class RenderRule(BaseModel):
 
 
 class Manifest(BaseModel):
+    """Per-project lockfile recording all installed artifacts and pinned policy."""
+
     model_config = ConfigDict(extra="forbid")
 
     manifest_version: int = CURRENT_MANIFEST_VERSION

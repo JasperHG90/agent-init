@@ -47,20 +47,25 @@ _AUTH_HINTS = (
 
 
 def _looks_like_auth_failure(stderr: str) -> bool:
+    """Return whether git stderr indicates an authentication/access failure.
+
+    Args:
+        stderr: The captured stderr text from a failed git command.
+    """
     text = stderr.lower()
     return any(hint in text for hint in _AUTH_HINTS)
 
 
 class RepoAliasError(ValueError):
-    pass
+    """Raised when a repo alias fails validation."""
 
 
 class RepoExistsError(ValueError):
-    pass
+    """Raised when registering an alias that is already registered."""
 
 
 class RepoNotFoundError(KeyError):
-    pass
+    """Raised when a requested repo alias is not registered."""
 
 
 class RepoHasNoArtifactsError(ValueError):
@@ -72,6 +77,14 @@ RepoHasNoSkillsError = RepoHasNoArtifactsError
 
 
 def _validate_alias(alias: str) -> None:
+    """Validate that an alias is lowercase alphanumeric with `_`/`-` only.
+
+    Args:
+        alias: The candidate repo alias.
+
+    Raises:
+        RepoAliasError: If the alias does not match the allowed pattern.
+    """
     if not _ALIAS_RE.fullmatch(alias):
         raise RepoAliasError(
             f"repo alias {alias!r} invalid: must be lowercase alphanumeric, _, or -"
@@ -79,10 +92,22 @@ def _validate_alias(alias: str) -> None:
 
 
 def clone_dir(alias: str) -> Path:
+    """Return the bare-clone cache directory for a repo alias."""
     return paths.repos_cache_dir() / alias
 
 
 def _auth_help(alias: str, url: str, original: str) -> str:
+    """Build an actionable authentication-failure message for a repo.
+
+    Args:
+        alias: The repo alias being accessed.
+        url: The remote URL that failed.
+        original: The underlying git error text to surface verbatim.
+
+    Returns:
+        A multi-line hint suggesting `gh auth` commands, with a `GH_HOST`
+        hint when the host looks like a GitHub Enterprise instance.
+    """
     host = _host_from_url(url)
     enterprise_hint = (
         f" (GH_HOST={host})" if host and ".github.com" not in host and host != "github.com" else ""
@@ -100,16 +125,25 @@ def _auth_help(alias: str, url: str, original: str) -> str:
 def _host_from_url(url: str) -> str | None:
     """Extract a hostname from https or ssh git URLs."""
     if url.startswith("https://") or url.startswith("http://"):
-        # https://host/path
         rest = url.split("://", 1)[1]
         return rest.split("/", 1)[0].split(":", 1)[0] or None
     if url.startswith("git@") and ":" in url:
-        # git@host:path
         return url.split(":", 1)[0].split("@", 1)[-1] or None
     return None
 
 
 def _wrap_git_error(alias: str, url: str, exc: git.GitError) -> git.GitError:
+    """Translate an auth-related git error into an actionable one.
+
+    Args:
+        alias: The repo alias the operation targeted.
+        url: The remote URL involved.
+        exc: The original git error.
+
+    Returns:
+        A `GitError` with auth guidance when the failure looks like an
+        authentication problem; otherwise the original exception unchanged.
+    """
     stderr = str(exc)
     if _looks_like_auth_failure(stderr):
         return git.GitError(_auth_help(alias, url, stderr))
@@ -124,11 +158,23 @@ def add(
     allow_empty: bool = False,
     allow_insecure: bool = False,
 ) -> RegisteredRepo:
-    """Register a skill source repo, bare-mirror-clone it, and index its skills.
+    """Register a skill source repo, bare-mirror-clone it, and index its artifacts.
 
-    If the repo contains no discoverable skills and `allow_empty=False`, the
-    clone is removed and `RepoHasNoSkillsError` is raised — registration
-    leaves no state behind.
+    Args:
+        alias: The alias to register the repo under.
+        url: The remote git URL to clone.
+        default_ref: The ref to resolve and track for this repo.
+        allow_empty: Keep the registration even if no artifacts are found.
+        allow_insecure: Permit insecure (non-https) URLs.
+
+    Returns:
+        The newly registered repo record.
+
+    Raises:
+        RepoExistsError: If the alias is already registered.
+        RepoHasNoArtifactsError: If no skills, agents, or rules are found and
+            `allow_empty` is False; the clone is removed so registration
+            leaves no state behind.
     """
     _validate_alias(alias)
     content_guard.require_secure_url(url, allow_insecure=allow_insecure)
@@ -161,7 +207,7 @@ def add(
         session.commit()
         session.refresh(repo)
 
-    # Index now. Lazy imports to break circular deps.
+    # Lazy imports to break circular deps.
     _skills = importlib.import_module("aim.core.skills")
     _agents = importlib.import_module("aim.core.agents")
     _repo_rules = importlib.import_module("aim.core.repo_rules")
@@ -189,6 +235,7 @@ def add(
 
 
 def list_repos() -> list[RegisteredRepo]:
+    """Return all registered repos sorted by alias."""
     with db.session() as session:
         rows = list(session.exec(select(RegisteredRepo)).all())
     rows.sort(key=lambda r: r.alias)
@@ -209,6 +256,11 @@ def artifact_kinds(alias: str) -> set[str]:
 
 
 def get(alias: str) -> RegisteredRepo:
+    """Return the registered repo for an alias.
+
+    Raises:
+        RepoNotFoundError: If the alias is not registered.
+    """
     with db.session() as session:
         row = session.get(RegisteredRepo, alias)
     if row is None:
@@ -217,6 +269,11 @@ def get(alias: str) -> RegisteredRepo:
 
 
 def remove(alias: str) -> None:
+    """Unregister a repo, drop its index rows, and remove the bare clone.
+
+    Raises:
+        RepoNotFoundError: If the alias is not registered.
+    """
     with db.session() as session:
         row = session.get(RegisteredRepo, alias)
         if row is None:
@@ -230,11 +287,19 @@ def remove(alias: str) -> None:
 
 
 def remove_project_artifacts(project_root: Path, alias: str) -> list[str]:
-    """Uninstall every skill/agent/rule in `project_root` that came from `alias`
-    (deployed files + lockfile + aim.toml declarations, which prunes the `[repos]`
-    binding once the last one is gone). Returns the qualified names removed; a no-op
-    when the project has no declarations. Imports the artifact modules locally to keep
-    repos free of an import cycle."""
+    """Uninstall every skill/agent/rule in a project that came from a repo.
+
+    Removes deployed files, lockfile entries, and aim.toml declarations, which
+    prunes the `[repos]` binding once the last artifact is gone.
+
+    Args:
+        project_root: The project directory to uninstall from.
+        alias: The repo alias whose artifacts should be removed.
+
+    Returns:
+        The qualified names removed; empty when the project has no declarations.
+    """
+    # Local imports keep this module free of an import cycle.
     from aim.core import agent_install, declarations, install, rule_install
 
     try:
@@ -264,12 +329,14 @@ def remove_project_artifacts(project_root: Path, alias: str) -> list[str]:
 
 
 def _delete_skill_index(alias: str):  # type: ignore[no-untyped-def]
+    """Build a delete statement for a repo's skill index rows."""
     from sqlmodel import delete as _delete
 
     return _delete(SkillIndex).where(SkillIndex.repo_alias == alias)  # type: ignore[arg-type]
 
 
 def _delete_agent_index(alias: str):  # type: ignore[no-untyped-def]
+    """Build a delete statement for a repo's agent index rows."""
     from sqlmodel import delete as _delete
 
     from aim.core.models import AgentIndex as _AgentIndex
@@ -278,6 +345,7 @@ def _delete_agent_index(alias: str):  # type: ignore[no-untyped-def]
 
 
 def _delete_rule_index(alias: str):  # type: ignore[no-untyped-def]
+    """Build a delete statement for a repo's rule index rows."""
     from sqlmodel import delete as _delete
 
     from aim.core.models import RuleIndex as _RuleIndex
@@ -286,6 +354,19 @@ def _delete_rule_index(alias: str):  # type: ignore[no-untyped-def]
 
 
 def rename(old: str, new: str) -> RegisteredRepo:
+    """Rename a repo alias, moving its index rows and bare clone directory.
+
+    Args:
+        old: The current alias.
+        new: The new alias.
+
+    Returns:
+        The renamed repo record (or the existing one if `old == new`).
+
+    Raises:
+        RepoNotFoundError: If `old` is not registered.
+        RepoExistsError: If `new` is already registered.
+    """
     _validate_alias(new)
     if old == new:
         return get(old)
@@ -439,6 +520,18 @@ class RefDisappearedError(RuntimeError):
 
 
 def refresh(alias: str, *, allow_insecure: bool = False) -> RegisteredRepo:
+    """Fetch a repo's remote, update its tracked SHA, and reindex on change.
+
+    Args:
+        alias: The repo alias to refresh.
+        allow_insecure: Permit insecure (non-https) URLs.
+
+    Returns:
+        The updated repo record.
+
+    Raises:
+        RefDisappearedError: If `default_ref` no longer resolves upstream.
+    """
     row = get(alias)
     content_guard.require_secure_url(row.url, allow_insecure=allow_insecure)
     previous_sha = row.last_sha

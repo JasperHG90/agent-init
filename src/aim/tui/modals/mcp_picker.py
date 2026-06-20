@@ -16,6 +16,8 @@ from aim.core import default_mcp_servers, mcp_registry
 
 @dataclass(frozen=True)
 class McpPick:
+    """Result returned when the user picks an MCP server from the modal."""
+
     server: mcp_registry.McpServer
 
 
@@ -23,6 +25,7 @@ class _PickerDataTable(DataTable):
     """DataTable that forwards Enter to the picker's pick action."""
 
     def on_key(self, event: events.Key) -> None:
+        """Trigger the picker's pick action on Enter, otherwise defer to default."""
         if event.key == "enter":
             event.stop()
             screen = self.screen
@@ -33,6 +36,8 @@ class _PickerDataTable(DataTable):
 
 
 class McpPickerModal(ModalScreen[McpPick | None]):
+    """Modal screen for searching and selecting an MCP server to add."""
+
     BINDINGS = [
         Binding("escape", "action_cancel", "Cancel", priority=True),
         Binding("slash", "focus_search", "Search", priority=True),
@@ -40,11 +45,13 @@ class McpPickerModal(ModalScreen[McpPick | None]):
     ]
 
     def __init__(self) -> None:
+        """Initialize the modal with empty results and no prior query."""
         super().__init__()
         self._results: list[mcp_registry.McpSearchResult] = []
         self._last_query: str = ""
 
     def compose(self) -> ComposeResult:
+        """Build the modal layout with search bar, results table, and buttons."""
         yield Vertical(
             Static("Add MCP server", classes="modal-title", markup=False),
             Input(placeholder="search registry…", id="search-bar"),
@@ -59,12 +66,14 @@ class McpPickerModal(ModalScreen[McpPick | None]):
         )
 
     def on_mount(self) -> None:
+        """Set up the table columns, show cached servers, and focus the search bar."""
         table = self.query_one("#mcp-table", DataTable)
         table.add_columns("name", "version", "description", "status")
         self._show_cached()
         self.query_one("#search-bar", Input).focus()
 
     def _show_cached(self) -> None:
+        """Populate the table with default and cached servers from the registry."""
         try:
             defaults = mcp_registry.seed_default_servers(
                 default_mcp_servers.DEFAULT_MCP_SERVER_NAMES
@@ -88,6 +97,11 @@ class McpPickerModal(ModalScreen[McpPick | None]):
         self._status(f"{len(rows)} cached/default server(s)")
 
     def _add_rows(self, results: list[mcp_registry.McpSearchResult]) -> None:
+        """Append search results to the table, deduplicating by server name.
+
+        Args:
+            results: Search results to render as rows; duplicates by name are skipped.
+        """
         table = self.query_one("#mcp-table", DataTable)
         seen: set[str] = set()
         for r in results:
@@ -111,6 +125,11 @@ class McpPickerModal(ModalScreen[McpPick | None]):
             )
 
     def _populate(self, query: str) -> None:
+        """Refresh the table for a query, showing cached servers when query is empty.
+
+        Args:
+            query: Raw search text; an empty/whitespace query falls back to cached servers.
+        """
         table = self.query_one("#mcp-table", DataTable)
         table.clear()
         q = query.strip()
@@ -127,6 +146,11 @@ class McpPickerModal(ModalScreen[McpPick | None]):
         )
 
     def _search_worker(self, q: str) -> None:
+        """Search the registry off-thread and marshal results back to the UI thread.
+
+        Args:
+            q: Query string to search the registry for.
+        """
         try:
             results, next_cursor = mcp_registry.search_registry(q)
         except mcp_registry.McpRegistryError as exc:
@@ -139,6 +163,12 @@ class McpPickerModal(ModalScreen[McpPick | None]):
         results: list[mcp_registry.McpSearchResult],
         next_cursor: str | None,
     ) -> None:
+        """Render search results, preserving the cursor selection when possible.
+
+        Args:
+            results: Servers returned by the registry search.
+            next_cursor: Pagination cursor; when set, more results are available.
+        """
         table = self.query_one("#mcp-table", DataTable)
         selected = self._selected_name()
         self._results = results
@@ -156,10 +186,16 @@ class McpPickerModal(ModalScreen[McpPick | None]):
         self._status(f"{len(results)} result(s){tail}")
 
     def _on_search_error(self, message: str) -> None:
+        """Notify the user and update status when a registry search fails.
+
+        Args:
+            message: Human-readable error detail from the failed search.
+        """
         self.app.notify(f"registry search failed: {message}", severity="error")
         self._status("registry search failed")
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
+        """Run the search and immediately pick the top result on Enter in the search bar."""
         if event.input.id == "search-bar":
             self._populate(event.value)
             self.query_one("#mcp-table", DataTable).focus()
@@ -167,9 +203,15 @@ class McpPickerModal(ModalScreen[McpPick | None]):
             return
 
     def action_focus_search(self) -> None:
+        """Move keyboard focus to the search input."""
         self.query_one("#search-bar", Input).focus()
 
     def _selected_name(self) -> str | None:
+        """Return the name of the currently highlighted server, or None.
+
+        Returns:
+            The selected row's server name, or None when nothing is selected.
+        """
         table = self.query_one("#mcp-table", DataTable)
         if table.row_count == 0 or not self._results:
             return None
@@ -177,6 +219,11 @@ class McpPickerModal(ModalScreen[McpPick | None]):
         return str(row_key.value) if row_key and row_key.value is not None else None
 
     def _selected(self) -> mcp_registry.McpServer | None:
+        """Return the currently highlighted server object, or None.
+
+        Returns:
+            The selected McpServer, or None when nothing is selected.
+        """
         name = self._selected_name()
         if name is None:
             return None
@@ -186,6 +233,7 @@ class McpPickerModal(ModalScreen[McpPick | None]):
         return None
 
     def action_pick(self) -> None:
+        """Dismiss the modal with the selected server, or report none was chosen."""
         server = self._selected()
         if server is None:
             self._status("no MCP server selected")
@@ -193,13 +241,20 @@ class McpPickerModal(ModalScreen[McpPick | None]):
         self.dismiss(McpPick(server=server))
 
     def action_cancel(self) -> None:
+        """Dismiss the modal without selecting a server."""
         self.dismiss(None)
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
+        """Pick on the Add button, otherwise cancel the modal."""
         if event.button.id == "go":
             self.action_pick()
         else:
             self.action_cancel()
 
     def _status(self, msg: str) -> None:
+        """Update the modal's status line text.
+
+        Args:
+            msg: Message to display in the status area.
+        """
         self.query_one("#status", Static).update(msg)

@@ -35,11 +35,13 @@ from aim.core import declarations, layout_profiles, manifest, mcp_registry
 
 
 class PruneError(RuntimeError):
-    pass
+    """Raise when a prune operation cannot proceed safely."""
 
 
 @dataclass
 class PruneOptions:
+    """Hold the inputs that configure a single prune invocation."""
+
     project_root: Path
     dry_run: bool = False
     force: bool = False
@@ -49,6 +51,8 @@ class PruneOptions:
 
 @dataclass
 class PruneItem:
+    """Describe one prune candidate and the action taken or planned for it."""
+
     kind: str  # "skill" | "agent" | "rule" | "mcp" | "symlink"
     path: str  # relative path, MCP alias, or "<inline>/<name>" for inline rules
     action: str  # "removed" | "would-remove" | "removed-stale-entry" | "skipped" | "kept" | "skipped-unsafe" | "error: ..."
@@ -56,15 +60,23 @@ class PruneItem:
 
 @dataclass
 class PruneResult:
+    """Hold the outcome of a prune plan or apply: removed, kept, and warnings."""
+
     removed: list[PruneItem] = field(default_factory=list)
     kept: list[PruneItem] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
 
 
-# ---------- helpers ----------
-
-
 def _ensure_inside(root: Path, path: Path) -> bool:
+    """Return whether ``path`` resolves to a location at or under ``root``.
+
+    Args:
+        root: The project root that deletions must stay within.
+        path: The candidate path to validate before removal.
+
+    Returns:
+        True if ``path`` is ``root`` or lies inside it; False on error or escape.
+    """
     try:
         resolved = path.resolve()
         root_resolved = root.resolve()
@@ -74,6 +86,15 @@ def _ensure_inside(root: Path, path: Path) -> bool:
 
 
 def _load_aimignore(project_root: Path) -> list[str]:
+    """Read ``.aimignore`` patterns from the project root.
+
+    Args:
+        project_root: Directory holding the optional ``.aimignore`` file.
+
+    Returns:
+        The non-blank, non-comment patterns; an empty list if the file is
+        missing or unreadable.
+    """
     ignore_path = project_root / ".aimignore"
     if not ignore_path.is_file():
         return []
@@ -91,7 +112,16 @@ def _load_aimignore(project_root: Path) -> list[str]:
 
 
 def _is_excluded(rel: str, patterns: list[str]) -> bool:
-    """Match a relative path or MCP alias against glob patterns."""
+    """Return whether a relative path or MCP alias matches any glob pattern.
+
+    Args:
+        rel: A relative path or MCP alias to test.
+        patterns: ``.aimignore``/``--exclude`` glob patterns; ``mcp:`` prefixes
+            match aliases.
+
+    Returns:
+        True if any pattern matches ``rel``.
+    """
     rel_dir = rel + "/"
     for raw in patterns:
         if raw.startswith("mcp:"):
@@ -112,12 +142,29 @@ def _is_excluded(rel: str, patterns: list[str]) -> bool:
 
 
 def _rule_rel(profile: layout_profiles.LayoutProfile, rule_name: str) -> str:
+    """Build the relative path or inline key identifying a rule under a profile.
+
+    Args:
+        profile: The layout profile determining inline vs. file-backed rules.
+        rule_name: The unqualified rule name.
+
+    Returns:
+        An ``<inline>/<name>`` key for inline profiles, otherwise a ``.md`` path.
+    """
     if profile.rules_mode == "inline":
         return f"<inline>/{rule_name}"
     return f"{profile.rules_dir}/{rule_name}.md"
 
 
 def _rule_name_from_rel(rel: str) -> str:
+    """Recover the unqualified rule name from its relative path or inline key.
+
+    Args:
+        rel: An ``<inline>/<name>`` key or a file path produced by ``_rule_rel``.
+
+    Returns:
+        The bare rule name.
+    """
     if rel.startswith("<inline>/"):
         return rel[len("<inline>/") :]
     return Path(rel).stem
@@ -126,6 +173,17 @@ def _rule_name_from_rel(rel: str) -> str:
 def _resolve_profile(
     project_root: Path, options: PruneOptions, decl_profile: str | None
 ) -> layout_profiles.LayoutProfile:
+    """Resolve the active layout profile, falling back to the built-in Claude one.
+
+    Args:
+        project_root: Root used to look up custom profiles.
+        options: Prune options whose ``layout_profile`` takes precedence.
+        decl_profile: Profile declared in ``aim.toml``, if any.
+
+    Returns:
+        The resolved profile, or the built-in Claude profile when none is set or
+        the named profile is not found.
+    """
     active = options.layout_profile or decl_profile
     if active:
         try:
@@ -135,20 +193,25 @@ def _resolve_profile(
     return layout_profiles.BUILTIN_CLAUDE
 
 
-# ---------- drift computation ----------
-
-
 def _drift(
     m: manifest.Manifest,
     decl: declarations.ProjectDeclarations,
     profile: layout_profiles.LayoutProfile,
     exclude_patterns: list[str],
 ) -> tuple[list[PruneItem], list[PruneItem], list[str]]:
-    """Compute drift candidates. Returns (candidates, kept, warnings).
+    """Compare the lockfile against declarations to compute drift.
 
-    candidates: lockfile entries not in declarations (action: would-remove or skipped)
-    kept: declared + installed items (informational; for verbose output)
-    warnings: .aimignore patterns that matched neither a candidate nor a kept item
+    Args:
+        m: The loaded manifest (installed state).
+        decl: The project declarations (desired state).
+        profile: The active layout profile.
+        exclude_patterns: Patterns protecting candidates from removal.
+
+    Returns:
+        A ``(candidates, kept, warnings)`` tuple where candidates are lockfile
+        entries not in declarations (``would-remove`` or ``skipped``), kept are
+        declared and installed items, and warnings flag exclude patterns that
+        matched neither a candidate nor a kept item.
     """
     candidates: list[PruneItem] = []
     kept: list[PruneItem] = []
@@ -165,11 +228,13 @@ def _drift(
     matched_patterns: set[str] = set()
 
     def _record_pattern_match(rel: str) -> None:
+        """Record that ``rel`` was covered by an exclude pattern, if any."""
         matching = _matching_pattern(rel, exclude_patterns)
         if matching is not None:
             matched_patterns.add(matching)
 
     def _maybe(candidate_kind: str, rel: str, declared: bool) -> None:
+        """Classify one installed item as kept, skipped, or would-remove."""
         if declared:
             kept.append(PruneItem(candidate_kind, rel, "kept"))
             _record_pattern_match(rel)
@@ -198,7 +263,15 @@ def _drift(
 
 
 def _matching_pattern(rel: str, patterns: list[str]) -> str | None:
-    """Return the first pattern that matches rel, or None."""
+    """Return the first pattern that matches ``rel``, or None.
+
+    Args:
+        rel: A relative path or MCP alias.
+        patterns: Candidate exclude patterns, in priority order.
+
+    Returns:
+        The first matching pattern, or None if none match.
+    """
     for raw in patterns:
         if _is_excluded(rel, [raw]):
             return raw
@@ -206,8 +279,15 @@ def _matching_pattern(rel: str, patterns: list[str]) -> str | None:
 
 
 def _obsolete_pattern_warnings(patterns: list[str], matched: set[str]) -> list[str]:
-    """Warn about .aimignore patterns that matched neither a drift candidate
-    nor a kept item — these are likely dead config under the new prune model."""
+    """Build warnings for exclude patterns that matched nothing.
+
+    Args:
+        patterns: All exclude patterns supplied for the run.
+        matched: Patterns that matched a drift candidate or kept item.
+
+    Returns:
+        One warning per unmatched pattern, flagging likely-obsolete config.
+    """
     warnings: list[str] = []
     for raw in patterns:
         if raw in matched:
@@ -219,13 +299,20 @@ def _obsolete_pattern_warnings(patterns: list[str], matched: set[str]) -> list[s
     return warnings
 
 
-# ---------- load + validate ----------
-
-
 def _load_state(
     project_root: Path,
 ) -> tuple[declarations.ProjectDeclarations, manifest.Manifest] | None:
-    """Load declarations and manifest. Returns None if aim.toml is missing."""
+    """Load declarations and manifest for a project.
+
+    Args:
+        project_root: The project root to load state from.
+
+    Returns:
+        A ``(declarations, manifest)`` tuple, or None if ``aim.toml`` is missing.
+
+    Raises:
+        PruneError: If ``aim.toml`` or ``aim.lock.toml`` is missing or unparsable.
+    """
     try:
         decl = declarations.load(project_root)
     except declarations.DeclarationsNotFoundError:
@@ -242,6 +329,15 @@ def _load_state(
 
 
 def _check_layout_match(m: manifest.Manifest, decl: declarations.ProjectDeclarations) -> None:
+    """Verify the lockfile and declarations agree on the layout profile.
+
+    Args:
+        m: The loaded manifest.
+        decl: The project declarations.
+
+    Raises:
+        PruneError: If the resolved layout profiles differ.
+    """
     # aim.toml uses None to mean "default"; the lockfile stores the resolved name.
     decl_resolved = decl.layout_profile or layout_profiles.BUILTIN_CLAUDE.name
     if m.layout_profile != decl_resolved:
@@ -251,11 +347,16 @@ def _check_layout_match(m: manifest.Manifest, decl: declarations.ProjectDeclarat
         )
 
 
-# ---------- plan / apply / run ----------
-
-
 def plan(options: PruneOptions) -> PruneResult:
-    """Compute the prune plan without applying it."""
+    """Compute the prune plan without applying it.
+
+    Args:
+        options: The prune configuration.
+
+    Returns:
+        A result whose ``removed`` holds drift candidates and whose ``warnings``
+        explain when there is nothing to prune.
+    """
     project_root = options.project_root.resolve()
     state = _load_state(project_root)
     if state is None:
@@ -271,8 +372,22 @@ def plan(options: PruneOptions) -> PruneResult:
 
 
 def apply(options: PruneOptions, plan_result: PruneResult) -> PruneResult:
-    """Apply a plan. Re-validates state; only acts on items still in drift
-    at apply time (TOCTOU safety)."""
+    """Apply a previously computed prune plan.
+
+    Re-validates state and only acts on items still in drift at apply time
+    (TOCTOU safety).
+
+    Args:
+        options: The prune configuration.
+        plan_result: The plan whose confirmed ``would-remove`` items to apply.
+
+    Returns:
+        A result recording what was removed, kept, or warned about.
+
+    Raises:
+        PruneError: If ``aim.toml`` vanished or an ``.mcp.json``/lockfile I/O
+            step fails.
+    """
     project_root = options.project_root.resolve()
     state = _load_state(project_root)
     if state is None:
@@ -282,7 +397,6 @@ def apply(options: PruneOptions, plan_result: PruneResult) -> PruneResult:
     profile = _resolve_profile(project_root, options, decl.layout_profile)
     exclude_patterns = _load_aimignore(project_root) + list(options.excludes)
 
-    # Recompute current drift.
     current, _, _ = _drift(m, decl, profile, exclude_patterns)
 
     # Items in the original plan that the user confirmed.
@@ -297,7 +411,6 @@ def apply(options: PruneOptions, plan_result: PruneResult) -> PruneResult:
         result.warnings.append("Plan is stale; re-run `aim prune`")
         return result
 
-    # Track what to remove from the lockfile per kind.
     skill_paths = {p for k, p in to_apply_keys if k == "skill"}
     agent_paths = {p for k, p in to_apply_keys if k == "agent"}
     rule_rels = {p for k, p in to_apply_keys if k == "rule"}
@@ -377,10 +490,17 @@ def apply(options: PruneOptions, plan_result: PruneResult) -> PruneResult:
 
 
 def run(options: PruneOptions) -> PruneResult:
-    """Backward-compat wrapper: plan then apply (no prompt).
+    """Plan then apply without prompting (backward-compat wrapper).
 
     Used by programmatic callers (e.g. the TUI) that manage their own
     confirmation flow. When ``dry_run=True``, only the plan is returned.
+
+    Args:
+        options: The prune configuration.
+
+    Returns:
+        The plan when ``dry_run`` is set or nothing would be removed; otherwise
+        the apply result.
     """
     plan_result = plan(options)
     if options.dry_run:
@@ -388,9 +508,6 @@ def run(options: PruneOptions) -> PruneResult:
     if not any(c.action == "would-remove" for c in plan_result.removed):
         return plan_result
     return apply(options, plan_result)
-
-
-# ---------- rendering ----------
 
 
 _KIND_ORDER = ("skill", "agent", "rule", "symlink", "mcp")
@@ -408,6 +525,10 @@ def render_prune_plan(result: PruneResult, *, verbose: bool = False) -> None:
 
     Default output focuses on removals. With ``verbose=True``, a "Kept"
     section is appended for visibility into what is managed but not touched.
+
+    Args:
+        result: The prune result to render.
+        verbose: When True, also list kept (declared and installed) items.
     """
     from rich.console import Console
     from rich.text import Text

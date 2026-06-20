@@ -26,23 +26,33 @@ from aim.core import repo_rules, repos, skills
 
 @dataclass
 class PaletteEntry:
+    """Represent a single selectable command-palette row."""
+
     kind: str  # "action" | "rule" | "repo" | "skill"
     label: str
     handler: Callable[[], None]
 
 
 class PaletteModal(ModalScreen[PaletteEntry | None]):
+    """Modal overlay listing palette entries with substring filtering."""
+
     BINDINGS = [
         ("escape", "cancel", "Cancel"),
         ("enter", "activate", "Run"),
     ]
 
     def __init__(self, entries: list[PaletteEntry]) -> None:
+        """Initialize the modal with the full set of palette entries.
+
+        Args:
+            entries: Every entry available for selection before filtering.
+        """
         super().__init__()
         self._all: list[PaletteEntry] = entries
         self._filtered: list[PaletteEntry] = list(entries)
 
     def compose(self) -> ComposeResult:
+        """Build the title, filter input, and option list widgets."""
         yield Vertical(
             Static("Command palette", classes="modal-title", markup=False),
             Input(placeholder="type to filter…", id="palette-input"),
@@ -51,19 +61,31 @@ class PaletteModal(ModalScreen[PaletteEntry | None]):
         )
 
     def on_mount(self) -> None:
+        """Focus the filter input when the modal is mounted."""
         self.query_one("#palette-input", Input).focus()
 
     def _option_widgets(self) -> list[Option]:
+        """Build option widgets for the currently filtered entries.
+
+        Returns:
+            One option per filtered entry, labelled with its kind and label.
+        """
         return [
             Option(f"[{e.kind}] {e.label}", id=f"opt-{i}") for i, e in enumerate(self._filtered)
         ]
 
     def _re_render(self) -> None:
+        """Replace the option list contents with the current filter result."""
         olist = self.query_one(OptionList)
         olist.clear_options()
         olist.add_options(self._option_widgets())
 
     def on_input_changed(self, event: Input.Changed) -> None:
+        """Filter entries by substring as the user types.
+
+        Args:
+            event: The input-changed event carrying the current filter text.
+        """
         if event.input.id != "palette-input":
             return
         q = event.value.lower().strip()
@@ -74,6 +96,7 @@ class PaletteModal(ModalScreen[PaletteEntry | None]):
         self._re_render()
 
     def action_activate(self) -> None:
+        """Dismiss the modal with the highlighted entry, or the first if none."""
         olist = self.query_one(OptionList)
         idx = olist.highlighted
         if idx is None and self._filtered:
@@ -83,11 +106,20 @@ class PaletteModal(ModalScreen[PaletteEntry | None]):
         self.dismiss(self._filtered[idx])
 
     def action_cancel(self) -> None:
+        """Dismiss the modal without selecting an entry."""
         self.dismiss(None)
 
 
 def build_entries(app) -> list[PaletteEntry]:  # type: ignore[no-untyped-def]
-    """Construct the palette entries for the current global state."""
+    """Construct the palette entries for the current global state.
+
+    Args:
+        app: The running TUI app, used to push screens and read project state.
+
+    Returns:
+        Navigation action entries followed by one entry per known template,
+        repo, skill, agent, and rule.
+    """
     from aim.tui.screens.agents_screen import AgentsScreen
     from aim.tui.screens.config_screen import ConfigScreen
     from aim.tui.screens.layout_profiles_screen import LayoutProfilesScreen

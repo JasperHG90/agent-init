@@ -39,6 +39,8 @@ class DoctorPathEscapeError(ValueError):
 
 @dataclass
 class Finding:
+    """A single audit observation with its severity and originating project."""
+
     severity: str  # "info" | "warning" | "error"
     project: Path | None
     message: str
@@ -46,19 +48,38 @@ class Finding:
 
 @dataclass
 class DoctorReport:
+    """Accumulated audit findings across all projects and global caches."""
+
     findings: list[Finding] = field(default_factory=list)
     projects_audited: int = 0
 
     @property
     def ok(self) -> bool:
+        """Return True when no finding has error severity."""
         return not any(f.severity == "error" for f in self.findings)
 
     def by_severity(self, sev: str) -> list[Finding]:
+        """Return findings matching the given severity.
+
+        Args:
+            sev: Severity to filter on ("info", "warning", or "error").
+
+        Returns:
+            The findings whose severity equals ``sev``.
+        """
         return [f for f in self.findings if f.severity == sev]
 
 
 def _safe_project_path(root: Path, rel: str) -> Path | None:
-    """Wrapper that catches unexpected resolution failures."""
+    """Resolve a project-relative path, returning None on resolution failure.
+
+    Args:
+        root: Project root the path is resolved against.
+        rel: Manifest-stored relative path.
+
+    Returns:
+        The resolved path, or None if resolution raises ValueError/OSError.
+    """
     try:
         return paths.safe_project_path(root, rel)
     except (ValueError, OSError):
@@ -70,6 +91,15 @@ def audit(
     *,
     stale_repo_days: int = 30,
 ) -> DoctorReport:
+    """Audit drift across project roots and global caches.
+
+    Args:
+        project_roots: Roots to audit; defaults to all registered roots.
+        stale_repo_days: Age threshold flagging a repo as not recently refreshed.
+
+    Returns:
+        A report aggregating findings from every audited project and cache.
+    """
     report = DoctorReport()
     resolved_roots = project_roots if project_roots is not None else roots.list_roots()
 
@@ -84,6 +114,12 @@ def audit(
 
 
 def _audit_project(root: Path, report: DoctorReport) -> None:
+    """Audit a single project root for manifest, region, skill, agent, and MCP drift.
+
+    Args:
+        root: Project root to inspect.
+        report: Report to append findings to.
+    """
     if not root.exists():
         report.findings.append(Finding("warning", root, f"project root does not exist: {root}"))
         return
@@ -93,7 +129,6 @@ def _audit_project(root: Path, report: DoctorReport) -> None:
         report.findings.append(Finding("warning", root, "no aim.lock.toml (not initialized)"))
         return
 
-    # Region drift in AGENTS.md and symlinks.
     for managed in m.managed_files:
         target = _safe_project_path(root, managed)
         if target is None:
@@ -132,7 +167,6 @@ def _audit_project(root: Path, report: DoctorReport) -> None:
                     )
                 )
 
-    # Skill drift.
     for skill in m.skills:
         target = _safe_project_path(root, skill.target_dir)
         if target is None:
@@ -164,7 +198,6 @@ def _audit_project(root: Path, report: DoctorReport) -> None:
                 )
             )
 
-    # Agent drift.
     for agent in m.agents:
         target = _safe_project_path(root, agent.target_path)
         if target is None:
@@ -198,7 +231,6 @@ def _audit_project(root: Path, report: DoctorReport) -> None:
                 )
             )
 
-    # MCP server drift.
     try:
         mcp_data = mcp_registry.read_mcp_json(root)
     except mcp_registry.McpRegistryError as exc:
@@ -223,6 +255,12 @@ def _audit_project(root: Path, report: DoctorReport) -> None:
 
 
 def _audit_global_repos(report: DoctorReport, *, stale_days: int) -> None:
+    """Flag registered repos that are stale or whose cache clone is missing.
+
+    Args:
+        report: Report to append findings to.
+        stale_days: Age threshold beyond which a repo is reported as stale.
+    """
     cutoff = datetime.now(UTC) - timedelta(days=stale_days)
     with db.session() as session:
         repo_rows: list[RegisteredRepo] = list(session.exec(select(RegisteredRepo)).all())
@@ -253,6 +291,11 @@ def _audit_global_repos(report: DoctorReport, *, stale_days: int) -> None:
 
 
 def _audit_snapshots(report: DoctorReport) -> None:
+    """Flag cached snapshot dirs that lack the completion sentinel.
+
+    Args:
+        report: Report to append findings to.
+    """
     root = paths.snapshots_cache_dir()
     if not root.exists():
         return

@@ -32,7 +32,14 @@ except Exception:  # pragma: no cover - pyyaml is required but be defensive
 
 
 def split_csv(value: str) -> list[str]:
-    """Helper to read a CSV field back into a list."""
+    """Split a comma-separated string into a list of non-empty trimmed parts.
+
+    Args:
+        value: The comma-separated string to split.
+
+    Returns:
+        The list of trimmed, non-empty components.
+    """
     return [p for p in (s.strip() for s in value.split(",")) if p]
 
 
@@ -42,8 +49,18 @@ _AGENT_RE = re.compile(
 )
 
 
-# Canonical paths win at the same depth; arbitrary paths are still discovered.
 def _prefix_rank(path: str) -> int:
+    """Rank a candidate path by prefix precedence (lower wins).
+
+    Canonical locations win at the same depth; arbitrary paths are still
+    discovered but ranked behind them.
+
+    Args:
+        path: The agent file path relative to the repo root.
+
+    Returns:
+        0 for top-level canonical paths, 1 for `.claude/agents/`, 2 otherwise.
+    """
     if path.startswith("agents/") or path == "AGENT.md":
         return 0
     if path.startswith(".claude/agents/"):
@@ -52,6 +69,8 @@ def _prefix_rank(path: str) -> int:
 
 
 class DiscoveredAgent(NamedTuple):
+    """A single agent located during repo discovery."""
+
     name: str
     source_path: str  # path of the agent DIRECTORY relative to repo root
     agent_md_path: str  # path of the AGENT.md file relative to repo root
@@ -59,6 +78,8 @@ class DiscoveredAgent(NamedTuple):
 
 @dataclass(frozen=True)
 class IndexResult:
+    """Outcome of discovering agents in a repo: those indexed and those shadowed."""
+
     repo_alias: str
     sha: str
     indexed: list[DiscoveredAgent]
@@ -66,6 +87,19 @@ class IndexResult:
 
 
 def discover(repo_alias: str) -> IndexResult:
+    """Discover all agents in a registered repo at its default ref.
+
+    Resolves the repo's default ref, scans its tree for agent files, applies
+    precedence rules when the same name appears multiple times, and reports
+    both the winning agents and the shadowed duplicates.
+
+    Args:
+        repo_alias: The alias of the registered repo to scan.
+
+    Returns:
+        The index result holding the resolved sha, indexed agents, and
+        shadowed duplicates.
+    """
     repo = repos.get(repo_alias)
     repo_dir = repos.clone_dir(repo_alias)
     sha = git.get_backend().resolve_ref(repo_dir, repo.default_ref)
@@ -119,7 +153,17 @@ def discover(repo_alias: str) -> IndexResult:
 
 
 def index_repo(repo_alias: str) -> IndexResult:
-    """Discover agents in a registered repo and write AgentIndex rows."""
+    """Discover agents in a registered repo and persist AgentIndex rows.
+
+    Replaces any existing index rows for the repo with freshly discovered
+    agents, parsing each agent's frontmatter for searchable metadata.
+
+    Args:
+        repo_alias: The alias of the registered repo to index.
+
+    Returns:
+        The discovery result describing what was indexed and shadowed.
+    """
     result = discover(repo_alias)
     with db.session() as session:
         session.exec(
@@ -148,7 +192,15 @@ def index_repo(repo_alias: str) -> IndexResult:
 
 
 def _extract_frontmatter(body: str) -> tuple[dict[str, Any], str]:
-    """Parse YAML frontmatter if present; return (fields, remainder)."""
+    """Parse leading YAML frontmatter from a document body.
+
+    Args:
+        body: The full document text, possibly starting with a `---` block.
+
+    Returns:
+        A tuple of the parsed frontmatter fields (empty if absent or
+        unparseable) and the remaining body after the frontmatter.
+    """
     fm_match = re.match(r"\A---\n(.*?)\n---\n", body, re.DOTALL)
     if not fm_match:
         return {}, body
@@ -204,6 +256,14 @@ def _parse_agent_md(
 
 
 def _as_str(value: Any) -> str | None:
+    """Coerce a frontmatter value to a string, preserving None.
+
+    Args:
+        value: The raw frontmatter value of any type.
+
+    Returns:
+        The value as a string, or None if it was None.
+    """
     if value is None:
         return None
     if isinstance(value, str):
@@ -212,6 +272,16 @@ def _as_str(value: Any) -> str | None:
 
 
 def _as_str_list(value: Any) -> list[str]:
+    """Coerce a frontmatter value into a list of strings.
+
+    Accepts a missing value, a single scalar, or an existing list.
+
+    Args:
+        value: The raw frontmatter value of any type.
+
+    Returns:
+        A list of string elements (empty if the value was None).
+    """
     if value is None:
         return []
     if isinstance(value, str):
@@ -238,6 +308,14 @@ def read_agent_content(qualified_name: str) -> str:
 
 
 def list_agents(repo_alias: str | None = None) -> list[AgentIndex]:
+    """List indexed agents, optionally filtered to one repo.
+
+    Args:
+        repo_alias: If given, restrict results to this repo's agents.
+
+    Returns:
+        The matching agent index rows, sorted by qualified name.
+    """
     with db.session() as session:
         stmt = select(AgentIndex)
         if repo_alias is not None:

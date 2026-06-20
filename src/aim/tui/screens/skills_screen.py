@@ -20,6 +20,8 @@ _SKILL_DEPLOY_ERRORS: tuple[type[BaseException], ...] = (  # noqa: RUF005
 
 
 class SkillsScreen(Screen[None]):
+    """Browse, search, view, and install indexed skills into a project."""
+
     BINDINGS = [
         ("escape", "app.pop_screen", "Back"),
         ("b", "app.pop_screen", "Back"),
@@ -32,11 +34,13 @@ class SkillsScreen(Screen[None]):
     ]
 
     def __init__(self) -> None:
+        """Initialize the screen with no active repo filter or pending install."""
         super().__init__()
         self._repo_filter: str | None = None
         self._installing: tuple[str, SkillInstallConfig] | None = None
 
     def compose(self) -> ComposeResult:
+        """Yield the title, search bar, skills table, status line, and hint."""
         yield Static("Skills", id="title", markup=False)
         yield Input(placeholder="search…", id="search-bar")
         yield DataTable(id="skills-table", cursor_type="row")
@@ -48,16 +52,23 @@ class SkillsScreen(Screen[None]):
         )
 
     def on_mount(self) -> None:
+        """Set up table columns, populate all skills, and focus the table."""
         table = self.query_one(DataTable)
         table.add_columns("qualified name", "title", "description")
         self._populate("")
         table.focus()
 
     def on_screen_resume(self) -> None:
+        """Repopulate the table using the current search query when resumed."""
         query = self.query_one("#search-bar", Input).value
         self._populate(query)
 
     def _populate(self, query: str) -> None:
+        """Refresh the table with skills matching the query and repo filter.
+
+        Args:
+            query: Search string; when empty, all indexed skills are listed.
+        """
         table = self.query_one(DataTable)
         selected = self._selected()
         table.clear()
@@ -91,6 +102,7 @@ class SkillsScreen(Screen[None]):
         self._status(f"{len(rows)} skill(s){filter_label}")
 
     def action_cycle_repo_filter(self) -> None:
+        """Advance the repo filter to the next alias, wrapping back to no filter."""
         aliases = [r.alias for r in repos.list_repos()]
         if not aliases:
             self.app.notify("no repos to filter by", severity="warning")
@@ -107,13 +119,16 @@ class SkillsScreen(Screen[None]):
         self._populate(query)
 
     def on_input_changed(self, event: Input.Changed) -> None:
+        """Repopulate the table as the user types in the search bar."""
         if event.input.id == "search-bar":
             self._populate(event.value)
 
     def action_focus_search(self) -> None:
+        """Move keyboard focus to the search bar."""
         self.query_one("#search-bar", Input).focus()
 
     def _selected(self) -> str | None:
+        """Return the qualified name of the highlighted row, or None if empty."""
         table = self.query_one(DataTable)
         if table.row_count == 0:
             return None
@@ -121,6 +136,7 @@ class SkillsScreen(Screen[None]):
         return str(row_key.value) if row_key and row_key.value is not None else None
 
     def action_view_current(self) -> None:
+        """Open the selected skill's content in a read-only view modal."""
         qn = self._selected()
         if qn is None:
             if self.query_one(DataTable).row_count == 0:
@@ -136,6 +152,7 @@ class SkillsScreen(Screen[None]):
         self.app.push_screen(SkillViewModal(qn, content))
 
     def action_install_current(self) -> None:
+        """Prompt for install config for the selected skill, then install it."""
         qn = self._selected()
         if qn is None:
             if self.query_one(DataTable).row_count == 0:
@@ -149,6 +166,12 @@ class SkillsScreen(Screen[None]):
         )
 
     def _install(self, qualified_name: str, cfg: SkillInstallConfig | None) -> None:
+        """Kick off a threaded install for a skill, or no-op if config is None.
+
+        Args:
+            qualified_name: Fully qualified name of the skill to install.
+            cfg: Install configuration from the modal; None means the user cancelled.
+        """
         if cfg is None:
             return
         # The risk scan can pull a model or call a judge — run off the UI thread so the
@@ -158,6 +181,7 @@ class SkillsScreen(Screen[None]):
         self.run_worker(self._do_install_thread, exclusive=True, thread=True)
 
     def _do_install_thread(self) -> None:
+        """Run the pending install on a worker thread and report results to the UI."""
         if self._installing is None:
             return
         qualified_name, cfg = self._installing
@@ -177,4 +201,5 @@ class SkillsScreen(Screen[None]):
             self.app.call_from_thread(self.app.notify, warn, severity="warning", title="risk")
 
     def _status(self, msg: str) -> None:
+        """Update the status line with the given message."""
         self.query_one("#status", Static).update(msg)

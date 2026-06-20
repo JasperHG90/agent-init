@@ -52,7 +52,7 @@ class RuleLocalEditsError(RuntimeError):
 
 
 class RuleNoHistoryToRollbackError(RuntimeError):
-    pass
+    """The rule has no prior version recorded to roll back to."""
 
 
 class RuleManifestPathEscapeError(ValueError):
@@ -60,6 +60,17 @@ class RuleManifestPathEscapeError(ValueError):
 
 
 def _rule_index_row(qualified_name: str) -> RuleIndex:
+    """Look up the rule index row for a qualified name.
+
+    Args:
+        qualified_name: The repo-qualified rule name (e.g. `alias/name`).
+
+    Returns:
+        The matching rule index row.
+
+    Raises:
+        RuleNotIndexedError: The name is absent from the rule index.
+    """
     try:
         return repo_rules.index_row(qualified_name)
     except repo_rules.RuleNotIndexedError as exc:
@@ -67,14 +78,25 @@ def _rule_index_row(qualified_name: str) -> RuleIndex:
 
 
 def _rule_name(qualified_name: str) -> str:
+    """Strip the repo alias prefix from a qualified rule name."""
     return qualified_name.split("/", 1)[1] if "/" in qualified_name else qualified_name
 
 
 def _load_manifest(project_root: Path) -> Manifest:
+    """Load the project manifest, creating it if absent."""
     return manifest.load_or_create(project_root)
 
 
 def _find_installed(m: Manifest, qualified_name: str) -> InstalledRule | None:
+    """Return the installed rule matching a qualified name, or None.
+
+    Args:
+        m: The project manifest to search.
+        qualified_name: The repo-qualified rule name to find.
+
+    Returns:
+        The matching installed rule, or None if not present.
+    """
     for r in m.rules:
         if r.qualified_name == qualified_name:
             return r
@@ -82,7 +104,19 @@ def _find_installed(m: Manifest, qualified_name: str) -> InstalledRule | None:
 
 
 def _target_path(project_root: Path, rule_name: str) -> Path | None:
-    """Resolve the on-disk target for files mode, or None in inline mode."""
+    """Resolve the on-disk rule target for files mode, or None in inline mode.
+
+    Args:
+        project_root: Root of the project whose layout profile governs the target.
+        rule_name: The bare (alias-stripped) rule name.
+
+    Returns:
+        The validated target path in files mode, or None in inline mode.
+
+    Raises:
+        ValueError: The rule name is not a safe file name.
+        RuleManifestPathEscapeError: The derived path escapes the project root.
+    """
     profile = layout_profiles.resolve_active(project_root)
     if profile.rules_mode != "files":
         return None
@@ -96,11 +130,31 @@ def _target_path(project_root: Path, rule_name: str) -> Path | None:
 
 
 def _read_at_sha(source_path: str, repo_alias: str, sha: str) -> str:
+    """Read a rule file's content from a repo at a specific commit.
+
+    Args:
+        source_path: Path to the rule file within the repo.
+        repo_alias: Alias of the registered repo to read from.
+        sha: Commit SHA to read the file content at.
+
+    Returns:
+        The rule file content at the given SHA.
+    """
     repo_dir = repos.clone_dir(repo_alias)
     return git.get_backend().cat_file(repo_dir, sha, source_path)
 
 
 def _check_local_edits(project_root: Path, installed: InstalledRule, *, force: bool) -> None:
+    """Guard against overwriting a hand-edited rule file.
+
+    Args:
+        project_root: Root of the project containing the deployed rule.
+        installed: The installed rule whose content hash is the baseline.
+        force: Skip the check when True.
+
+    Raises:
+        RuleLocalEditsError: The deployed file differs from its install-time hash.
+    """
     if force or installed.content_hash is None:
         return
     target = _target_path(project_root, _rule_name(installed.qualified_name))
@@ -115,6 +169,7 @@ def _check_local_edits(project_root: Path, installed: InstalledRule, *, force: b
 
 
 def _repo_url(alias: str) -> str:
+    """Return the URL for a registered repo alias, or empty string if unknown."""
     try:
         return repos.get(alias).url
     except repos.RepoNotFoundError:
@@ -124,9 +179,18 @@ def _repo_url(alias: str) -> str:
 def _gate_rule(
     project_root: Path, qualified_name: str, content: str, *, override_risk: bool = False
 ) -> None:
-    """Single content gate for rules: every deploy path (install/update/rollback/
+    """Run security, policy, and risk checks on a rule's content.
+
+    Single content gate for rules: every deploy path (install/update/rollback/
     sync, files and inline mode) funnels through here, so security/policy/risk
-    checks live in one place."""
+    checks live in one place.
+
+    Args:
+        project_root: Root of the project whose effective policy applies.
+        qualified_name: The repo-qualified rule name being gated.
+        content: The rule body to inspect.
+        override_risk: Bypass the risk gate when True.
+    """
     pol = policy.effective_policy(project_root)
     alias = qualified_name.split("/", 1)[0]
     policy.assert_repo_allowed(pol, alias, _repo_url(alias))
@@ -143,8 +207,17 @@ def _deploy(
     qualified_name: str,
     override_risk: bool = False,
 ) -> None:
-    """Gate then write the rule body to its files-mode target. The gate runs above
-    the inline-mode early return, so inline rules are gated too."""
+    """Gate then write the rule body to its files-mode target.
+
+    The gate runs above the inline-mode early return, so inline rules are gated too.
+
+    Args:
+        project_root: Root of the project to deploy into.
+        rule_name: The bare (alias-stripped) rule name.
+        content: The rule body to gate and write.
+        qualified_name: The repo-qualified rule name, used by the gate.
+        override_risk: Bypass the risk gate when True.
+    """
     _gate_rule(project_root, qualified_name, content, override_risk=override_risk)
     target = _target_path(project_root, rule_name)
     if target is None:
@@ -161,7 +234,18 @@ def install(
     pin: str | None = None,
     override_risk: bool = False,
 ) -> InstalledRule:
-    """Install a rule into the project."""
+    """Install a rule into the project.
+
+    Args:
+        project_root: Root of the project to install into.
+        qualified_name: The repo-qualified rule name to install.
+        track: Optional update track to follow instead of pinning.
+        pin: Optional explicit version pin.
+        override_risk: Bypass the risk gate when True.
+
+    Returns:
+        The installed rule manifest entry (new or updated in place).
+    """
     row = _rule_index_row(qualified_name)
     version = resolve_install_version(
         row.repo_alias,
@@ -217,7 +301,21 @@ def update(
     force: bool = False,
     override_risk: bool = False,
 ) -> InstalledRule:
-    """Refresh an installed rule from its source repo."""
+    """Refresh an installed rule from its source repo.
+
+    Args:
+        project_root: Root of the project containing the rule.
+        qualified_name: The repo-qualified rule name to update.
+        force: Overwrite local edits to the deployed file when True.
+        override_risk: Bypass the risk gate when True.
+
+    Returns:
+        The updated installed rule entry; unchanged if already at the resolved SHA.
+
+    Raises:
+        RuleNotInstalledError: The rule is absent from the manifest.
+        RuleSourcePathChangedError: The upstream source path no longer matches.
+    """
     m = _load_manifest(project_root)
     existing = _find_installed(m, qualified_name)
     if existing is None:
@@ -262,11 +360,23 @@ def update_many(
     only_outdated: bool = False,
     force: bool = False,
 ) -> list[dict]:
-    """Update all (or a filtered subset of) installed rules in a project."""
+    """Update all (or a filtered subset of) installed rules in a project.
+
+    Args:
+        project_root: Root of the project containing the rules.
+        repo_alias: If set, only update rules sourced from this repo alias.
+        only_outdated: Skip rules already at their resolved SHA when True.
+        force: Overwrite local edits to deployed files when True.
+
+    Returns:
+        One status dict per rule with keys ``qualified_name``, ``status``, ``detail``.
+    """
     from dataclasses import dataclass
 
     @dataclass
     class Outcome:
+        """Per-rule update result accumulated during the batch."""
+
         qualified_name: str
         status: str
         detail: str = ""
@@ -301,7 +411,15 @@ def update_many(
 
 
 def delete(project_root: Path, qualified_name: str) -> None:
-    """Remove an installed rule file (files mode) and its manifest entry."""
+    """Remove an installed rule file (files mode) and its manifest entry.
+
+    Args:
+        project_root: Root of the project containing the rule.
+        qualified_name: The repo-qualified rule name to delete.
+
+    Raises:
+        RuleNotInstalledError: The rule is absent from the manifest.
+    """
     m = _load_manifest(project_root)
     existing = _find_installed(m, qualified_name)
     if existing is None:
@@ -315,7 +433,20 @@ def delete(project_root: Path, qualified_name: str) -> None:
 
 
 def rollback(project_root: Path, qualified_name: str, *, force: bool = False) -> InstalledRule:
-    """Restore `history[0]` as the current installed rule."""
+    """Restore `history[0]` as the current installed rule.
+
+    Args:
+        project_root: Root of the project containing the rule.
+        qualified_name: The repo-qualified rule name to roll back.
+        force: Overwrite local edits to the deployed file when True.
+
+    Returns:
+        The installed rule entry with the prior version restored as current.
+
+    Raises:
+        RuleNotInstalledError: The rule is absent from the manifest.
+        RuleNoHistoryToRollbackError: There is no prior version to restore.
+    """
     m = _load_manifest(project_root)
     existing = _find_installed(m, qualified_name)
     if existing is None:

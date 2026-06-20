@@ -16,21 +16,32 @@ from aim.core import profiles
 
 @dataclass(frozen=True)
 class ExportTomlResult:
+    """Hold the destination path of a successfully exported TOML profile."""
+
     path: Path
 
 
 class ExportTomlModal(ModalScreen[ExportTomlResult | None]):
+    """Prompt for a destination path and export a profile to TOML."""
+
     BINDINGS = [
         Binding("escape", "action_cancel", "Cancel", priority=True),
         Binding("enter", "action_export", "Export", priority=True),
     ]
 
     def __init__(self, profile: profiles.Profile, *, initial_path: str = "") -> None:
+        """Store the profile to export and the prefilled destination path.
+
+        Args:
+            profile: The profile to render and write as TOML.
+            initial_path: Prefilled value for the destination path input.
+        """
         super().__init__()
         self._profile = profile
         self._initial_path = initial_path
 
     def compose(self) -> ComposeResult:
+        """Build the modal layout."""
         yield Vertical(
             Static("Export template as TOML", classes="modal-title", markup=False),
             Static("Destination path:", markup=False),
@@ -45,9 +56,11 @@ class ExportTomlModal(ModalScreen[ExportTomlResult | None]):
         )
 
     def on_mount(self) -> None:
+        """Focus the path input when the modal is mounted."""
         self.query_one("#path", Input).focus()
 
     def action_export(self) -> None:
+        """Validate the path, write the profile as TOML, and dismiss on success."""
         value = self.query_one("#path", Input).value.strip()
         if not value:
             self._error("path is required")
@@ -62,18 +75,26 @@ class ExportTomlModal(ModalScreen[ExportTomlResult | None]):
         self.dismiss(ExportTomlResult(path=path))
 
     def action_cancel(self) -> None:
+        """Dismiss the modal without exporting."""
         self.dismiss(None)
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
+        """Route a button press to export or cancel."""
         if event.button.id == "go":
             self.action_export()
         else:
             self.action_cancel()
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
+        """Trigger export when the path input is submitted."""
         if event.input.id == "path":
             self.action_export()
 
     def _error(self, msg: str) -> None:
+        """Display an error message in the modal and notify the app.
+
+        Args:
+            msg: The error text to show and notify.
+        """
         self.query_one("#error", Static).update(msg)
         self.app.notify(msg, severity="error", title="Export TOML")

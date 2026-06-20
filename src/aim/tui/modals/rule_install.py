@@ -14,23 +14,34 @@ from textual.widgets import Button, Input, Static
 
 @dataclass(frozen=True)
 class RuleInstallConfig:
+    """Hold the resolved settings for installing a rule into a project."""
+
     project_root: Path
     pin: str | None = None
     track: str | None = None
 
 
 class RuleInstallModal(ModalScreen[RuleInstallConfig | None]):
+    """Prompt for the project root and optional pin/track when installing a rule."""
+
     BINDINGS = [
         Binding("escape", "cancel", "Cancel", priority=True),
         Binding("enter", "submit", "Add", priority=True),
     ]
 
     def __init__(self, qualified_name: str, *, initial_project: Path | None = None) -> None:
+        """Initialize the modal for a rule.
+
+        Args:
+            qualified_name: Fully qualified name of the rule being installed.
+            initial_project: Project root to pre-fill; defaults to the current directory.
+        """
         super().__init__()
         self._qualified_name = qualified_name
         self._initial_project = initial_project or Path.cwd()
 
     def compose(self) -> ComposeResult:
+        """Build the modal layout."""
         yield Vertical(
             Static(f"Add {self._qualified_name}", classes="modal-title", markup=False),
             VerticalScroll(
@@ -52,22 +63,35 @@ class RuleInstallModal(ModalScreen[RuleInstallConfig | None]):
         )
 
     def on_mount(self) -> None:
+        """Focus the project root input when the modal mounts."""
         self.query_one("#project-root", Input).focus()
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
+        """Submit on the Add button, otherwise dismiss without a result.
+
+        Args:
+            event: The button press event carrying the pressed button.
+        """
         if event.button.id == "go":
             self._submit()
         else:
             self.dismiss(None)
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
+        """Submit when the project root input is confirmed.
+
+        Args:
+            event: The input submission event identifying the source input.
+        """
         if event.input.id == "project-root":
             self._submit()
 
     def action_submit(self) -> None:
+        """Submit the modal in response to the bound key."""
         self._submit()
 
     def _submit(self) -> None:
+        """Validate inputs and dismiss with a config, or show an error."""
         value = self.query_one("#project-root", Input).value.strip()
         if not value:
             self.query_one("#error", Static).update("project root is required")
@@ -85,9 +109,15 @@ class RuleInstallModal(ModalScreen[RuleInstallConfig | None]):
         )
 
     def action_cancel(self) -> None:
+        """Dismiss the modal without a result."""
         self.dismiss(None)
 
     def on_key(self, event) -> None:
+        """Cancel on Escape and stop the event from propagating.
+
+        Args:
+            event: The key event to inspect.
+        """
         if event.key == "escape":
             event.stop()
             self.action_cancel()

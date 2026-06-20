@@ -21,6 +21,8 @@ from aim.tui.widgets import ToggleRow
 
 @dataclass(frozen=True)
 class McpInstallConfig:
+    """Hold the user-selected options for installing an MCP server."""
+
     project_root: Path
     alias: str
     transport: str | None
@@ -29,6 +31,8 @@ class McpInstallConfig:
 
 
 class McpInstallModal(ModalScreen[McpInstallConfig | None]):
+    """Modal for configuring and confirming an MCP server install."""
+
     BINDINGS = [
         Binding("escape", "action_cancel", "Cancel", priority=True),
         ("b", "action_cancel", "Back"),
@@ -43,6 +47,14 @@ class McpInstallModal(ModalScreen[McpInstallConfig | None]):
         initial_project: Path | None = None,
         initial_alias: str | None = None,
     ) -> None:
+        """Initialize the modal with the server and optional install defaults.
+
+        Args:
+            server: The MCP server registry entry being installed.
+            editable: Whether the form accepts input or is view-only.
+            initial_project: Pre-filled project root; defaults to the cwd.
+            initial_alias: Pre-filled local alias; defaults to a name-derived alias.
+        """
         super().__init__()
         self._server = server
         self._editable = editable
@@ -51,12 +63,20 @@ class McpInstallModal(ModalScreen[McpInstallConfig | None]):
 
     @staticmethod
     def _default_alias(name: str) -> str:
-        # Take last segment, drop namespace-ish dots.
+        """Derive a filesystem-safe local alias from a server name.
+
+        Args:
+            name: The full MCP server name, possibly namespaced.
+
+        Returns:
+            A lowercase alias containing only alphanumerics, hyphens, and underscores.
+        """
         short = name.split("/")[-1]
         short = short.split(":")[0]
         return "".join(c if c.isalnum() or c in "_-" else "-" for c in short).lower()
 
     def compose(self) -> ComposeResult:
+        """Build the modal layout with the entry preview and install form."""
         try:
             entry = mcp_registry.map_to_claude_entry(self._server)
             entry_json = entry.model_dump_json(exclude_none=True, indent=2)
@@ -104,9 +124,11 @@ class McpInstallModal(ModalScreen[McpInstallConfig | None]):
         )
 
     def on_mount(self) -> None:
+        """Focus the alias input when the modal is mounted."""
         self.query_one("#alias", Input).focus()
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
+        """Dismiss on cancel/close, otherwise submit the install form."""
         if event.button.id == "cancel":
             self.dismiss(None)
             return
@@ -116,16 +138,22 @@ class McpInstallModal(ModalScreen[McpInstallConfig | None]):
         self._submit()
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
+        """Submit the form when a relevant text input is confirmed."""
         if event.input.id in ("project-root", "alias", "command", "url"):
             self._submit()
 
     def action_submit(self) -> None:
+        """Submit the form, or dismiss when the modal is view-only."""
         if not self._editable:
             self.dismiss(None)
             return
         self._submit()
 
     def _submit(self) -> None:
+        """Validate the form and dismiss with the assembled install config.
+
+        Shows an inline error and aborts when the project root or alias is empty.
+        """
         project = self.query_one("#project-root", Input).value.strip()
         alias = self.query_one("#alias", Input).value.strip()
         if not project:
@@ -161,13 +189,20 @@ class McpInstallModal(ModalScreen[McpInstallConfig | None]):
         )
 
     def _error(self, msg: str) -> None:
+        """Display a validation error inline and as an app notification.
+
+        Args:
+            msg: The error message to surface to the user.
+        """
         self.query_one("#error", Static).update(msg)
         self.app.notify(msg, severity="error", title="Install")
 
     def action_cancel(self) -> None:
+        """Dismiss the modal without producing an install config."""
         self.dismiss(None)
 
     def on_key(self, event) -> None:
+        """Cancel the modal when the escape key is pressed."""
         if event.key == "escape":
             event.stop()
             self.action_cancel()

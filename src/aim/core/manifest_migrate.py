@@ -13,16 +13,33 @@ from aim.core.models import CURRENT_MANIFEST_VERSION
 
 
 class ManifestVersionError(ValueError):
-    pass
+    """Raise when a manifest version is unknown, too new, or unmigratable."""
 
 
 def _v0_to_v1(raw: dict[str, Any]) -> dict[str, Any]:
+    """Migrate a v0 manifest forward to v1.
+
+    Args:
+        raw: The decoded manifest mapping at version 0.
+
+    Returns:
+        The same mapping, mutated in place, stamped at version 1.
+    """
     raw["manifest_version"] = 1
     return raw
 
 
 def _v1_to_v2(raw: dict[str, Any]) -> dict[str, Any]:
-    """v2 adds optional `pin` and `track` to each skill. Additive only."""
+    """Migrate a v1 manifest forward to v2.
+
+    v2 adds optional `pin` and `track` to each skill. Additive only.
+
+    Args:
+        raw: The decoded manifest mapping at version 1.
+
+    Returns:
+        The same mapping, mutated in place, stamped at version 2.
+    """
     for skill in raw.get("skills", []):
         skill.setdefault("pin", None)
         skill.setdefault("track", None)
@@ -31,14 +48,32 @@ def _v1_to_v2(raw: dict[str, Any]) -> dict[str, Any]:
 
 
 def _v2_to_v3(raw: dict[str, Any]) -> dict[str, Any]:
-    """v3 adds optional `layout_profile`. Additive only."""
+    """Migrate a v2 manifest forward to v3.
+
+    v3 adds optional `layout_profile`. Additive only.
+
+    Args:
+        raw: The decoded manifest mapping at version 2.
+
+    Returns:
+        The same mapping, mutated in place, stamped at version 3.
+    """
     raw.setdefault("layout_profile", None)
     raw["manifest_version"] = 3
     return raw
 
 
 def _v3_to_v4(raw: dict[str, Any]) -> dict[str, Any]:
-    """v4 adds optional `mcp_servers` and `agents` lists. Additive only."""
+    """Migrate a v3 manifest forward to v4.
+
+    v4 adds optional `mcp_servers` and `agents` lists. Additive only.
+
+    Args:
+        raw: The decoded manifest mapping at version 3.
+
+    Returns:
+        The same mapping, mutated in place, stamped at version 4.
+    """
     raw.setdefault("mcp_servers", [])
     raw.setdefault("agents", [])
     raw["manifest_version"] = 4
@@ -46,14 +81,32 @@ def _v3_to_v4(raw: dict[str, Any]) -> dict[str, Any]:
 
 
 def _v4_to_v5(raw: dict[str, Any]) -> dict[str, Any]:
-    """v5 adds explicit `symlinks` list. Additive only."""
+    """Migrate a v4 manifest forward to v5.
+
+    v5 adds explicit `symlinks` list. Additive only.
+
+    Args:
+        raw: The decoded manifest mapping at version 4.
+
+    Returns:
+        The same mapping, mutated in place, stamped at version 5.
+    """
     raw.setdefault("symlinks", [])
     raw["manifest_version"] = 5
     return raw
 
 
 def _v5_to_v6(raw: dict[str, Any]) -> dict[str, Any]:
-    """v6 adds optional `overrides` to each MCP server/version. Additive only."""
+    """Migrate a v5 manifest forward to v6.
+
+    v6 adds optional `overrides` to each MCP server/version. Additive only.
+
+    Args:
+        raw: The decoded manifest mapping at version 5.
+
+    Returns:
+        The same mapping, mutated in place, stamped at version 6.
+    """
     for mcp in raw.get("mcp_servers", []):
         mcp.setdefault("overrides", None)
         for version in mcp.get("history", []):
@@ -63,17 +116,39 @@ def _v5_to_v6(raw: dict[str, Any]) -> dict[str, Any]:
 
 
 def _v6_to_v7(raw: dict[str, Any]) -> dict[str, Any]:
-    """v7 drops the per-project `agent_dialect` field."""
+    """Migrate a v6 manifest forward to v7.
+
+    v7 drops the per-project `agent_dialect` field.
+
+    Args:
+        raw: The decoded manifest mapping at version 6.
+
+    Returns:
+        The same mapping, mutated in place, stamped at version 7.
+    """
     raw.pop("agent_dialect", None)
     raw["manifest_version"] = 7
     return raw
 
 
 def _v7_to_v8(raw: dict[str, Any]) -> dict[str, Any]:
-    """v8 makes rules repo-sourced, SHA-pinned artifacts. The pre-v8 manifest
+    """Migrate a v7 manifest forward to v8.
+
+    v8 makes rules repo-sourced, SHA-pinned artifacts. The pre-v8 manifest
     stored rules as a bare name list against a local library that no longer
     exists. Rule-less projects upgrade cleanly; projects that locked rules by
-    name must re-add them (there is no automatic migration)."""
+    name must re-add them (there is no automatic migration).
+
+    Args:
+        raw: The decoded manifest mapping at version 7.
+
+    Returns:
+        The same mapping, mutated in place, stamped at version 8.
+
+    Raises:
+        ManifestVersionError: If the manifest locks rules by name, since
+            those cannot be migrated automatically and must be re-added.
+    """
     rules = raw.get("rules")
     if rules:
         raise ManifestVersionError(
@@ -86,8 +161,17 @@ def _v7_to_v8(raw: dict[str, Any]) -> dict[str, Any]:
 
 
 def _v8_to_v9(raw: dict[str, Any]) -> dict[str, Any]:
-    """v9 adds optional `policy_repo`/`policy_hash` pinning the governing policy.
-    Additive only."""
+    """Migrate a v8 manifest forward to v9.
+
+    v9 adds optional `policy_repo`/`policy_hash` pinning the governing policy.
+    Additive only.
+
+    Args:
+        raw: The decoded manifest mapping at version 8.
+
+    Returns:
+        The same mapping, mutated in place, stamped at version 9.
+    """
     raw.setdefault("policy_repo", None)
     raw.setdefault("policy_hash", None)
     raw["manifest_version"] = 9
@@ -95,7 +179,16 @@ def _v8_to_v9(raw: dict[str, Any]) -> dict[str, Any]:
 
 
 def _v9_to_v10(raw: dict[str, Any]) -> dict[str, Any]:
-    """v10 adds the optional org policy commit SHA `policy_ref`. Additive only."""
+    """Migrate a v9 manifest forward to v10.
+
+    v10 adds the optional org policy commit SHA `policy_ref`. Additive only.
+
+    Args:
+        raw: The decoded manifest mapping at version 9.
+
+    Returns:
+        The same mapping, mutated in place, stamped at version 10.
+    """
     raw.setdefault("policy_ref", None)
     raw["manifest_version"] = 10
     return raw
@@ -116,6 +209,21 @@ MIGRATIONS: dict[int, Callable[[dict[str, Any]], dict[str, Any]]] = {
 
 
 def migrate(raw: dict[str, Any]) -> dict[str, Any]:
+    """Upgrade a raw manifest to the current schema version.
+
+    Applies forward migrators in sequence until the manifest reaches
+    CURRENT_MANIFEST_VERSION. A missing `manifest_version` is treated as 0.
+
+    Args:
+        raw: The decoded manifest mapping at any supported version.
+
+    Returns:
+        The migrated mapping stamped at the current manifest version.
+
+    Raises:
+        ManifestVersionError: If `manifest_version` is not an int, is newer
+            than supported, or has no registered migration path.
+    """
     version = raw.get("manifest_version", 0)
     if not isinstance(version, int):
         raise ManifestVersionError(f"manifest_version must be int, got {type(version).__name__}")

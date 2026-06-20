@@ -51,10 +51,9 @@ class PolicyError(ValueError):
     """A policy document could not be parsed or is otherwise invalid."""
 
 
-# ---------- models ----------
-
-
 class RiskRule(BaseModel):
+    """A single risk rule the judge evaluates, with an id, severity, and prompt."""
+
     model_config = ConfigDict(extra="forbid")
 
     id: str
@@ -63,6 +62,8 @@ class RiskRule(BaseModel):
 
 
 class RiskSettings(BaseModel):
+    """Configure risk scanning: which screens run, thresholds, and override rules."""
+
     model_config = ConfigDict(extra="forbid")
 
     # Risk scanning is active iff `classifier` or `llm_judge` is on (no separate
@@ -85,6 +86,8 @@ class RiskSettings(BaseModel):
 
 
 class Policy(BaseModel):
+    """The resolved governance policy: blocklists, allowed profiles, and risk settings."""
+
     model_config = ConfigDict(extra="forbid")
 
     version: int = 1
@@ -144,13 +147,21 @@ PRESET_RULES: tuple[RiskRule, ...] = (
 
 
 def builtin_policy() -> Policy:
-    """The permissive default used when no policy is configured."""
+    """Return the permissive default used when no policy is configured."""
     return Policy(name="builtin")
 
 
 def active_rules(policy: Policy) -> list[RiskRule]:
-    """Resolve the rule set the judge should evaluate: presets (with policy
-    overrides/disables applied) plus custom rules when enabled."""
+    """Resolve the rule set the judge should evaluate.
+
+    Applies preset overrides/disables and appends custom rules when enabled.
+
+    Args:
+        policy: The resolved policy whose risk settings drive rule selection.
+
+    Returns:
+        The presets (after overrides) followed by enabled custom rules.
+    """
     rules: list[RiskRule] = []
     for preset in PRESET_RULES:
         override = policy.risk.preset_overrides.get(preset.id, preset.severity)
@@ -163,12 +174,18 @@ def active_rules(policy: Policy) -> list[RiskRule]:
     return rules
 
 
-# ---------- repo url normalization (relocated from cli for shared use) ----------
-
-
 def normalize_repo_url(url: str) -> str:
-    """Canonicalize a git URL for equality comparison: drop a trailing `.git`,
-    rewrite `git@host:path` to `https://host/path`, and lowercase."""
+    """Canonicalize a git URL for equality comparison.
+
+    Drops a trailing `.git`, rewrites `git@host:path` to `https://host/path`,
+    and lowercases the result.
+
+    Args:
+        url: The git URL to canonicalize.
+
+    Returns:
+        The normalized URL.
+    """
     u = url.strip()
     if u.startswith("git@") and ":" in u:
         host, _, path = u[len("git@") :].partition(":")
@@ -178,13 +195,22 @@ def normalize_repo_url(url: str) -> str:
     return u.rstrip("/").lower()
 
 
-# ---------- (de)serialization ----------
-
-
 def from_mapping(data: dict) -> Policy:
-    """Build a Policy from a parsed mapping (a `policy.toml` document or the inline
-    `[policy]` table from aim.toml). Recognized sections: [repos], [artifacts],
-    [profiles], [risk] (+ [risk.rules]), and [[rule]] custom rules."""
+    """Build a Policy from a parsed mapping.
+
+    The mapping is a `policy.toml` document or the inline `[policy]` table from
+    aim.toml. Recognized sections: [repos], [artifacts], [profiles], [risk]
+    (+ [risk.rules]), and [[rule]] custom rules.
+
+    Args:
+        data: The parsed policy mapping.
+
+    Returns:
+        The constructed Policy.
+
+    Raises:
+        PolicyError: If a custom rule entry is invalid.
+    """
     repos_t = data.get("repos", {}) or {}
     artifacts_t = data.get("artifacts", {}) or {}
     profiles_t = data.get("profiles", {}) or {}
@@ -225,7 +251,17 @@ def from_mapping(data: dict) -> Policy:
 
 
 def from_toml(text: str) -> Policy:
-    """Parse a `policy.toml` document into a Policy."""
+    """Parse a `policy.toml` document into a Policy.
+
+    Args:
+        text: The raw policy.toml content.
+
+    Returns:
+        The parsed Policy.
+
+    Raises:
+        PolicyError: If the document is not valid TOML.
+    """
     try:
         return from_mapping(tomllib.loads(text))
     except tomllib.TOMLDecodeError as exc:
@@ -233,8 +269,16 @@ def from_toml(text: str) -> Policy:
 
 
 def to_mapping(policy: Policy) -> dict:
-    """Build the policy mapping — the single shape used by both org `policy.toml` and
-    aim.toml's `[policy]` table, custom `[[rule]]` entries included inline."""
+    """Build the policy mapping shared by org `policy.toml` and aim.toml's `[policy]`.
+
+    Custom `[[rule]]` entries are included inline.
+
+    Args:
+        policy: The policy to serialize.
+
+    Returns:
+        The mapping representation.
+    """
     doc: dict = {"version": policy.version, "name": policy.name}
     if policy.blocked_repos:
         doc["repos"] = {"blocked": policy.blocked_repos}
@@ -272,13 +316,32 @@ def to_mapping(policy: Policy) -> dict:
 
 
 def to_toml(policy: Policy) -> str:
-    """Serialize a Policy to a self-contained `policy.toml` document — risk settings
-    and custom `[[rule]]` entries together, the same layout as aim.toml's `[policy]`."""
+    """Serialize a Policy to a self-contained `policy.toml` document.
+
+    Risk settings and custom `[[rule]]` entries are emitted together, matching
+    aim.toml's `[policy]` layout.
+
+    Args:
+        policy: The policy to serialize.
+
+    Returns:
+        The policy.toml text.
+    """
     return tomli_w.dumps(to_mapping(policy))
 
 
 def parse_rules_toml(text: str) -> list[RiskRule]:
-    """Parse custom `[[rule]]` entries from a standalone rules toml document."""
+    """Parse custom `[[rule]]` entries from a standalone rules toml document.
+
+    Args:
+        text: The raw rules toml content.
+
+    Returns:
+        The parsed custom rules.
+
+    Raises:
+        PolicyError: If the document or any rule entry is invalid.
+    """
     try:
         data = tomllib.loads(text)
     except tomllib.TOMLDecodeError as exc:
@@ -293,16 +356,30 @@ def parse_rules_toml(text: str) -> list[RiskRule]:
 
 
 def render_rules_toml(rules: list[RiskRule]) -> str:
-    """Serialize custom `[[rule]]` entries to a standalone rules toml document."""
+    """Serialize custom `[[rule]]` entries to a standalone rules toml document.
+
+    Args:
+        rules: The custom rules to serialize.
+
+    Returns:
+        The rules toml text.
+    """
     return tomli_w.dumps({"rule": [r.model_dump() for r in rules]})
 
 
 def compute_hash(policy: Policy) -> str:
-    """Deterministic content hash over the fully-resolved policy (fields + risk +
-    custom rules). Used to pin the policy in the lockfile and detect drift/tampering.
+    """Compute a deterministic content hash over the fully-resolved policy.
 
-    Custom rules are canonicalized by `id` so re-importing the same rules in a
-    different order does not change the hash."""
+    Covers fields, risk settings, and custom rules. Used to pin the policy in the
+    lockfile and detect drift/tampering. Custom rules are canonicalized by `id` so
+    re-importing the same rules in a different order does not change the hash.
+
+    Args:
+        policy: The policy to hash.
+
+    Returns:
+        The hex-encoded SHA-256 digest.
+    """
     data = policy.model_dump(mode="json")
     data["custom_rules"] = sorted(data.get("custom_rules", []), key=lambda r: r["id"])
     canonical = json.dumps(data, sort_keys=True, separators=(",", ":"))
@@ -311,21 +388,22 @@ def compute_hash(policy: Policy) -> str:
 
 @dataclass(frozen=True)
 class ResolvedPolicy:
+    """A resolved policy together with its source, origin repo, and content hash."""
+
     policy: Policy
     source: str  # "builtin" | "local" | "org"
     repo: str | None  # org policy repo url, else None
     hash: str | None  # policy content hash, else None
 
 
-# ---------- org policy repo (fetched, cached per-repo for offline resolution) ----------
-
-
 def _policy_clone_dir(repo_url: str) -> Path:
+    """Return the local cache directory for a bare clone of the org policy repo."""
     key = hashlib.sha256(normalize_repo_url(repo_url).encode("utf-8")).hexdigest()[:16]
     return paths.user_cache_dir() / "policy" / key
 
 
 def _org_snapshot_key(repo_url: str) -> str:
+    """Return the GlobalSetting key under which the org snapshot for a repo is cached."""
     digest = hashlib.sha256(normalize_repo_url(repo_url).encode("utf-8")).hexdigest()[:16]
     return f"policy:org_snapshot:{digest}"
 
@@ -333,10 +411,20 @@ def _org_snapshot_key(repo_url: str) -> str:
 def fetch_org_policy(
     repo_url: str, ref: str = "HEAD", *, allow_insecure: bool = False
 ) -> tuple[Policy, str]:
-    """Bare-clone/fetch the policy repo and read the self-contained `policy.toml`
-    (risk settings + inline `[[rule]]` together) at the resolved commit. Returns
-    (Policy, sha). Network op: call only from bind/refresh/validate, never from the
-    lock/deploy hot path."""
+    """Fetch the policy repo and read its `policy.toml` at the resolved commit.
+
+    Bare-clones or fetches the repo and reads the self-contained policy.toml (risk
+    settings + inline `[[rule]]` together). This is a network op: call only from
+    bind/refresh/validate, never from the lock/deploy hot path.
+
+    Args:
+        repo_url: The org policy repo URL.
+        ref: The git ref to resolve (defaults to HEAD).
+        allow_insecure: Permit a plaintext-http repo URL.
+
+    Returns:
+        A tuple of the parsed Policy and the resolved commit sha.
+    """
     # The policy repo is the trust root — never fetch it over plaintext http.
     content_guard.require_secure_url(repo_url, allow_insecure=allow_insecure)
     paths.ensure_global_dirs()
@@ -352,7 +440,14 @@ def fetch_org_policy(
 
 
 def cache_org_snapshot(repo_url: str, ref: str, sha: str, pol: Policy) -> None:
-    """Pin a fetched org policy in the DB (a cache) so resolution stays offline."""
+    """Pin a fetched org policy in the DB (a cache) so resolution stays offline.
+
+    Args:
+        repo_url: The org policy repo URL.
+        ref: The git ref the snapshot was fetched at.
+        sha: The resolved commit sha.
+        pol: The fetched policy to cache.
+    """
     blob = json.dumps(
         {
             "repo": repo_url,
@@ -374,9 +469,16 @@ def cache_org_snapshot(repo_url: str, ref: str, sha: str, pol: Policy) -> None:
 
 
 def load_org_snapshot(repo_url: str) -> ResolvedPolicy | None:
-    """The cached org policy for `repo_url`, read from the DB (no network). Returns
-    None if absent OR corrupt — a corrupt snapshot is treated as 'no usable policy'
-    so resolution can fail closed."""
+    """Return the cached org policy for `repo_url`, read from the DB (no network).
+
+    A corrupt snapshot is treated as 'no usable policy' so resolution can fail closed.
+
+    Args:
+        repo_url: The org policy repo URL.
+
+    Returns:
+        The cached ResolvedPolicy, or None if absent or corrupt.
+    """
     with db.session() as session:
         row = session.get(GlobalSetting, _org_snapshot_key(repo_url))
     if row is None:
@@ -390,6 +492,7 @@ def load_org_snapshot(repo_url: str) -> ResolvedPolicy | None:
 
 
 def org_snapshot_sha(repo_url: str) -> str | None:
+    """Return the cached snapshot's commit sha for `repo_url`, or None if unavailable."""
     with db.session() as session:
         row = session.get(GlobalSetting, _org_snapshot_key(repo_url))
     if row is None:
@@ -401,6 +504,7 @@ def org_snapshot_sha(repo_url: str) -> str | None:
 
 
 def _snapshot_fetched_at(repo_url: str) -> datetime | None:
+    """Return when the cached snapshot for `repo_url` was fetched, or None if unknown."""
     with db.session() as session:
         row = session.get(GlobalSetting, _org_snapshot_key(repo_url))
     if row is None:
@@ -425,14 +529,21 @@ def reset_refresh_state() -> None:
 
 
 def _snapshot_expired(repo_url: str) -> bool:
+    """Return whether the cached snapshot for `repo_url` is missing or older than the TTL."""
     fetched = _snapshot_fetched_at(repo_url)
     return fetched is None or (datetime.now(UTC) - fetched) > _ORG_TTL
 
 
 def _maybe_refresh_org(repo_url: str, ref: str) -> None:
-    """Opportunistically re-fetch a stale org snapshot — at most once per process
-    per repo, best-effort. Offline/unreachable keeps whatever is cached; a fresh
-    (within-TTL) snapshot is left untouched so day-to-day resolution stays offline."""
+    """Opportunistically re-fetch a stale org snapshot, at most once per process per repo.
+
+    Best-effort: offline/unreachable keeps whatever is cached, and a fresh
+    (within-TTL) snapshot is left untouched so day-to-day resolution stays offline.
+
+    Args:
+        repo_url: The org policy repo URL.
+        ref: The git ref to fetch.
+    """
     with _refresh_lock:
         if repo_url in _refresh_attempted or not _snapshot_expired(repo_url):
             return
@@ -445,20 +556,29 @@ def _maybe_refresh_org(repo_url: str, ref: str) -> None:
 
 
 def bind(repo_url: str, ref: str = "HEAD", *, allow_insecure: bool = False) -> ResolvedPolicy:
-    """Fetch an org policy repo and pin its snapshot. The caller (CLI) writes
-    `[policy] scope = "org"` into the project's aim.toml; this only warms the cache."""
+    """Fetch an org policy repo and pin its snapshot.
+
+    The caller (CLI) writes `[policy] scope = "org"` into the project's aim.toml;
+    this only warms the cache.
+
+    Args:
+        repo_url: The org policy repo URL.
+        ref: The git ref to resolve (defaults to HEAD).
+        allow_insecure: Permit a plaintext-http repo URL.
+
+    Returns:
+        The resolved org policy.
+    """
     pol, sha = fetch_org_policy(repo_url, ref, allow_insecure=allow_insecure)
     cache_org_snapshot(repo_url, ref, sha, pol)
     return ResolvedPolicy(pol, "org", repo_url, compute_hash(pol))
 
 
-# ---------- resolution from aim.toml [policy] ----------
-
 _INLINE_KEYS = ("repos", "artifacts", "profiles", "risk", "rule", "name", "version")
 
 
 def _read_policy_section(project_root: Path) -> dict:
-    """The project's `[policy]` table from aim.toml ({} if no aim.toml / no policy)."""
+    """Return the project's `[policy]` table from aim.toml ({} if absent)."""
     from aim.core import declarations
 
     try:
@@ -473,7 +593,12 @@ project_policy_section = _read_policy_section
 
 
 def set_project_policy(project_root: Path, section: dict) -> None:
-    """Write the `[policy]` table into the project's aim.toml."""
+    """Write the `[policy]` table into the project's aim.toml.
+
+    Args:
+        project_root: The project root containing aim.toml.
+        section: The `[policy]` table contents to persist.
+    """
     from aim.core import declarations
 
     decl = declarations.load_or_default(project_root)
@@ -482,6 +607,18 @@ def set_project_policy(project_root: Path, section: dict) -> None:
 
 
 def _resolve_org(section: dict) -> ResolvedPolicy:
+    """Resolve an org-scoped policy section from its cached snapshot.
+
+    Args:
+        section: The project's `[policy]` table.
+
+    Returns:
+        The cached org ResolvedPolicy.
+
+    Raises:
+        PolicyError: If no repo is configured, or no usable snapshot is cached
+            (fails closed rather than falling back to permissive).
+    """
     repo = section.get("repo")
     if not repo:
         raise PolicyError("[policy] scope = 'org' requires a 'repo' URL")
@@ -497,7 +634,14 @@ def _resolve_org(section: dict) -> ResolvedPolicy:
 
 
 def refresh_org_policy(project_root: Path) -> ResolvedPolicy | None:
-    """Re-fetch the project's org policy (if scope='org') and update the cache."""
+    """Re-fetch the project's org policy (if scope='org') and update the cache.
+
+    Args:
+        project_root: The project root containing aim.toml.
+
+    Returns:
+        The refreshed ResolvedPolicy, or None if the project is not org-scoped.
+    """
     section = _read_policy_section(project_root)
     repo = section.get("repo")
     if section.get("scope") != "org" or not repo:
@@ -507,10 +651,18 @@ def refresh_org_policy(project_root: Path) -> ResolvedPolicy | None:
 
 def resolve_effective(project_root: Path | None = None) -> ResolvedPolicy:
     """Resolve the effective policy from the project's aim.toml `[policy]` table.
+
     scope='org' uses the cached org snapshot, opportunistically re-fetching it once
     per process if it's older than the TTL (best-effort; offline keeps the cache,
-    fails closed only if there is no cache). Inline policy is built directly;
-    absent/empty -> permissive built-in."""
+    fails closed only if there is no cache). Inline policy is built directly; an
+    absent or empty section yields the permissive built-in.
+
+    Args:
+        project_root: The project root, or None for the built-in policy.
+
+    Returns:
+        The resolved policy with its source, repo, and hash.
+    """
     if project_root is None:
         return ResolvedPolicy(builtin_policy(), "builtin", None, None)
     section = _read_policy_section(project_root)
@@ -523,8 +675,17 @@ def resolve_effective(project_root: Path | None = None) -> ResolvedPolicy:
 
 
 def effective_policy(project_root: Path | None = None) -> Policy:
-    """The resolved policy without computing a hash — the cheap path used by the
-    per-artifact deploy gates. Fails closed if a project's org policy has no snapshot."""
+    """Resolve the effective policy without computing a hash.
+
+    The cheap path used by the per-artifact deploy gates. Fails closed if a
+    project's org policy has no snapshot.
+
+    Args:
+        project_root: The project root, or None for the built-in policy.
+
+    Returns:
+        The resolved Policy.
+    """
     if project_root is None:
         return builtin_policy()
     section = _read_policy_section(project_root)
@@ -535,10 +696,17 @@ def effective_policy(project_root: Path | None = None) -> Policy:
     return builtin_policy()
 
 
-# ---------- enforcement predicates (mirror content_guard.require_secure_url) ----------
-
-
 def assert_repo_allowed(policy: Policy, alias: str, url: str) -> None:
+    """Raise if a repo is blocked by policy, matching on alias or normalized URL.
+
+    Args:
+        policy: The active policy.
+        alias: The repo's local alias.
+        url: The repo's git URL.
+
+    Raises:
+        PolicyViolationError: If the repo is blocked.
+    """
     if not policy.blocked_repos:
         return
     norm = normalize_repo_url(url)
@@ -550,6 +718,16 @@ def assert_repo_allowed(policy: Policy, alias: str, url: str) -> None:
 
 
 def assert_artifact_allowed(policy: Policy, kind: str, qualified_name: str) -> None:
+    """Raise if a skill/agent/rule is blocked by policy.
+
+    Args:
+        policy: The active policy.
+        kind: The artifact kind ("skill", "agent", or "rule").
+        qualified_name: The artifact's qualified name.
+
+    Raises:
+        PolicyViolationError: If the artifact is blocked.
+    """
     blocked = {
         "skill": policy.blocked_skills,
         "agent": policy.blocked_agents,
@@ -562,6 +740,16 @@ def assert_artifact_allowed(policy: Policy, kind: str, qualified_name: str) -> N
 
 
 def assert_mcp_allowed(policy: Policy, alias: str, registry_name: str) -> None:
+    """Raise if an MCP server is blocked by policy, matching on alias or registry name.
+
+    Args:
+        policy: The active policy.
+        alias: The MCP server's local alias.
+        registry_name: The MCP server's registry name.
+
+    Raises:
+        PolicyViolationError: If the MCP server is blocked.
+    """
     if not policy.blocked_mcp:
         return
     if alias in policy.blocked_mcp or registry_name in policy.blocked_mcp:
@@ -571,6 +759,17 @@ def assert_mcp_allowed(policy: Policy, alias: str, registry_name: str) -> None:
 
 
 def assert_profile_allowed(policy: Policy, layout_profile_name: str | None) -> None:
+    """Raise if a layout profile is not in the policy's allow-list.
+
+    An empty allow-list or a None profile name permits everything.
+
+    Args:
+        policy: The active policy.
+        layout_profile_name: The layout profile to check, or None.
+
+    Raises:
+        PolicyViolationError: If the profile is not allowed.
+    """
     if not policy.allowed_profiles or layout_profile_name is None:
         return
     if layout_profile_name not in policy.allowed_profiles:

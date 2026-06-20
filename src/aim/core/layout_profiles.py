@@ -44,19 +44,23 @@ _RESERVED_DIRS = frozenset((".git", ".hg", ".svn", ".bzr", "_darcs", ".pijul", "
 
 
 class LayoutProfileNameError(ValueError):
-    pass
+    """Raised when a layout profile name is invalid or reserved."""
 
 
 class LayoutProfileNotFoundError(KeyError):
-    pass
+    """Raised when a requested layout profile cannot be found."""
 
 
 class LayoutProfileScope(StrEnum):
+    """Scope of a layout profile: repo-only or globally cached."""
+
     PROJECT = "project"
     GLOBAL = "global"
 
 
 class LayoutProfile(BaseModel):
+    """Directory-layout preset controlling where aim installs artifacts."""
+
     model_config = ConfigDict(extra="forbid")
 
     name: str
@@ -75,6 +79,17 @@ class LayoutProfile(BaseModel):
     @field_validator("name")
     @classmethod
     def _validate_name(cls, value: str) -> str:
+        """Validate the profile name against the allowed character pattern.
+
+        Args:
+            value: Candidate profile name.
+
+        Returns:
+            The validated name unchanged.
+
+        Raises:
+            LayoutProfileNameError: If the name does not match the pattern.
+        """
         if not _NAME_RE.fullmatch(value):
             raise LayoutProfileNameError(
                 f"profile name {value!r} invalid: must match {_NAME_RE.pattern}"
@@ -84,6 +99,18 @@ class LayoutProfile(BaseModel):
     @field_validator("rules_dir", "skills_dir", "agents_dir", "agents_md", "mcp_json")
     @classmethod
     def _validate_relative_path(cls, value: str) -> str:
+        """Validate that a path field is relative, descending-only, and safe.
+
+        Args:
+            value: Candidate relative path.
+
+        Returns:
+            The validated path unchanged.
+
+        Raises:
+            ValueError: If the path is empty, not relative, escapes upward, or
+                names a reserved VCS directory.
+        """
         if not value:
             raise ValueError("path must not be empty")
         if not _RELATIVE_PATH_RE.fullmatch(value):
@@ -98,6 +125,17 @@ class LayoutProfile(BaseModel):
     @field_validator("symlinks")
     @classmethod
     def _validate_symlink_names(cls, values: list[str]) -> list[str]:
+        """Validate that every symlink entry is a legal mirror filename.
+
+        Args:
+            values: Candidate symlink filenames.
+
+        Returns:
+            The validated list unchanged.
+
+        Raises:
+            ValueError: If any filename is not a valid mirror name.
+        """
         for value in values:
             if not is_valid_mirror_name(value):
                 raise ValueError(f"filename {value!r} invalid")
@@ -105,6 +143,14 @@ class LayoutProfile(BaseModel):
 
     @model_validator(mode="after")
     def _agents_md_not_in_symlinks(self) -> LayoutProfile:
+        """Ensure the agents_md target is not also listed as a symlink.
+
+        Returns:
+            The validated profile unchanged.
+
+        Raises:
+            ValueError: If agents_md also appears in symlinks.
+        """
         if self.agents_md in self.symlinks:
             raise ValueError(f"agents_md {self.agents_md!r} must not also be listed in symlinks")
         return self
@@ -119,6 +165,20 @@ def _builtin(
     symlinks: list[str] | None = None,
     rules_mode: Literal["files", "inline"] = "files",
 ) -> LayoutProfile:
+    """Construct a project-scoped built-in layout profile.
+
+    Args:
+        name: Stable identifier for the profile.
+        display_name: Human-readable label.
+        description: Short summary of the profile's behavior.
+        skills_dir: Directory where skills are installed.
+        agents_dir: Directory where agents are installed.
+        symlinks: Mirror filenames to symlink to AGENTS.md.
+        rules_mode: Whether rules are written as files or inlined.
+
+    Returns:
+        A configured LayoutProfile with built-in defaults.
+    """
     return LayoutProfile(
         name=name,
         display_name=display_name,
@@ -163,19 +223,40 @@ _RESERVED_NAMES = frozenset(_BUILTINS.keys())
 
 
 def _validate_not_reserved(name: str) -> None:
+    """Reject names that collide with a built-in profile.
+
+    Args:
+        name: Profile name to check.
+
+    Raises:
+        LayoutProfileNameError: If the name is reserved.
+    """
     if name in _RESERVED_NAMES:
         raise LayoutProfileNameError(f"profile name {name!r} is reserved for built-in profiles")
 
 
 def content_hash(text: str) -> str:
+    """Return the SHA-256 hex digest of the given text."""
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
 class LayoutProfileTomlError(ValueError):
-    pass
+    """Raised when a layout profile's TOML cannot be parsed or validated."""
 
 
 def parse_toml(text: str, *, source: str | None = None) -> LayoutProfile:
+    """Parse and validate a layout profile from TOML text.
+
+    Args:
+        text: TOML source for the profile.
+        source: Optional label used in error messages.
+
+    Returns:
+        The validated LayoutProfile.
+
+    Raises:
+        LayoutProfileTomlError: If the TOML is invalid or names a reserved name.
+    """
     try:
         raw = tomllib.loads(text)
     except tomllib.TOMLDecodeError as exc:
@@ -193,6 +274,15 @@ def parse_toml(text: str, *, source: str | None = None) -> LayoutProfile:
 
 
 def render_toml(profile: LayoutProfile, *, read_only_copy: bool = False) -> str:
+    """Render a layout profile to TOML text.
+
+    Args:
+        profile: Profile to serialize.
+        read_only_copy: If True, prepend the read-only warning header.
+
+    Returns:
+        The TOML representation of the profile.
+    """
     lines: list[str] = []
     if read_only_copy:
         lines.append(_READ_ONLY_HEADER)
@@ -216,6 +306,8 @@ def render_toml(profile: LayoutProfile, *, read_only_copy: bool = False) -> str:
 
 
 def _escape_toml_string(value: str) -> str:
+    """Escape a string for safe inclusion in a TOML basic string."""
+
     def _replace(match: re.Match[str]) -> str:
         char = match.group(0)
         if char == "\\":
@@ -233,20 +325,31 @@ def _escape_toml_string(value: str) -> str:
 
 
 def _render_string_list(values: list[str]) -> str:
+    """Render a list of strings as a TOML inline array."""
     if not values:
         return "[]"
     parts = [f'"{_escape_toml_string(v)}"' for v in values]
     return "[" + ", ".join(parts) + "]"
 
 
-# ---------- repo-side I/O ----------
-
-
 def project_profile_dir(project_root: Path) -> Path:
+    """Return the directory holding repo-side layout profiles."""
     return paths.project_layout_profiles_dir(project_root)
 
 
 def project_profile_path(project_root: Path, name: str) -> Path:
+    """Return the repo path for a named profile's TOML file.
+
+    Args:
+        project_root: Repository root.
+        name: Profile name.
+
+    Returns:
+        Path to the profile's TOML file.
+
+    Raises:
+        LayoutProfileNameError: If the name is invalid.
+    """
     if not _NAME_RE.fullmatch(name):
         raise LayoutProfileNameError(
             f"profile name {name!r} invalid: must match {_NAME_RE.pattern}"
@@ -255,6 +358,14 @@ def project_profile_path(project_root: Path, name: str) -> Path:
 
 
 def list_repo_profiles(project_root: Path) -> list[LayoutProfile]:
+    """Return all parseable profiles stored in the repo, sorted by name.
+
+    Args:
+        project_root: Repository root.
+
+    Returns:
+        The repo profiles; corrupt files are skipped silently.
+    """
     dir_ = project_profile_dir(project_root)
     if not dir_.exists():
         return []
@@ -272,14 +383,13 @@ def list_repo_profiles(project_root: Path) -> list[LayoutProfile]:
     return out
 
 
-# ---------- DB cache ----------
-
-
 def _db_row_to_profile(row: Any) -> LayoutProfile:
+    """Parse a DB cache row into a LayoutProfile."""
     return parse_toml(row.toml_text, source=f"db:{row.name}")
 
 
 def list_db_profiles() -> list[LayoutProfile]:
+    """Return all parseable profiles cached in the DB; corrupt rows skipped."""
     with db.session() as session:
         rows = list(session.exec(select(LayoutProfileRow)).all())
     out: list[LayoutProfile] = []
@@ -293,6 +403,12 @@ def list_db_profiles() -> list[LayoutProfile]:
 
 
 def _upsert_db_profile(profile: LayoutProfile, text: str) -> None:
+    """Insert or update the DB cache row for a profile.
+
+    Args:
+        profile: Profile whose name keys the row.
+        text: Rendered TOML to store and hash.
+    """
     h = content_hash(text)
     with db.session() as session:
         existing = session.get(LayoutProfileRow, profile.name)
@@ -313,6 +429,14 @@ def _upsert_db_profile(profile: LayoutProfile, text: str) -> None:
 
 
 def _delete_db_profile(name: str) -> bool:
+    """Delete a profile's DB cache row if present.
+
+    Args:
+        name: Profile name.
+
+    Returns:
+        True if a row was deleted, False if none existed.
+    """
     with db.session() as session:
         row = session.get(LayoutProfileRow, name)
         if row is None:
@@ -322,14 +446,17 @@ def _delete_db_profile(name: str) -> bool:
     return True
 
 
-# ---------- aggregate view ----------
-
-
 def list_profiles(project_root: Path) -> list[LayoutProfile]:
-    """Return built-ins + repo profiles + DB-cached profiles.
+    """Return built-ins plus repo and DB-cached profiles, deduplicated by name.
 
     Repo profiles override DB profiles of the same name. User-defined profiles
     override built-ins of the same name.
+
+    Args:
+        project_root: Repository root.
+
+    Returns:
+        The merged, name-unique set of available profiles.
     """
     by_name: dict[str, LayoutProfile] = dict(_BUILTINS)
     for p in list_db_profiles():
@@ -340,7 +467,19 @@ def list_profiles(project_root: Path) -> list[LayoutProfile]:
 
 
 def get_profile(project_root: Path, name: str) -> LayoutProfile:
-    """Get a single profile by name, with repo overriding DB and built-ins."""
+    """Get a single profile by name, with repo overriding DB and built-ins.
+
+    Args:
+        project_root: Repository root.
+        name: Profile name to resolve.
+
+    Returns:
+        The resolved LayoutProfile.
+
+    Raises:
+        LayoutProfileNameError: If a repo or DB copy is corrupt.
+        LayoutProfileNotFoundError: If no profile by that name exists.
+    """
     # Repo takes precedence.
     repo_path = project_profile_path(project_root, name)
     if repo_path.exists():
@@ -367,7 +506,14 @@ def get_profile(project_root: Path, name: str) -> LayoutProfile:
 def resolve_active(project_root: Path) -> LayoutProfile:
     """Return the active layout profile for a project.
 
-    Falls back to the default Claude profile if no manifest exists or no profile is set.
+    Falls back to the default Claude profile if no manifest exists or no
+    profile is set.
+
+    Args:
+        project_root: Repository root.
+
+    Returns:
+        The active LayoutProfile, or the built-in Claude profile as fallback.
     """
     try:
         m = manifest.load(project_root)
@@ -383,11 +529,16 @@ def resolve_active(project_root: Path) -> LayoutProfile:
         return BUILTIN_CLAUDE
 
 
-# ---------- mutation ----------
-
-
 def save_project_profile(project_root: Path, profile: LayoutProfile) -> Path:
-    """Save a project-scoped profile to the repo only."""
+    """Save a project-scoped profile to the repo only.
+
+    Args:
+        project_root: Repository root.
+        profile: Profile to save; its scope is forced to project.
+
+    Returns:
+        Path to the written TOML file.
+    """
     _validate_not_reserved(profile.name)
     profile = profile.model_copy(update={"scope": LayoutProfileScope.PROJECT})
     dir_ = project_profile_dir(project_root)
@@ -401,7 +552,15 @@ def save_project_profile(project_root: Path, profile: LayoutProfile) -> Path:
 
 
 def save_global_profile(project_root: Path, profile: LayoutProfile) -> Path:
-    """Save a global profile: authoritative in DB, read-only copy in repo."""
+    """Save a global profile: authoritative in DB, read-only copy in repo.
+
+    Args:
+        project_root: Repository root.
+        profile: Profile to save; its scope is forced to global.
+
+    Returns:
+        Path to the read-only repo copy.
+    """
     _validate_not_reserved(profile.name)
     profile = profile.model_copy(update={"scope": LayoutProfileScope.GLOBAL})
     text = render_toml(profile)
@@ -414,7 +573,18 @@ def save_global_profile(project_root: Path, profile: LayoutProfile) -> Path:
 
 
 def delete_project_profile(project_root: Path, name: str) -> bool:
-    """Delete a project profile from the repo."""
+    """Delete a project profile from the repo.
+
+    Args:
+        project_root: Repository root.
+        name: Profile name.
+
+    Returns:
+        True if the file existed and was removed, False otherwise.
+
+    Raises:
+        LayoutProfileNameError: If the name is invalid.
+    """
     if not _NAME_RE.fullmatch(name):
         raise LayoutProfileNameError(
             f"profile name {name!r} invalid: must match {_NAME_RE.pattern}"
@@ -427,7 +597,18 @@ def delete_project_profile(project_root: Path, name: str) -> bool:
 
 
 def delete_global_profile(project_root: Path, name: str) -> bool:
-    """Delete a global profile: remove DB cache and repo read-only copy."""
+    """Delete a global profile: remove DB cache and repo read-only copy.
+
+    Args:
+        project_root: Repository root.
+        name: Profile name.
+
+    Returns:
+        True if either the DB row or repo copy was removed.
+
+    Raises:
+        LayoutProfileNameError: If the name is invalid.
+    """
     if not _NAME_RE.fullmatch(name):
         raise LayoutProfileNameError(
             f"profile name {name!r} invalid: must match {_NAME_RE.pattern}"
@@ -438,7 +619,15 @@ def delete_global_profile(project_root: Path, name: str) -> bool:
 
 
 def set_active(project_root: Path, name: str) -> None:
-    """Set the active layout profile for a project."""
+    """Set the active layout profile for a project.
+
+    Args:
+        project_root: Repository root.
+        name: Profile name to activate.
+
+    Raises:
+        LayoutProfileNotFoundError: If no profile by that name exists.
+    """
     policy.assert_profile_allowed(policy.effective_policy(project_root), name)
     # Validate the profile exists.
     get_profile(project_root, name)
@@ -447,16 +636,22 @@ def set_active(project_root: Path, name: str) -> None:
     manifest.save(project_root, m)
 
 
-# ---------- global default ----------
-
-
 def get_global_default() -> str | None:
+    """Return the globally configured default profile name, if any."""
     with db.session() as session:
         row = session.get(GlobalSetting, _DEFAULT_LAYOUT_PROFILE_KEY)
     return row.value if row is not None else None
 
 
 def set_global_default(name: str | None) -> None:
+    """Set or clear the global default profile name.
+
+    Args:
+        name: Profile name to set, or None to clear the default.
+
+    Raises:
+        LayoutProfileNameError: If a non-None name is invalid.
+    """
     if name is not None and not _NAME_RE.fullmatch(name):
         raise LayoutProfileNameError(
             f"profile name {name!r} invalid: must match {_NAME_RE.pattern}"
@@ -475,11 +670,10 @@ def set_global_default(name: str | None) -> None:
         session.commit()
 
 
-# ---------- sync ----------
-
-
 @dataclass
 class SyncReport:
+    """Summary of changes made by a profile sync run."""
+
     upserted: list[str] = field(default_factory=list)
     demoted: list[str] = field(default_factory=list)
     removed: list[str] = field(default_factory=list)
@@ -493,6 +687,12 @@ def sync_profiles(project_root: Path) -> SyncReport:
     - Global profiles: if the repo copy matches the DB, update the DB. If the
       repo copy differs from the DB, demote to project scope in the repo and
       remove the DB row.
+
+    Args:
+        project_root: Repository root.
+
+    Returns:
+        A SyncReport listing upserted, demoted, removed names and warnings.
     """
     report = SyncReport()
     dir_ = project_profile_dir(project_root)

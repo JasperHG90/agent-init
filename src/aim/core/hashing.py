@@ -12,6 +12,14 @@ from pathlib import Path
 
 
 def hash_text(body: str) -> str:
+    """Return the SHA-256 hex digest of a UTF-8 encoded string.
+
+    Args:
+        body: Text to hash.
+
+    Returns:
+        Hex-encoded SHA-256 digest.
+    """
     return hashlib.sha256(body.encode("utf-8")).hexdigest()
 
 

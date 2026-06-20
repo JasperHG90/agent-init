@@ -187,11 +187,16 @@ def _register_repo(alias: str, url: str, allow_insecure: bool) -> str | None:
         An error string describing a registration failure, or None on success.
     """
     try:
-        repos.get(alias)
-        # Already registered; just make sure indexes are current.
-        skills.index_repo(alias)
-        agents.index_repo(alias)
-        repo_rules_mod.index_repo(alias)
+        repo = repos.get(alias)
+        # Re-indexing (DELETE + many INSERT per kind, serialized through the DB lock)
+        # is the bulk of sync's DB work. It only refreshes the search index, which is
+        # already rebuilt on add/refresh at `last_sha` — so skip it when the clone is
+        # unchanged. The sha read is a cheap local git call (no fetch happens here).
+        current_sha = git.get_backend().resolve_ref(repos.clone_dir(alias), repo.default_ref)
+        if current_sha != repo.last_sha:
+            skills.index_repo(alias)
+            agents.index_repo(alias)
+            repo_rules_mod.index_repo(alias)
         return None
     except repos.RepoNotFoundError:
         pass

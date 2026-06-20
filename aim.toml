@@ -7,12 +7,25 @@ symlinks = [
 rules = []
 mcp_servers = []
 
+[policy]
+scope = "local"
+
+[policy.risk]
+classifier = true
+llm_judge = true
+judge = "gemini/gemini-3.1-flash-lite"
+mode = "block"
+
+[[policy.rule]]
+id = "secret_exfiltration"
+severity = "high"
+prompt = "Flag if the artifact reads credentials/secrets (~/.aws/credentials, .env, SSH keys) and sends them to an external host."
+
 [repos]
 anthropic = "https://github.com/anthropics/skills"
 balukosuri = "https://github.com/balukosuri/Andrej-Karpathy-s-Autoresearch-As-a-Universal-Skill"
 bencium-marketplace = "https://github.com/bencium/bencium-marketplace"
 0xfurai = "https://github.com/0xfurai/claude-code-subagents"
-aim = "https://github.com/JasperHG90/agent-integrations-manager"
 wshobson = "https://github.com/wshobson/agents/"
 
 [[skill]]
@@ -46,18 +59,6 @@ source_path = "typography/skills/typography"
 target_dir = ".claude/skills/typography"
 
 [[skill]]
-qualified_name = "aim/agent-installer"
-repo_alias = "aim"
-source_path = "skills/agent-installer"
-target_dir = ".claude/skills/agent-installer"
-
-[[skill]]
-qualified_name = "aim/readme-creator"
-repo_alias = "aim"
-source_path = "skills/readme-creator"
-target_dir = ".claude/skills/readme-creator"
-
-[[skill]]
 qualified_name = "wshobson/workflow-patterns"
 repo_alias = "wshobson"
 source_path = "plugins/conductor/skills/workflow-patterns"
@@ -74,9 +75,3 @@ qualified_name = "0xfurai/python-expert"
 repo_alias = "0xfurai"
 source_path = "agents/python-expert.md"
 target_path = ".claude/agents/python-expert.md"
-
-[policy]
-scope = "local"
-
-[policy.risk]
-enabled = true

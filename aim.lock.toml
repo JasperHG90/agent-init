@@ -10,7 +10,9 @@ layout_profile = "claude"
 symlinks = [
     "CLAUDE.md",
 ]
-policy_hash = "b2f079a3a20f712ef45a52634667c2302759c2e8dd4aa9c0027124321ad0ccd0"
+policy_repo = "file:///Users/jasperginn/Documents/code_projects/aim-policy"
+policy_ref = "a0a63a6749a307b243b288f9f14ae2c4a1117ad4"
+policy_hash = "5234f180bc4b60f658590f4d978eedd01215e70b150c100d4457d77af2532dd1"
 
 [[skill]]
 qualified_name = "anthropic/skill-creator"
@@ -113,8 +115,8 @@ history = []
 content_hash = "3a0386265d011ddf80b85ebeaf323eb8722a76fe9bae1bae80473e1c4a736c31"
 
 [skill.current]
-sha = "1d92f60fed5599f0f04bbcfe72733b0aa60be7c8"
-installed_at = "2026-06-20T20:30:03.279269Z"
+sha = "516c105a9d8260c80a9d1fd8cb4004fe22a74225"
+installed_at = "2026-06-20T20:37:59.398431Z"
 
 [[skill]]
 qualified_name = "jasperhg90/manifesto"
@@ -139,8 +141,8 @@ history = []
 content_hash = "27551a57c8a8a9fe0af1187309890b747231c3f1bde802d984ce8e5c7ad145a5"
 
 [skill.current]
-sha = "1d92f60fed5599f0f04bbcfe72733b0aa60be7c8"
-installed_at = "2026-06-20T20:30:25.598403Z"
+sha = "516c105a9d8260c80a9d1fd8cb4004fe22a74225"
+installed_at = "2026-06-20T20:37:59.425341Z"
 
 [[skill]]
 qualified_name = "jasperhg90/terminal-gif"

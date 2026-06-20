@@ -16,7 +16,7 @@ from pathlib import Path
 
 from sqlalchemy import event
 from sqlalchemy.engine import Engine
-from sqlmodel import Session, SQLModel, create_engine
+from sqlmodel import Session, create_engine
 
 from aim.core import paths
 from aim.core.models import (  # noqa: F401
@@ -124,80 +124,19 @@ def _alembic_config(connection: object) -> object:
 def _run_migrations(engine: Engine) -> None:
     """Bring the database schema to head via Alembic.
 
-    Three cases:
-    - Fresh DB (no tables, no Alembic version): `upgrade head` runs the migration
-      chain (baseline + later revisions), which creates every table.
-    - Pre-Alembic DB (tables built by the old `create_all`, no version row): its
-      on-disk schema can be anywhere from very old to current, so reconcile it to the
-      current models (create any missing tables, add any missing columns) and stamp
-      `head`. Running historical revisions against a partly-existing schema would
-      collide (e.g. "table already exists"); reconcile-then-stamp avoids that.
-    - Managed DB (already has an Alembic version): `upgrade head` applies new
-      revisions only.
+    The database is built and migrated entirely by Alembic: a fresh database runs the
+    full revision chain (creating every table), and a managed one applies only the new
+    revisions. This is a greenfield project — there are no pre-Alembic databases to
+    adopt, so no reconcile/bridge path is needed.
 
     Args:
         engine: The live, WAL-configured engine.
     """
     from alembic import command
-    from alembic.runtime.migration import MigrationContext
-    from sqlalchemy import inspect
 
-    with engine.begin() as connection:
-        current = MigrationContext.configure(connection).get_current_revision()
-        # Any existing table (not just a specific one) with no Alembic version means a
-        # pre-Alembic database that must be reconciled rather than re-created.
-        legacy = current is None and bool(inspect(connection).get_table_names())
-        if legacy:
-            SQLModel.metadata.create_all(connection)  # create only the missing tables
-            _bridge_pre_alembic_columns(connection)  # add columns missing from old tables
     with engine.connect() as connection:
         cfg = _alembic_config(connection)
-        if legacy:
-            command.stamp(cfg, "head")
-        else:
-            command.upgrade(cfg, "head")
-
-
-def _bridge_pre_alembic_columns(connection: object) -> None:
-    """Add any model columns missing from already-existing tables (legacy bridge).
-
-    Only runs once, when adopting Alembic on a database the old `create_all`-based
-    code built. It does NOT create tables — that is Alembic's job — it only reconciles
-    columns so stamping the baseline is honest (e.g. a skillindex predating
-    `prereqs`/`provides`). Additive only: new columns must be nullable or defaulted.
-
-    Args:
-        connection: An open connection inside a transaction.
-    """
-    from sqlalchemy import inspect, text
-
-    inspector = inspect(connection)
-    for table in SQLModel.metadata.sorted_tables:
-        if not inspector.has_table(table.name):
-            continue
-        live_cols = {col["name"] for col in inspector.get_columns(table.name)}
-        for column in table.columns:
-            if column.name in live_cols:
-                continue
-            col_type = column.type.compile(dialect=connection.dialect)  # type: ignore[attr-defined]
-            null_clause = "" if column.nullable else " NOT NULL"
-            default_clause = ""
-            default = getattr(column.default, "arg", None)
-            if isinstance(default, bool):
-                default_clause = f" DEFAULT {1 if default else 0}"
-            elif isinstance(default, int | float):
-                default_clause = f" DEFAULT {default}"
-            elif isinstance(default, str):
-                escaped = default.replace("'", "''")
-                default_clause = f" DEFAULT '{escaped}'"
-            elif column.nullable:
-                default_clause = " DEFAULT NULL"
-            connection.execute(  # type: ignore[attr-defined]
-                text(
-                    f"ALTER TABLE {table.name} ADD COLUMN "
-                    f"{column.name} {col_type}{default_clause}{null_clause}"
-                )
-            )
+        command.upgrade(cfg, "head")
 
 
 def reset_engine() -> None:

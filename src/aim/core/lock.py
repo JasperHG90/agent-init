@@ -24,9 +24,11 @@ from pathlib import Path
 from aim.core import (
     agents,
     agents_md,
+    archetypes,
     declarations,
     git,
     hashing,
+    install,
     layout_profiles,
     manifest,
     mcp_install,
@@ -454,10 +456,19 @@ def _read_rule_at_sha(rule: DeclaredRule, sha: str) -> str:
 
 
 def _resolve_archetype_version(declared: DeclaredArchetype) -> SkillVersion:
-    """Resolve a declared archetype's pin/track to a concrete SkillVersion."""
-    repo_dir = repos.clone_dir(declared.repo_alias)
-    sha = _resolve_ref_cached(repo_dir, declared.pin or declared.track or "HEAD")
-    return SkillVersion(tag=declared.pin, sha=sha, installed_at=datetime.now(UTC))
+    """Resolve a declared archetype's pin/track to a concrete SkillVersion.
+
+    Uses the same resolver as `archetype use` (last commit touching the base file +
+    ancestor tag) so the SHA `select` records and the SHA `lock` records agree, rather
+    than churning between the file's last-change commit and the branch tip.
+    """
+    return install.resolve_install_version(
+        declared.repo_alias,
+        declared.source_path,
+        track=declared.track,
+        pin=declared.pin,
+        artifact_name=Path(declared.source_path).name,
+    )
 
 
 def _lock_archetype(
@@ -481,8 +492,9 @@ def _lock_archetype(
         ):
             content_hash = cached.content_hash
         else:
-            repo_dir = repos.clone_dir(declared.repo_alias)
-            content = git.get_backend().cat_file(repo_dir, version.sha, declared.source_path)
+            content = archetypes.read_base_body(
+                declared.repo_alias, version.sha, declared.source_path
+            )
             content_hash = hashing.hash_text(content)
     except Exception as exc:
         return None, f"{declared.qualified_name}: {exc}"
@@ -743,10 +755,26 @@ def _mcp_key(m: InstalledMcpServer) -> tuple:
     )
 
 
+def _archetype_key(a: InstalledArchetype) -> tuple:
+    """Build the identity tuple used to detect whether the locked archetype changed."""
+    return (
+        a.qualified_name,
+        a.repo_alias,
+        a.repo_url,
+        a.source_path,
+        a.content_hash,
+        a.current.sha,
+        a.current.tag,
+        a.pin,
+        a.track,
+    )
+
+
 def _top_level_key(m: Manifest) -> tuple:
     """Build the identity tuple for a manifest's non-artifact (top-level) fields."""
     return (
         m.instruction_template,
+        None if m.instruction_archetype is None else _archetype_key(m.instruction_archetype),
         m.layout_profile,
         tuple(m.symlinks),
         tuple(m.managed_files),
@@ -821,6 +849,15 @@ def _preserve_unchanged_metadata(existing: Manifest | None, new: Manifest) -> No
         if prev_rule is not None:
             r.current = prev_rule.current
             r.history = list(prev_rule.history)
+
+    if (
+        existing.instruction_archetype is not None
+        and new.instruction_archetype is not None
+        and _archetype_key(existing.instruction_archetype)
+        == _archetype_key(new.instruction_archetype)
+    ):
+        new.instruction_archetype.current = existing.instruction_archetype.current
+        new.instruction_archetype.history = list(existing.instruction_archetype.history)
 
 
 def _enforce_policy(

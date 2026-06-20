@@ -216,9 +216,15 @@ def index_row(qualified_name: str) -> ArchetypeIndex:
 
 
 def read_base_body(repo_alias: str, sha: str, instruction_path: str) -> str:
-    """Return the archetype's base instruction file content at a pinned SHA."""
+    """Return the archetype's base instruction body at a pinned SHA.
+
+    Strips any YAML frontmatter (used only for the archetype's title/description in
+    the index) so it never leaks into the rendered project AGENTS.md.
+    """
     repo_dir = repos.clone_dir(repo_alias)
-    return git.get_backend().cat_file(repo_dir, sha, instruction_path)
+    raw = git.get_backend().cat_file(repo_dir, sha, instruction_path)
+    _frontmatter, body = _extract_frontmatter(raw)
+    return body
 
 
 def list_archetypes(repo_alias: str | None = None) -> list[ArchetypeIndex]:

@@ -62,6 +62,46 @@ def test_pre_alembic_db_is_bridged_and_stamped(home: Path) -> None:
     assert version[0] is not None
 
 
+def test_pre_alembic_db_with_later_revision_table_adopts_cleanly(home: Path) -> None:
+    # A pre-Alembic DB whose schema already matches HEAD (it has every current table,
+    # including ones added in later revisions like archetypeindex) must adopt without
+    # a "table already exists" collision — reconcile then stamp head, never re-create.
+    db_path = home / "data" / "aim.sqlite"
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    raw = create_engine(f"sqlite:///{db_path}")
+    SQLModel.metadata.create_all(raw)  # full current schema, no alembic_version
+    raw.dispose()
+
+    db.reset_engine()
+    db.get_engine()  # must not raise
+
+    with db.session() as s:
+        live = inspect(s.connection())
+        assert live.has_table("archetypeindex")
+        assert live.has_table("alembic_version")
+
+
+def test_partial_pre_alembic_db_is_completed(home: Path) -> None:
+    # A pre-Alembic DB missing tables (not just columns) must have them created.
+    import sqlite3
+
+    db_path = home / "data" / "aim.sqlite"
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    con = sqlite3.connect(db_path)
+    con.execute("CREATE TABLE template (name TEXT PRIMARY KEY, source TEXT, description TEXT)")
+    con.commit()
+    con.close()
+
+    db.reset_engine()
+    db.get_engine()
+
+    with db.session() as s:
+        live = inspect(s.connection())
+        assert live.has_table("registeredrepo")  # created despite being absent
+        assert live.has_table("archetypeindex")
+        assert live.has_table("alembic_version")
+
+
 def test_fresh_db_is_created_at_head(home: Path) -> None:
     db.reset_engine()
     db.get_engine()  # fresh path: upgrade head creates every table.

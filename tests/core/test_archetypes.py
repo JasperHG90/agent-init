@@ -109,6 +109,40 @@ def test_policy_allow_list_blocks_unlisted_archetype(
         archetype_install.select(project_root, "co/nope")  # not in allow-list
 
 
+def test_frontmatter_is_not_rendered_into_agents_md(
+    home: Path, project_root: Path, tmp_path: Path
+) -> None:
+    url = _repo_with_archetypes(
+        tmp_path,
+        {
+            "instructions/lean/AGENTS.md": "---\ntitle: Lean\ndescription: terse\n---\n# Real Body\nGo.\n"
+        },
+    )
+    repos.add("co", url, allow_empty=True)
+    init_mod.run(init_mod.InitOptions(project_root=project_root))
+    archetype_install.select(project_root, "co/lean")
+    asyncio.run(lock.run(lock.LockOptions(project_root=project_root)))
+    asyncio.run(sync.run(sync.SyncOptions(project_root=project_root)))
+    agents = (project_root / "AGENTS.md").read_text()
+    assert "# Real Body" in agents
+    assert "title: Lean" not in agents  # frontmatter stripped
+    assert "---" not in agents.splitlines()[0]
+
+
+def test_lock_is_unchanged_on_second_run_after_select(
+    home: Path, project_root: Path, tmp_path: Path
+) -> None:
+    # select and lock must resolve the same SHA, so a re-lock detects no change
+    # (regression: select used resolve_install_version, lock used the branch tip).
+    url = _repo_with_archetypes(tmp_path, {"instructions/lean/AGENTS.md": "# Lean\n"})
+    repos.add("co", url, allow_empty=True)
+    init_mod.run(init_mod.InitOptions(project_root=project_root))
+    archetype_install.select(project_root, "co/lean")
+    asyncio.run(lock.run(lock.LockOptions(project_root=project_root)))
+    second = asyncio.run(lock.run(lock.LockOptions(project_root=project_root)))
+    assert second.unchanged is True
+
+
 def test_assert_archetype_allowed_permits_builtin_and_empty_list() -> None:
     pol = policy.Policy(name="p", allowed_archetypes=["a/b"])
     policy.assert_archetype_allowed(pol, "a/b")

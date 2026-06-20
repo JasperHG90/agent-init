@@ -36,9 +36,6 @@ _engine_lock = threading.Lock()
 
 # Alembic migration scripts ship inside the package; built into a Config at runtime.
 _MIGRATIONS_DIR = Path(__file__).resolve().parent / "migrations"
-# The baseline revision (full schema as of Alembic adoption); pre-Alembic DBs are
-# stamped here after the column bridge so later revisions apply cleanly.
-_BASELINE_REVISION = "4ce213945fbd"
 
 
 def get_engine(db_path: Path | None = None) -> Engine:
@@ -128,11 +125,13 @@ def _run_migrations(engine: Engine) -> None:
     """Bring the database schema to head via Alembic.
 
     Three cases:
-    - Fresh DB (no tables, no Alembic version): `upgrade head` runs the baseline
-      revision, which creates every table.
-    - Pre-Alembic DB (tables created by the old `create_all`, no version row): add
-      any baseline columns the tables predate (the one-time bridge for ancient DBs),
-      then `stamp` the baseline so future revisions apply, then `upgrade head`.
+    - Fresh DB (no tables, no Alembic version): `upgrade head` runs the migration
+      chain (baseline + later revisions), which creates every table.
+    - Pre-Alembic DB (tables built by the old `create_all`, no version row): its
+      on-disk schema can be anywhere from very old to current, so reconcile it to the
+      current models (create any missing tables, add any missing columns) and stamp
+      `head`. Running historical revisions against a partly-existing schema would
+      collide (e.g. "table already exists"); reconcile-then-stamp avoids that.
     - Managed DB (already has an Alembic version): `upgrade head` applies new
       revisions only.
 
@@ -145,14 +144,18 @@ def _run_migrations(engine: Engine) -> None:
 
     with engine.begin() as connection:
         current = MigrationContext.configure(connection).get_current_revision()
-        legacy = current is None and inspect(connection).has_table("registeredrepo")
+        # Any existing table (not just a specific one) with no Alembic version means a
+        # pre-Alembic database that must be reconciled rather than re-created.
+        legacy = current is None and bool(inspect(connection).get_table_names())
         if legacy:
-            _bridge_pre_alembic_columns(connection)
+            SQLModel.metadata.create_all(connection)  # create only the missing tables
+            _bridge_pre_alembic_columns(connection)  # add columns missing from old tables
     with engine.connect() as connection:
         cfg = _alembic_config(connection)
         if legacy:
-            command.stamp(cfg, _BASELINE_REVISION)
-        command.upgrade(cfg, "head")
+            command.stamp(cfg, "head")
+        else:
+            command.upgrade(cfg, "head")
 
 
 def _bridge_pre_alembic_columns(connection: object) -> None:

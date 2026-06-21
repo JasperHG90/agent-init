@@ -107,3 +107,9 @@ qualified_name = "0xfurai/python-expert"
 repo_alias = "0xfurai"
 source_path = "agents/python-expert.md"
 target_path = ".claude/agents/python-expert.md"
+
+[[subagent]]
+qualified_name = "jasperhg90/feature-planner"
+repo_alias = "jasperhg90"
+source_path = "agents/feature-planner.md"
+target_path = ".claude/agents/feature-planner.md"

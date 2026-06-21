@@ -37,6 +37,12 @@ _engine_lock = threading.Lock()
 # Alembic migration scripts ship inside the package; built into a Config at runtime.
 _MIGRATIONS_DIR = Path(__file__).resolve().parent / "migrations"
 
+# Head revision id, kept in sync with the latest script in migrations/versions/.
+# The cheap at-head check below compares the DB's recorded revision against this to
+# avoid importing Alembic on every launch. Bump it when adding an Alembic revision;
+# the `test_head_revision_matches_script_head` drift guard enforces the match.
+HEAD_REVISION = "d7424c089c0e"
+
 
 def get_engine(db_path: Path | None = None) -> Engine:
     """Return the process-wide SQLite engine, creating it once on first use.
@@ -121,17 +127,51 @@ def _alembic_config(connection: object) -> object:
     return cfg
 
 
+def _current_revision(connection: object) -> str | None:
+    """Return the DB's recorded Alembic revision, or None if unmanaged.
+
+    A cheap raw-SQL read of `alembic_version` that imports no Alembic machinery, so the
+    common already-at-head launch can skip Alembic entirely. A missing table or empty
+    row (a fresh database) returns None, routing the caller to the full upgrade.
+
+    Args:
+        connection: A live SQLAlchemy connection.
+
+    Returns:
+        The single `version_num` value, or None when the version table is absent/empty.
+    """
+    from sqlalchemy.exc import DatabaseError
+
+    try:
+        row = connection.exec_driver_sql(  # type: ignore[attr-defined]
+            "SELECT version_num FROM alembic_version"
+        ).fetchone()
+    except DatabaseError:
+        # No alembic_version table yet (fresh DB) — needs the full upgrade.
+        return None
+    return row[0] if row else None
+
+
 def _run_migrations(engine: Engine) -> None:
-    """Bring the database schema to head via Alembic.
+    """Bring the database schema to head via Alembic, skipping the work when already at head.
 
     The database is built and migrated entirely by Alembic: a fresh database runs the
     full revision chain (creating every table), and a managed one applies only the new
     revisions. This is a greenfield project — there are no pre-Alembic databases to
     adopt, so no reconcile/bridge path is needed.
 
+    Importing Alembic (and the Mako engine it pulls in) and running its environment is
+    fixed per-launch overhead. A cheap raw-SQL check of the recorded revision lets the
+    common case (DB already at `HEAD_REVISION`) return without importing Alembic at all.
+
     Args:
         engine: The live, WAL-configured engine.
     """
+    with engine.connect() as connection:
+        if _current_revision(connection) == HEAD_REVISION:
+            return
+    # A fresh-DB check raises and poisons its transaction, so the upgrade runs on its
+    # own clean connection (also restoring the original single-connection upgrade path).
     from alembic import command
 
     with engine.connect() as connection:

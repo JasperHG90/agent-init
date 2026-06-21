@@ -48,24 +48,33 @@ class AimApp(App[None]):
         self._profile_name = profile_name
 
     def on_mount(self) -> None:
-        """Sync profiles, seed MCP defaults, and push the main screen."""
-        report = layout_profiles.sync_profiles(self._project_root)
-        for warning in report.warnings:
-            self.app.notify(warning, severity="warning")
+        """Activate any requested profile, push the main screen, then sync in the background.
 
-        # Pre-seed default MCP registry entries in the background so the MCP
-        # screen opens instantly from cache instead of blocking on the network.
-        self.run_worker(self._seed_default_mcp_servers, group="mcp_seed", thread=True)
-
+        Profile sync and MCP seeding both touch the DB (which lazily runs schema
+        migrations on first use), so they run off the paint path to keep startup
+        responsive. The `--profile` activation stays synchronous because the main screen
+        reads the active profile when it composes its banner.
+        """
         if self._profile_name:
             try:
                 layout_profiles.set_active(self._project_root, self._profile_name)
             except Exception as exc:
-                self.app.notify(
+                self.notify(
                     f"profile {self._profile_name!r} not applied: {exc}", severity="warning"
                 )
 
         self.push_screen(MainScreen(project_root=self._project_root))
+
+        self.run_worker(self._sync_profiles, group="profile_sync", thread=True)
+        # Pre-seed default MCP registry entries in the background so the MCP
+        # screen opens instantly from cache instead of blocking on the network.
+        self.run_worker(self._seed_default_mcp_servers, group="mcp_seed", thread=True)
+
+    def _sync_profiles(self) -> None:
+        """Reconcile repo profiles with the DB cache, surfacing warnings on the UI thread."""
+        report = layout_profiles.sync_profiles(self._project_root)
+        for warning in report.warnings:
+            self.call_from_thread(self.notify, warning, severity="warning")
 
     def _seed_default_mcp_servers(self) -> None:
         """Seed the default MCP registry entries on a best-effort basis."""

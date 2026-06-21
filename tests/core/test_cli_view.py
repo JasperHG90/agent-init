@@ -76,3 +76,32 @@ def test_update_without_target_is_rejected(home: Path) -> None:
         result = _runner.invoke(cli.app, [kind, "update"])
         assert result.exit_code != 0, f"{kind} update with no target should fail"
         assert "pass a <name>" in _plain(result.output), result.output
+
+
+def test_typo_suggests_lazy_group_command(home: Path) -> None:
+    """A typo of a lazily-loaded group still gets a "Did you mean" suggestion.
+
+    The lazy group names live in LAZY_SUBCOMMANDS, not in the click group's eager
+    `commands`, so the suggestion source must include them explicitly.
+    """
+    result = _runner.invoke(cli.app, ["skil"])
+    assert result.exit_code != 0
+    output = " ".join(_plain(result.output).split())
+    assert "Did you mean 'skill'?" in output, result.output
+
+
+def test_typo_suggests_eager_command(home: Path) -> None:
+    """Eager top-level commands keep their existing typo suggestions."""
+    result = _runner.invoke(cli.app, ["chek"])
+    assert result.exit_code != 0
+    output = " ".join(_plain(result.output).split())
+    assert "Did you mean 'check'?" in output, result.output
+
+
+def test_typo_near_both_eager_and_lazy_suggests_both(home: Path) -> None:
+    """A typo close to both an eager command and a lazy group suggests both, ranked as a
+    single difflib match over the full command set — matching the pre-split CLI."""
+    result = _runner.invoke(cli.app, ["ruse"])
+    assert result.exit_code != 0
+    output = " ".join(_plain(result.output).split())
+    assert "Did you mean 'rule', 'prune'?" in output, result.output

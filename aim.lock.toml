@@ -182,6 +182,19 @@ content_hash = "a57656516e369867ec8365e83c987d1696ec07ee2bbcbe0257318fdd4d4cd794
 sha = "9236d10702cdbba37eaa34515f1e1dbff8452506"
 installed_at = "2026-06-21T06:32:00.513756Z"
 
+[[subagent]]
+qualified_name = "jasperhg90/feature-planner"
+repo_alias = "jasperhg90"
+repo_url = "https://github.com/JasperHG90/skills"
+source_path = "agents/feature-planner.md"
+target_path = ".claude/agents/feature-planner.md"
+history = []
+content_hash = "90ff4c27e96b2d47262dd5d1849f225d49d9bd31f4c3e8fcbb3c3e33585ae244"
+
+[subagent.current]
+sha = "d40da1aacdf41a5e634d9180b456f5088e4775ee"
+installed_at = "2026-06-21T11:16:15.743220Z"
+
 [[rule]]
 qualified_name = "athola/slop-scan-for-docs"
 repo_alias = "athola"

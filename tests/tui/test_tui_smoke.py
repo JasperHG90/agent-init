@@ -97,6 +97,30 @@ async def test_skills_screen_search_filters(home: Path, tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_sync_profiles_runs_in_background_and_surfaces_warnings(
+    home: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The main screen must paint without waiting on profile sync, and sync warnings
+    must still reach the user via a notification from the background worker."""
+    from aim.core import layout_profiles
+
+    report = layout_profiles.SyncReport(warnings=["stale profile foo"])
+    monkeypatch.setattr(layout_profiles, "sync_profiles", lambda root: report)
+
+    notifications: list[str] = []
+    app = AimApp()
+    monkeypatch.setattr(app, "notify", lambda message, **kwargs: notifications.append(message))
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        # Screen is up immediately — not blocked on sync_profiles.
+        assert app.screen.__class__.__name__ == "MainScreen"
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+        assert "stale profile foo" in notifications
+
+
+@pytest.mark.asyncio
 async def test_rules_screen_lists_rules(home: Path, tmp_path: Path) -> None:
     _register_rule_repo(tmp_path, ["be-concise", "test-first"])
     app = AimApp()

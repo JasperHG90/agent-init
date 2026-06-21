@@ -133,6 +133,38 @@ def test_lock_force_writes_even_when_unchanged(
     assert after != before
 
 
+def test_lock_no_index_skips_catalog_refresh_but_still_locks(
+    home: Path, project_root: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`--no-index` must not refresh the search catalog, yet declared artifacts
+    still resolve (they're read straight from the repo, not the index)."""
+    from aim.core import agents as agents_mod
+    from aim.core import skills as skills_mod
+
+    _setup_project_with_skill(
+        project_root,
+        tmp_path,
+        files={"skills/foo/SKILL.md": "# foo\n"},
+    )
+
+    calls: list[tuple[str, str]] = []
+    monkeypatch.setattr(skills_mod, "index_repo", lambda alias: calls.append(("skill", alias)))
+    monkeypatch.setattr(agents_mod, "index_repo", lambda alias: calls.append(("agent", alias)))
+
+    # Default path refreshes the catalog for each declared repo.
+    asyncio.run(lock.run(lock.LockOptions(project_root=project_root, force=True)))
+    assert ("skill", "a") in calls and ("agent", "a") in calls
+
+    # --no-index skips the refresh entirely.
+    calls.clear()
+    asyncio.run(lock.run(lock.LockOptions(project_root=project_root, force=True, no_index=True)))
+    assert calls == []
+
+    # ...but the declared skill is still locked.
+    m = _load_manifest(project_root)
+    assert [s.qualified_name for s in m.skills] == ["a/foo"]
+
+
 # ---------------------------------------------------------------------------
 # Perf-skip correctness: source_path change with same SHA must recompute hash
 # ---------------------------------------------------------------------------

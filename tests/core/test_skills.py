@@ -300,6 +300,32 @@ def test_refresh_reindexes_when_sha_changes(home: Path, bare_remote: tuple[Path,
     assert after == ["anth/bar", "anth/foo"]
 
 
+def test_index_repo_skips_rebuild_when_sha_unchanged(
+    home: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Re-indexing at the same SHA must not re-read any SKILL.md (the costly part)."""
+    _, bare = _build_repo_with(
+        tmp_path,
+        {"skills/foo/SKILL.md": "# Foo\n\nbar\n", "README.md": "x\n"},
+    )
+    repos.add("a", f"file://{bare}")  # first index reads the files
+
+    from aim.core import git as git_mod
+
+    reads: list[object] = []
+
+    def _record_read(*args: object, **kwargs: object) -> dict[str, str]:
+        reads.append(args)
+        return {}
+
+    monkeypatch.setattr(git_mod, "cat_files_text", _record_read)
+
+    result = skills.index_repo("a")
+    assert reads == []  # early-returned without re-reading
+    assert [s.name for s in result.indexed] == ["foo"]
+    assert [r.qualified_name for r in skills.list_skills("a")] == ["a/foo"]
+
+
 def test_remove_clears_skill_index(home: Path, bare_remote: tuple[Path, Path]) -> None:
     _, bare = bare_remote
     repos.add("anth", f"file://{bare}")

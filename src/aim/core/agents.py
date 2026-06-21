@@ -152,11 +152,23 @@ def discover(repo_alias: str) -> IndexResult:
     return IndexResult(repo_alias=repo_alias, sha=sha, indexed=indexed, shadowed=shadowed)
 
 
+def _indexed_sha(repo_alias: str) -> str | None:
+    """Return the SHA the repo's agents were last indexed at, or None if absent."""
+    with db.session() as session:
+        return session.exec(
+            select(AgentIndex.indexed_at_sha)  # type: ignore[arg-type]
+            .where(AgentIndex.repo_alias == repo_alias)
+            .limit(1)
+        ).first()
+
+
 def index_repo(repo_alias: str) -> IndexResult:
     """Discover agents in a registered repo and persist AgentIndex rows.
 
-    Replaces any existing index rows for the repo with freshly discovered
-    agents, parsing each agent's frontmatter for searchable metadata.
+    Skips the rebuild when the repo is already indexed at the current SHA.
+    Otherwise it replaces any existing index rows for the repo with freshly
+    discovered agents, reading every AGENT.md in one batched git process and
+    parsing each agent's frontmatter for searchable metadata.
 
     Args:
         repo_alias: The alias of the registered repo to index.
@@ -165,13 +177,20 @@ def index_repo(repo_alias: str) -> IndexResult:
         The discovery result describing what was indexed and shadowed.
     """
     result = discover(repo_alias)
+    if _indexed_sha(repo_alias) == result.sha:
+        return result
+    repo_dir = repos.clone_dir(repo_alias)
+    bodies = git.cat_files_text(
+        repo_dir, result.sha, [agent.agent_md_path for agent in result.indexed]
+    )
     with db.session() as session:
         session.exec(
             delete(AgentIndex).where(AgentIndex.repo_alias == repo_alias)  # type: ignore[arg-type]
         )
         for agent in result.indexed:
-            title, description, tools, model = _parse_agent_md(
-                repo_alias, result.sha, agent.agent_md_path
+            body = bodies.get(agent.agent_md_path)
+            title, description, tools, model = (
+                _parse_agent_md(body) if body is not None else (None, None, [], None)
             )
             session.add(
                 AgentIndex(
@@ -218,20 +237,14 @@ def _extract_frontmatter(body: str) -> tuple[dict[str, Any], str]:
 
 
 def _parse_agent_md(
-    repo_alias: str, sha: str, path: str
+    body: str,
 ) -> tuple[str | None, str | None, list[str], str | None]:
-    """Pull (name, description, tools, model) from an AGENT.md.
+    """Pull (name, description, tools, model) from an AGENT.md body.
 
     Frontmatter (YAML) is optional. Recognized keys: `name`, `description`,
     `tools`, `model` (and nested blocks like `mcpServers`, `skills` are ignored
     here because they are runtime hints for the agent, not search fields).
     """
-    repo_dir = repos.clone_dir(repo_alias)
-    try:
-        body = git.get_backend().cat_file(repo_dir, sha, path)
-    except git.GitError:
-        return None, None, [], None
-
     frontmatter, remainder = _extract_frontmatter(body)
     title = _as_str(frontmatter.get("name"))
     description = _as_str(frontmatter.get("description"))

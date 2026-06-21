@@ -45,6 +45,32 @@ def test_discover_supports_claude_path(home: Path, tmp_path: Path) -> None:
     assert rows[0].source_path == ".claude/agents/foo"
 
 
+def test_index_repo_skips_rebuild_when_sha_unchanged(
+    home: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Re-indexing at the same SHA must not re-read any AGENT.md (the costly part)."""
+    bare = _build_repo_with(
+        tmp_path,
+        {"agents/review/AGENT.md": "---\nname: Review\n---\n# Review\n", "README.md": "x\n"},
+    )
+    repos.add("a", f"file://{bare}")  # first index reads the files
+
+    from aim.core import git as git_mod
+
+    reads: list[object] = []
+
+    def _record_read(*args: object, **kwargs: object) -> dict[str, str]:
+        reads.append(args)
+        return {}
+
+    monkeypatch.setattr(git_mod, "cat_files_text", _record_read)
+
+    result = agents.index_repo("a")
+    assert reads == []  # early-returned without re-reading
+    assert [a.name for a in result.indexed] == ["review"]
+    assert [r.qualified_name for r in agents.list_agents("a")] == ["a/review"]
+
+
 def test_discover_supports_nested_agents_dir(home: Path, tmp_path: Path) -> None:
     """Agents may be grouped under sub-categories: agents/<category>/<name>/AGENT.md."""
     bare = _build_repo_with(

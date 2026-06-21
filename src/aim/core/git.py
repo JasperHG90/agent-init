@@ -354,6 +354,30 @@ def get_backend() -> GitBackend:
     return _default_backend
 
 
+def cat_files_text(repo_dir: Path, sha: str, paths: list[str]) -> dict[str, str]:
+    """Read many blobs at `sha` as decoded text in a single batched git process.
+
+    Collapses the per-file fork/exec of `cat_file` into one `cat-file --batch`,
+    which is the dominant cost when indexing a repo's whole catalog. On batch
+    failure (e.g. a missing object) it falls back to per-file reads and skips any
+    path it cannot read, matching the indexer's tolerance of unreadable files.
+    """
+    if not paths:
+        return {}
+    backend = get_backend()
+    try:
+        raw = backend.cat_file_batch(repo_dir, sha, paths)
+        return {path: raw[path].decode("utf-8") for path in paths}
+    except GitError:
+        out: dict[str, str] = {}
+        for path in paths:
+            try:
+                out[path] = backend.cat_file(repo_dir, sha, path)
+            except GitError:
+                continue
+        return out
+
+
 def set_backend(backend: GitBackend) -> None:
     """Override the active git backend. Tests can swap in a fake here."""
     global _default_backend

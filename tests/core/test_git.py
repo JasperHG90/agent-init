@@ -82,3 +82,44 @@ def test_cat_file_batch_raises_on_missing_object(
     sha = backend.resolve_ref(clone, "HEAD")
     with pytest.raises(git.GitError, match="missing"):
         backend.cat_file_batch(clone, sha, ["does-not-exist.md"])
+
+
+def test_cat_files_text_matches_per_file_reads(tmp_path: Path) -> None:
+    working = git_fixtures.make_source_repo(
+        tmp_path / "src",
+        {
+            "a/SKILL.md": "# A\n\nfirst\n",
+            "b/SKILL.md": "# B\n\nsecond\n",
+            "empty.md": "",
+        },
+    )
+    bare = git_fixtures.make_bare_remote(working, tmp_path / "bare.git")
+    clone = tmp_path / "clone"
+    backend = git.get_backend()
+    backend.clone_bare(f"file://{bare}", clone)
+    sha = backend.resolve_ref(clone, "HEAD")
+
+    paths = sorted(p for p in backend.ls_tree(clone, sha) if p.endswith(".md"))
+    texts = git.cat_files_text(clone, sha, paths)
+
+    assert set(texts) == set(paths)
+    for path in paths:
+        assert texts[path] == backend.cat_file(clone, sha, path)
+
+
+def test_cat_files_text_falls_back_and_skips_missing(tmp_path: Path) -> None:
+    """A missing object aborts the batch, so it falls back to per-file reads and
+    silently drops only the unreadable path."""
+    working = git_fixtures.make_source_repo(tmp_path / "src", {"real.md": "here\n"})
+    bare = git_fixtures.make_bare_remote(working, tmp_path / "bare.git")
+    clone = tmp_path / "clone"
+    backend = git.get_backend()
+    backend.clone_bare(f"file://{bare}", clone)
+    sha = backend.resolve_ref(clone, "HEAD")
+
+    texts = git.cat_files_text(clone, sha, ["real.md", "missing.md"])
+    assert texts == {"real.md": "here\n"}
+
+
+def test_cat_files_text_empty_paths_returns_empty(tmp_path: Path) -> None:
+    assert git.cat_files_text(tmp_path / "no-such-repo", "deadbeef", []) == {}

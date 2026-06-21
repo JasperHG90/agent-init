@@ -69,6 +69,7 @@ class LockOptions:
     progress_callback: Callable[[str, str, str], object] | None = None
     allow_insecure: bool = False
     force: bool = False
+    no_index: bool = False
 
 
 @dataclass
@@ -135,21 +136,25 @@ def _resolve_profile(
     return layout_profiles.BUILTIN_CLAUDE
 
 
-def _ensure_repo(alias: str, url: str, allow_insecure: bool) -> str | None:
+def _ensure_repo(alias: str, url: str, allow_insecure: bool, no_index: bool) -> str | None:
     """Ensure a declared repo is registered, auto-registering it if missing.
 
     Args:
         alias: Repo alias as referenced by declarations.
         url: Clone URL to register the repo under when not already present.
         allow_insecure: Permit insecure transports when registering.
+        no_index: Skip refreshing the repo's skill/agent search index. The lock
+            still resolves declared artifacts directly from the repo; only the
+            searchable catalog may go stale.
 
     Returns:
         None on success, or an error message string if registration failed.
     """
     try:
         repos.get(alias)
-        skills.index_repo(alias)
-        agents.index_repo(alias)
+        if not no_index:
+            skills.index_repo(alias)
+            agents.index_repo(alias)
         return None
     except repos.RepoNotFoundError:
         pass
@@ -160,12 +165,15 @@ def _ensure_repo(alias: str, url: str, allow_insecure: bool) -> str | None:
     return None
 
 
-async def _ensure_repos(decl: ProjectDeclarations, allow_insecure: bool) -> list[str]:
+async def _ensure_repos(
+    decl: ProjectDeclarations, allow_insecure: bool, no_index: bool
+) -> list[str]:
     """Register all declared repos concurrently.
 
     Args:
         decl: Project declarations whose `repos` mapping is registered.
         allow_insecure: Permit insecure transports when registering.
+        no_index: Skip refreshing each repo's search index (see `_ensure_repo`).
 
     Returns:
         A list of per-repo error messages; empty if every repo registered cleanly.
@@ -175,7 +183,7 @@ async def _ensure_repos(decl: ProjectDeclarations, allow_insecure: bool) -> list
         return []
 
     async def _one(alias: str, url: str) -> str | None:
-        return await asyncio.to_thread(_ensure_repo, alias, url, allow_insecure)
+        return await asyncio.to_thread(_ensure_repo, alias, url, allow_insecure, no_index)
 
     results = await asyncio.gather(*(_one(alias, url) for alias, url in pairs.items()))
     return [r for r in results if r is not None]
@@ -936,7 +944,7 @@ async def run(options: LockOptions) -> LockResult:
     )
 
     _notify(options.progress_callback, "repos", "all", "locking")
-    result.errors = await _ensure_repos(decl, options.allow_insecure)
+    result.errors = await _ensure_repos(decl, options.allow_insecure, options.no_index)
     _notify(options.progress_callback, "repos", "all", "ok")
 
     # Skills, agents, MCPs, and rules only depend on repos being available, so

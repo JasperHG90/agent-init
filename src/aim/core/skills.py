@@ -136,20 +136,39 @@ def discover(repo_alias: str) -> IndexResult:
     return IndexResult(repo_alias=repo_alias, sha=sha, indexed=indexed, shadowed=shadowed)
 
 
+def _indexed_sha(repo_alias: str) -> str | None:
+    """Return the SHA the repo's skills were last indexed at, or None if absent."""
+    with db.session() as session:
+        return session.exec(
+            select(SkillIndex.indexed_at_sha)  # type: ignore[arg-type]
+            .where(SkillIndex.repo_alias == repo_alias)
+            .limit(1)
+        ).first()
+
+
 def index_repo(repo_alias: str) -> IndexResult:
     """Discover skills in a registered repo and write SkillIndex rows.
 
-    Old rows for this repo are deleted before insertion (so renames/removals
-    in the upstream repo are reflected on re-index).
+    Skips the rebuild when the repo is already indexed at the current SHA.
+    Otherwise old rows for this repo are deleted before insertion (so
+    renames/removals in the upstream repo are reflected on re-index), and every
+    SKILL.md is read in one batched git process.
     """
     result = discover(repo_alias)
+    if _indexed_sha(repo_alias) == result.sha:
+        return result
+    repo_dir = repos.clone_dir(repo_alias)
+    bodies = git.cat_files_text(
+        repo_dir, result.sha, [skill.skill_md_path for skill in result.indexed]
+    )
     with db.session() as session:
         session.exec(
             delete(SkillIndex).where(SkillIndex.repo_alias == repo_alias)  # type: ignore[arg-type]
         )
         for skill in result.indexed:
-            title, description, prereqs, provides = _parse_skill_md(
-                repo_alias, result.sha, skill.skill_md_path
+            body = bodies.get(skill.skill_md_path)
+            title, description, prereqs, provides = (
+                _parse_skill_md(body) if body is not None else (None, None, [], [])
             )
             session.add(
                 SkillIndex(
@@ -170,9 +189,9 @@ def index_repo(repo_alias: str) -> IndexResult:
 
 
 def _parse_skill_md(
-    repo_alias: str, sha: str, path: str
+    body: str,
 ) -> tuple[str | None, str | None, list[str], list[str]]:
-    """Pull (title, description, prereqs, provides) from a SKILL.md.
+    """Pull (title, description, prereqs, provides) from a SKILL.md body.
 
     Front-matter (optional, must be at top):
 
@@ -186,12 +205,6 @@ def _parse_skill_md(
     `name` and `description` are used when present; otherwise title/description
     heuristics fall back to the body.
     """
-    repo_dir = repos.clone_dir(repo_alias)
-    try:
-        body = git.get_backend().cat_file(repo_dir, sha, path)
-    except git.GitError:
-        return None, None, [], []
-
     frontmatter, remainder = _extract_frontmatter(body)
     title = _as_str(frontmatter.get("name"))
     description = _as_str(frontmatter.get("description"))

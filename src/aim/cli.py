@@ -1177,6 +1177,12 @@ def lock_cmd(
     force: bool = typer.Option(
         False, "--force", "-f", help="Always rewrite aim.lock.toml, even if unchanged."
     ),
+    no_index: bool = typer.Option(
+        False,
+        "--no-index",
+        help="Skip refreshing the skill/agent search index; only resolve declared "
+        "artifacts. Much faster, but `aim ... search` results may be stale or incomplete.",
+    ),
 ) -> None:
     """Resolve aim.toml declarations into an exact aim.lock.toml."""
     console = Console()
@@ -1191,6 +1197,7 @@ def lock_cmd(
                 allow_insecure=_get_allow_insecure(ctx),
                 progress_callback=_progress,
                 force=force,
+                no_index=no_index,
             )
         )
 

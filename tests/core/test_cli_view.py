@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 from typer.testing import CliRunner
@@ -11,6 +12,13 @@ from aim.core import repos
 from tests.fixtures import git_fixtures
 
 _runner = CliRunner()
+
+_ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
+
+
+def _plain(text: str) -> str:
+    """Strip ANSI color codes so assertions survive CI's colorized error output."""
+    return _ANSI_RE.sub("", text)
 
 
 def _repo_with_all_kinds(tmp_path: Path) -> str:
@@ -67,4 +75,4 @@ def test_update_without_target_is_rejected(home: Path) -> None:
     for kind in ("skill", "subagent", "rule"):
         result = _runner.invoke(cli.app, [kind, "update"])
         assert result.exit_code != 0, f"{kind} update with no target should fail"
-        assert "pass a <name>" in result.output, result.output
+        assert "pass a <name>" in _plain(result.output), result.output

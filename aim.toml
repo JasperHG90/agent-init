@@ -4,8 +4,17 @@ layout_profile = "claude"
 symlinks = [
     "CLAUDE.md",
 ]
-rules = []
 mcp_servers = []
+
+[[rule]]
+qualified_name = "athola/slop-scan-for-docs"
+repo_alias = "athola"
+source_path = ".claude/rules/slop-scan-for-docs.md"
+
+[[rule]]
+qualified_name = "jasperhg90/pre-existing-issues"
+repo_alias = "jasperhg90"
+source_path = "rules/pre-existing-issues.md"
 
 [policy]
 scope = "org"
@@ -19,6 +28,7 @@ bencium-marketplace = "https://github.com/bencium/bencium-marketplace"
 0xfurai = "https://github.com/0xfurai/claude-code-subagents"
 wshobson = "https://github.com/wshobson/agents/"
 jasperhg90 = "https://github.com/JasperHG90/skills"
+athola = "https://github.com/athola/claude-night-market"
 
 [[skill]]
 qualified_name = "anthropic/skill-creator"

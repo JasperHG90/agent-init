@@ -1,7 +1,6 @@
 manifest_version = 11
 instruction_template = "default"
 mcp_servers = []
-rules = []
 managed_files = [
     "AGENTS.md",
     "CLAUDE.md",
@@ -182,6 +181,31 @@ content_hash = "a57656516e369867ec8365e83c987d1696ec07ee2bbcbe0257318fdd4d4cd794
 [subagent.current]
 sha = "9236d10702cdbba37eaa34515f1e1dbff8452506"
 installed_at = "2026-06-18T06:02:06.208083Z"
+
+[[rule]]
+qualified_name = "athola/slop-scan-for-docs"
+repo_alias = "athola"
+repo_url = "https://github.com/athola/claude-night-market"
+source_path = ".claude/rules/slop-scan-for-docs.md"
+history = []
+content_hash = "ccce6d06e1707ea75cc0c25a3a06f163b4faa778b4d9b6d9833681cabd74c486"
+
+[rule.current]
+tag = "v1.9.12"
+sha = "fabd49074610031ddfce41e6c132d786f6d0b60c"
+installed_at = "2026-06-21T05:16:34.066143Z"
+
+[[rule]]
+qualified_name = "jasperhg90/pre-existing-issues"
+repo_alias = "jasperhg90"
+repo_url = "https://github.com/JasperHG90/skills"
+source_path = "rules/pre-existing-issues.md"
+history = []
+content_hash = "dcc55c18052e0fa373567766756108db80508e86d97c2599ef36d44f646fa846"
+
+[rule.current]
+sha = "1d92f60fed5599f0f04bbcfe72733b0aa60be7c8"
+installed_at = "2026-06-21T05:17:06.309601Z"
 
 [managed_region_hashes]
 header = "8209ab5f5a7c8f642c374946c62b4af4bc0abcf6b44bc22fc745ebc94105a7bc"

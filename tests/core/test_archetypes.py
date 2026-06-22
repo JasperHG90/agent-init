@@ -95,13 +95,13 @@ def test_select_lock_sync_renders_archetype(home: Path, project_root: Path, tmp_
 
     installed = archetype_install.select(project_root, "co/lean")
     assert installed.qualified_name == "co/lean"
-    declared = declarations.load(project_root).instruction_archetype
-    assert declared is not None and declared.qualified_name == "co/lean"
+    declared = declarations.load(project_root).archetype
+    assert declared.qualified_name == "co/lean"
 
     asyncio.run(lock.run(lock.LockOptions(project_root=project_root)))
     m = manifest.load(project_root)
-    assert m.instruction_archetype is not None
-    assert m.instruction_archetype.qualified_name == "co/lean"
+    assert m.archetype is not None
+    assert m.archetype.qualified_name == "co/lean"
 
     asyncio.run(sync.run(sync.SyncOptions(project_root=project_root)))
     agents = (project_root / "AGENTS.md").read_text()
@@ -117,7 +117,7 @@ def test_clear_reverts_to_builtin_template(home: Path, project_root: Path, tmp_p
     asyncio.run(sync.run(sync.SyncOptions(project_root=project_root)))
 
     archetype_install.clear(project_root)
-    assert declarations.load(project_root).instruction_archetype is None
+    assert declarations.load(project_root).archetype.is_builtin
     asyncio.run(sync.run(sync.SyncOptions(project_root=project_root, force=True)))
     agents = (project_root / "AGENTS.md").read_text()
     assert "Lean Base" not in agents
@@ -191,8 +191,8 @@ def test_cli_archetype_use_clear_round_trip(
 
     res = _runner.invoke(cli.app, ["archetype", "use", "co/lean"])
     assert res.exit_code == 0, res.output
-    declared = declarations.load(project_root).instruction_archetype
-    assert declared is not None and declared.qualified_name == "co/lean"
+    declared = declarations.load(project_root).archetype
+    assert declared.qualified_name == "co/lean"
 
     asyncio.run(lock.run(lock.LockOptions(project_root=project_root)))
     asyncio.run(sync.run(sync.SyncOptions(project_root=project_root)))
@@ -201,7 +201,7 @@ def test_cli_archetype_use_clear_round_trip(
     res = _runner.invoke(cli.app, ["archetype", "clear"])
     assert res.exit_code == 0, res.output
     # Clearing reverts to the built-in instruction_template (no archetype).
-    assert declarations.load(project_root).instruction_archetype is None
+    assert declarations.load(project_root).archetype.is_builtin
     asyncio.run(sync.run(sync.SyncOptions(project_root=project_root, force=True)))
     assert "Lean Base" not in (project_root / "AGENTS.md").read_text()
 
@@ -217,8 +217,8 @@ def test_cli_instructions_alias_still_selects_archetype(
     # The hidden back-compat `aim instructions` alias dispatches the same command.
     res = _runner.invoke(cli.app, ["instructions", "use", "co/lean"])
     assert res.exit_code == 0, res.output
-    declared = declarations.load(project_root).instruction_archetype
-    assert declared is not None and declared.qualified_name == "co/lean"
+    declared = declarations.load(project_root).archetype
+    assert declared.qualified_name == "co/lean"
 
 
 def test_assert_archetype_allowed_permits_builtin_and_empty_list() -> None:

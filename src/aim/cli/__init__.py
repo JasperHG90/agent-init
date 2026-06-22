@@ -42,7 +42,7 @@ LAZY_SUBCOMMANDS.update(
         "skill": "aim.cli.commands.skill:app",
         "subagent": "aim.cli.commands.subagent:app",
         "archetype": "aim.cli.commands.instructions:app",
-        "db": "aim.cli.commands.db:app",
+        "app": "aim.cli.commands.app:app",
         "root": "aim.cli.commands.root:app",
         "template": "aim.cli.commands.profile:app",
         "policy": "aim.cli.commands.policy:app",
@@ -386,7 +386,7 @@ def init_cmd(
         project_root=root,
         symlinks=tuple(symlink),
         layout_profile=layout_profile,
-        instruction_archetype=chosen,
+        archetype=chosen,
     )
     result = init_mod.run(options)
     _maybe_setup_policy(root, policy_url, local_policy)

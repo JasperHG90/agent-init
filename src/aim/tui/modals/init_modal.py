@@ -25,9 +25,9 @@ class InitConfig:
     layout_profile: str | None
     sync_agents: bool
     force: bool
-    # Instruction archetype qualified name, BUILTIN_INSTRUCTIONS for the built-in
-    # template, or None to leave the current selection unchanged.
-    instruction_archetype: str | None = None
+    # Archetype qualified name, BUILTIN_INSTRUCTIONS for the built-in base, or
+    # None to leave the current selection unchanged.
+    archetype: str | None = None
 
 
 class InitModal(ModalScreen[InitConfig | None]):
@@ -182,6 +182,6 @@ class InitModal(ModalScreen[InitConfig | None]):
                 layout_profile=layout_profile,
                 sync_agents=sync_agents,
                 force=force,
-                instruction_archetype=instruction_archetype,
+                archetype=instruction_archetype,
             )
         )

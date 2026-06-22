@@ -145,10 +145,10 @@ def write_agent_files(
     # only aim's dynamic `rules` region is merged into it. Without an archetype, the
     # built-in template's full region set is used as before.
     archetype_base: str | None = None
-    if m.instruction_archetype is not None:
+    if m.archetype is not None:
         from aim.core import archetypes as archetypes_mod
 
-        installed_archetype = m.instruction_archetype
+        installed_archetype = m.archetype
         archetype_base = archetypes_mod.read_base_body(
             installed_archetype.repo_alias,
             installed_archetype.current.sha,

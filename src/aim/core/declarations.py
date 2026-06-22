@@ -85,6 +85,13 @@ def _migrate(raw: dict[str, Any]) -> dict[str, Any]:
         # the [instruction_archetype] selection, or the built-in default when absent.
         raw.pop("instruction_template", None)
         raw["manifest_version"] = 7
+        version = 7
+    if version < 8:
+        # v8 renames [instruction_archetype] -> [archetype] and makes it always
+        # present: absent selection becomes the built-in `default`.
+        old = raw.pop("instruction_archetype", None)
+        raw["archetype"] = old if old is not None else {"qualified_name": "default"}
+        raw["manifest_version"] = 8
     return raw
 
 
@@ -175,6 +182,46 @@ def save(project_root: Path, declarations: ProjectDeclarations) -> None:
     path.write_text(text + "\n", encoding="utf-8")
 
 
+def on_disk_version(project_root: Path) -> int:
+    """Return the `manifest_version` recorded in the on-disk `aim.toml`, before migration.
+
+    Args:
+        project_root: Directory whose `aim.toml` should be read.
+
+    Returns:
+        The raw `manifest_version` stored in the file (1 if the field is absent).
+
+    Raises:
+        DeclarationsNotFoundError: If no `aim.toml` exists at `project_root`.
+    """
+    path = paths.project_declarations_path(project_root)
+    if not path.exists():
+        raise DeclarationsNotFoundError(path)
+    raw = tomllib.loads(path.read_text(encoding="utf-8"))
+    return raw.get("manifest_version", 1)
+
+
+def bump(project_root: Path) -> tuple[int, int]:
+    """Migrate the on-disk `aim.toml` to `CURRENT_DECLARATIONS_VERSION` and re-save it.
+
+    Re-saving rewrites the file even when already current, so newly-defaulted tables
+    (such as the always-present `[archetype]` block) are materialized.
+
+    Args:
+        project_root: Directory whose `aim.toml` should be bumped.
+
+    Returns:
+        A `(from_version, to_version)` pair.
+
+    Raises:
+        DeclarationsNotFoundError: If no `aim.toml` exists at `project_root`.
+        DeclarationsVersionError: If the file's version is invalid or newer than supported.
+    """
+    from_version = on_disk_version(project_root)
+    save(project_root, load(project_root))
+    return from_version, CURRENT_DECLARATIONS_VERSION
+
+
 def _update_skill(project_root: Path, installed: object) -> None:
     """Mirror an installed skill into the declarations file.
 
@@ -214,10 +261,7 @@ def _prune_repo_if_unused(decl: ProjectDeclarations, alias: str) -> None:
         any(s.repo_alias == alias for s in decl.skills)
         or any(a.repo_alias == alias for a in decl.agents)
         or any(r.repo_alias == alias for r in decl.rules)
-        or (
-            decl.instruction_archetype is not None
-            and decl.instruction_archetype.repo_alias == alias
-        )
+        or decl.archetype.repo_alias == alias
     )
     if not used:
         decl.repos.pop(alias, None)
@@ -298,8 +342,8 @@ def _update_rule(project_root: Path, installed: object) -> None:
     save(project_root, decl)
 
 
-def set_instruction_archetype(project_root: Path, installed: object) -> None:
-    """Record the selected instruction archetype (singleton) in `aim.toml`.
+def set_archetype(project_root: Path, installed: object) -> None:
+    """Record the selected archetype (singleton) as the AGENTS.md base in `aim.toml`.
 
     Args:
         project_root: Directory whose `aim.toml` should be updated.
@@ -309,7 +353,7 @@ def set_instruction_archetype(project_root: Path, installed: object) -> None:
 
     assert isinstance(installed, InstalledArchetype)
     decl = load_or_default(project_root)
-    decl.instruction_archetype = DeclaredArchetype(
+    decl.archetype = DeclaredArchetype(
         qualified_name=installed.qualified_name,
         repo_alias=installed.repo_alias,
         source_path=installed.source_path,
@@ -320,13 +364,15 @@ def set_instruction_archetype(project_root: Path, installed: object) -> None:
     save(project_root, decl)
 
 
-def clear_instruction_archetype(project_root: Path) -> None:
-    """Clear the selected instruction archetype, pruning its repo binding if unused."""
+def clear_archetype(project_root: Path) -> None:
+    """Revert the AGENTS.md base to the built-in default, pruning the repo binding."""
+    from aim.core.models import DeclaredArchetype
+
     decl = load_or_default(project_root)
-    previous = decl.instruction_archetype
-    decl.instruction_archetype = None
-    if previous is not None:
-        _prune_repo_if_unused(decl, previous.repo_alias)
+    previous_alias = decl.archetype.repo_alias
+    decl.archetype = DeclaredArchetype()  # built-in default
+    if previous_alias is not None:
+        _prune_repo_if_unused(decl, previous_alias)
     save(project_root, decl)
 
 

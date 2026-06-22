@@ -18,7 +18,7 @@ from aim.core import (
     repos,
     templates,
 )
-from aim.core.models import DeclaredArchetype, ProjectDeclarations
+from aim.core.models import BUILTIN_ARCHETYPE, DeclaredArchetype, ProjectDeclarations
 from aim.core.validation import MirrorNameError, is_valid_mirror_name
 
 KNOWN_SYMLINKS = ("CLAUDE.md", "GEMINI.md", "OPENCODE.md")
@@ -35,8 +35,9 @@ class InitOptions:
     symlinks: tuple[str, ...] = ()
     clear_symlinks: bool = False
     layout_profile: str | None = None
-    # Selected instruction archetype qualified name, or None for the built-in template.
-    instruction_archetype: str | None = None
+    # Selected archetype qualified name, "builtin"/"default" for the built-in base,
+    # or None to leave the current selection untouched (on re-init).
+    archetype: str | None = None
 
 
 @dataclass
@@ -102,15 +103,15 @@ def run(options: InitOptions) -> InitResult:
     # preserves any already-declared rules (it never resolves or seeds them).
     decl.layout_profile = options.layout_profile or decl.layout_profile
     decl.symlinks = requested_symlinks
-    # Record the selected instruction archetype. None leaves the current selection
-    # untouched; BUILTIN_INSTRUCTIONS clears it (use the built-in template); a
-    # qualified name selects an archetype, pinned + rendered at the first lock/sync.
-    if options.instruction_archetype == BUILTIN_INSTRUCTIONS:
-        decl.instruction_archetype = None
-    elif options.instruction_archetype is not None:
-        row = archetypes.index_row(options.instruction_archetype)
+    # Record the AGENTS.md base. None leaves the current selection untouched;
+    # BUILTIN_INSTRUCTIONS / "default" reverts to the built-in base; a qualified
+    # name selects an archetype, pinned + rendered at the first lock/sync.
+    if options.archetype in (BUILTIN_INSTRUCTIONS, BUILTIN_ARCHETYPE):
+        decl.archetype = DeclaredArchetype()  # built-in default
+    elif options.archetype is not None:
+        row = archetypes.index_row(options.archetype)
         policy.assert_archetype_allowed(policy.effective_policy(proj), row.qualified_name)
-        decl.instruction_archetype = DeclaredArchetype(
+        decl.archetype = DeclaredArchetype(
             qualified_name=row.qualified_name,
             repo_alias=row.repo_alias,
             source_path=row.instruction_path,

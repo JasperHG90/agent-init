@@ -173,8 +173,8 @@ def _locked_repo_pairs(m: Manifest) -> dict[str, str]:
         pairs[a.repo_alias] = a.repo_url
     for r in m.rules:
         pairs[r.repo_alias] = r.repo_url
-    if m.instruction_archetype is not None:
-        pairs[m.instruction_archetype.repo_alias] = m.instruction_archetype.repo_url
+    if m.archetype is not None:
+        pairs[m.archetype.repo_alias] = m.archetype.repo_url
     return pairs
 
 

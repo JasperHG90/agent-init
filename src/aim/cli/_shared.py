@@ -369,7 +369,7 @@ def _friendly(fn: Callable[..., Any]) -> Callable[..., Any]:
             Console(stderr=True).print(
                 "[bold red]error:[/bold red] the aim database is locked — another aim "
                 "or TUI process may be running.\n"
-                "  close it and retry, or run [bold]aim db unlock[/bold] to recover."
+                "  close it and retry, or run [bold]aim app unlock-db[/bold] to recover."
             )
             raise typer.Exit(code=1) from exc
         finally:

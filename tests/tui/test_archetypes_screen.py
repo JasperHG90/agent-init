@@ -46,8 +46,8 @@ async def test_archetypes_screen_lists_and_selects(
         await pilot.press("u")  # use co/lean as base
         await app.workers.wait_for_complete()
         await pilot.pause()
-        declared = declarations.load(project_root).instruction_archetype
-        assert declared is not None and declared.qualified_name == "co/lean"
+        declared = declarations.load(project_root).archetype
+        assert declared.qualified_name == "co/lean"
 
         # Selecting the built-in default reverts to the bundled scaffold.
         table.move_cursor(row=0)
@@ -55,7 +55,7 @@ async def test_archetypes_screen_lists_and_selects(
         await app.workers.wait_for_complete()
         await pilot.pause()
 
-    assert declarations.load(project_root).instruction_archetype is None
+    assert declarations.load(project_root).archetype.is_builtin
 
 
 @pytest.mark.asyncio

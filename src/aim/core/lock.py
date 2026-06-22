@@ -470,12 +470,15 @@ def _resolve_archetype_version(declared: DeclaredArchetype) -> SkillVersion:
     ancestor tag) so the SHA `select` records and the SHA `lock` records agree, rather
     than churning between the file's last-change commit and the branch tip.
     """
+    # Only called for repo archetypes (the built-in default is never locked).
+    repo_alias, source_path = declared.repo_alias, declared.source_path
+    assert repo_alias is not None and source_path is not None
     return install.resolve_install_version(
-        declared.repo_alias,
-        declared.source_path,
+        repo_alias,
+        source_path,
         track=declared.track,
         pin=declared.pin,
-        artifact_name=Path(declared.source_path).name,
+        artifact_name=Path(source_path).name,
     )
 
 
@@ -491,27 +494,28 @@ def _lock_archetype(
     Returns:
         An `(InstalledArchetype, None)` pair on success, or `(None, error message)`.
     """
+    # Only called for repo archetypes (the built-in default is never locked).
+    repo_alias, source_path = declared.repo_alias, declared.source_path
+    assert repo_alias is not None and source_path is not None
     try:
         version = _resolve_archetype_version(declared)
         if (
             cached is not None
             and cached.current.sha == version.sha
-            and cached.source_path == declared.source_path
+            and cached.source_path == source_path
         ):
             content_hash = cached.content_hash
         else:
-            content = archetypes.read_base_body(
-                declared.repo_alias, version.sha, declared.source_path
-            )
+            content = archetypes.read_base_body(repo_alias, version.sha, source_path)
             content_hash = hashing.hash_text(content)
     except Exception as exc:
         return None, f"{declared.qualified_name}: {exc}"
     return (
         InstalledArchetype(
             qualified_name=declared.qualified_name,
-            repo_alias=declared.repo_alias,
-            repo_url=repos.get(declared.repo_alias).url,
-            source_path=declared.source_path,
+            repo_alias=repo_alias,
+            repo_url=repos.get(repo_alias).url,
+            source_path=source_path,
             current=version,
             content_hash=content_hash,
             pin=declared.pin,
@@ -698,7 +702,7 @@ def _compute_region_hashes(
     regions = {r.name: r.body for r in agents_md.parse(canonical)}
     # With an archetype the base prose comes from the archetype, not the template, so
     # only aim's dynamic `rules` region is managed inside AGENTS.md (matches the render).
-    if decl.instruction_archetype is not None:
+    if not decl.archetype.is_builtin:
         regions = {"rules": regions["rules"]} if "rules" in regions else {}
     return {name: hashing.hash_text(body) for name, body in regions.items()}
 
@@ -781,7 +785,7 @@ def _archetype_key(a: InstalledArchetype) -> tuple:
 def _top_level_key(m: Manifest) -> tuple:
     """Build the identity tuple for a manifest's non-artifact (top-level) fields."""
     return (
-        None if m.instruction_archetype is None else _archetype_key(m.instruction_archetype),
+        None if m.archetype is None else _archetype_key(m.archetype),
         m.layout_profile,
         tuple(m.symlinks),
         tuple(m.managed_files),
@@ -858,13 +862,12 @@ def _preserve_unchanged_metadata(existing: Manifest | None, new: Manifest) -> No
             r.history = list(prev_rule.history)
 
     if (
-        existing.instruction_archetype is not None
-        and new.instruction_archetype is not None
-        and _archetype_key(existing.instruction_archetype)
-        == _archetype_key(new.instruction_archetype)
+        existing.archetype is not None
+        and new.archetype is not None
+        and _archetype_key(existing.archetype) == _archetype_key(new.archetype)
     ):
-        new.instruction_archetype.current = existing.instruction_archetype.current
-        new.instruction_archetype.history = list(existing.instruction_archetype.history)
+        new.archetype.current = existing.archetype.current
+        new.archetype.history = list(existing.archetype.history)
 
 
 def _enforce_policy(
@@ -891,8 +894,8 @@ def _enforce_policy(
         policy.assert_artifact_allowed(pol, "rule", r.qualified_name)
     for mcp in decl.mcp_servers:
         policy.assert_mcp_allowed(pol, mcp.alias, mcp.registry_name)
-    if decl.instruction_archetype is not None:
-        policy.assert_archetype_allowed(pol, decl.instruction_archetype.qualified_name)
+    if not decl.archetype.is_builtin:
+        policy.assert_archetype_allowed(pol, decl.archetype.qualified_name)
     # Check the EFFECTIVE profile (the one the lockfile records), never the raw
     # possibly-None declaration, so an allow-list isn't bypassed by relying on the default.
     policy.assert_profile_allowed(pol, effective_profile)
@@ -967,13 +970,9 @@ async def run(options: LockOptions) -> LockResult:
 
     archetype_locked: InstalledArchetype | None = None
     archetype_errors: list[str] = []
-    if decl.instruction_archetype is not None:
-        cached_archetype = (
-            None if options.force or existing is None else existing.instruction_archetype
-        )
-        archetype_locked, archetype_error = _lock_archetype(
-            decl.instruction_archetype, cached_archetype
-        )
+    if not decl.archetype.is_builtin:
+        cached_archetype = None if options.force or existing is None else existing.archetype
+        archetype_locked, archetype_error = _lock_archetype(decl.archetype, cached_archetype)
         if archetype_error is not None:
             archetype_errors.append(archetype_error)
 
@@ -988,7 +987,7 @@ async def run(options: LockOptions) -> LockResult:
     ]
 
     lock = Manifest(
-        instruction_archetype=archetype_locked,
+        archetype=archetype_locked,
         layout_profile=decl.layout_profile or profile.name,
         rules=rules_locked,
         symlinks=decl.symlinks,

@@ -136,7 +136,7 @@ class ArchetypeIndex(SQLModel, table=True):  # type: ignore[call-arg]
     indexed_at_sha: str
 
 
-CURRENT_DECLARATIONS_VERSION = 7  # v7 drops the vestigial instruction_template field
+CURRENT_DECLARATIONS_VERSION = 8  # v8 renames instruction_archetype -> archetype (always present)
 
 
 class DeclaredRepo(BaseModel):
@@ -198,20 +198,29 @@ class DeclaredMcpServer(BaseModel):
     overrides: dict[str, object] = Field(default_factory=dict)
 
 
-class DeclaredArchetype(BaseModel):
-    """Declare the selected project-instruction archetype in `aim.toml`.
+BUILTIN_ARCHETYPE = "default"
 
-    Singleton: a project uses at most one archetype as its AGENTS.md base. None
-    (the field absent) means the built-in instruction template is used instead.
+
+class DeclaredArchetype(BaseModel):
+    """Declare the project's AGENTS.md base archetype in `aim.toml`.
+
+    Singleton: a project uses exactly one base. ``qualified_name == "default"``
+    (with no repo_alias/source_path) means aim's built-in scaffold; any other
+    value is a repo-sourced archetype ``<repo_alias>/<name>``.
     """
 
     model_config = ConfigDict(extra="forbid")
 
-    qualified_name: str  # "<repo_alias>/<archetype_name>"
-    repo_alias: str
-    source_path: str  # the chosen base instruction file, relative to repo root
+    qualified_name: str = BUILTIN_ARCHETYPE  # "default" or "<repo_alias>/<name>"
+    repo_alias: str | None = None
+    source_path: str | None = None  # the chosen base instruction file, relative to repo root
     track: str | None = None
     pin: str | None = None
+
+    @property
+    def is_builtin(self) -> bool:
+        """Whether this declaration selects aim's built-in default scaffold."""
+        return self.repo_alias is None or self.qualified_name == BUILTIN_ARCHETYPE
 
 
 class DeclaredTemplate(BaseModel):
@@ -241,8 +250,8 @@ class ProjectDeclarations(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     manifest_version: int = CURRENT_DECLARATIONS_VERSION
-    # The AGENTS.md base: a repo-sourced archetype, or None for aim's built-in default.
-    instruction_archetype: DeclaredArchetype | None = None
+    # The AGENTS.md base, always present: the built-in `default` or a repo archetype.
+    archetype: DeclaredArchetype = Field(default_factory=DeclaredArchetype)
     layout_profile: str | None = None
     symlinks: list[str] = Field(default_factory=list)
     rules: list[DeclaredRule] = Field(default_factory=list)
@@ -260,7 +269,7 @@ class ProjectDeclarations(BaseModel):
     mcp_servers: list[DeclaredMcpServer] = Field(default_factory=list)
 
 
-CURRENT_MANIFEST_VERSION = 13  # v13 drops the vestigial instruction_template field
+CURRENT_MANIFEST_VERSION = 14  # v14 renames instruction_archetype -> archetype
 HISTORY_CAP = 10
 
 
@@ -446,7 +455,7 @@ class Manifest(BaseModel):
 
     manifest_version: int = CURRENT_MANIFEST_VERSION
     # Locked AGENTS.md base: a repo-sourced archetype, or None for the built-in default.
-    instruction_archetype: InstalledArchetype | None = None
+    archetype: InstalledArchetype | None = None
     skills: list[InstalledSkill] = Field(default_factory=list)
     agents: list[InstalledAgent] = Field(default_factory=list)
     mcp_servers: list[InstalledMcpServer] = Field(default_factory=list)

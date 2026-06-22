@@ -108,14 +108,14 @@ def select(
         pin=pin,
         track=track,
     )
-    declarations.set_instruction_archetype(project_root, installed)
+    declarations.set_archetype(project_root, installed)
 
     try:
         m = manifest.load(project_root)
     except manifest.ManifestNotFoundError:
         return installed  # declaration recorded; the first `aim lock` will render it.
 
-    previous = m.instruction_archetype
+    previous = m.archetype
     if previous is not None and previous.qualified_name == qualified_name:
         previous.push_history(version)
         previous.repo_alias = row.repo_alias
@@ -127,7 +127,7 @@ def select(
         if track is not None:
             previous.track = track
         installed = previous
-    m.instruction_archetype = installed
+    m.archetype = installed
     _render(project_root, m)
     return installed
 
@@ -145,8 +145,8 @@ def update(project_root: Path, *, override_risk: bool = False) -> InstalledArche
     Raises:
         NoArchetypeSelectedError: If no archetype is selected.
     """
-    declared = declarations.load_or_default(project_root).instruction_archetype
-    if declared is None:
+    declared = declarations.load_or_default(project_root).archetype
+    if declared.is_builtin:
         raise NoArchetypeSelectedError("no instruction archetype is selected")
     return select(
         project_root,
@@ -159,10 +159,10 @@ def update(project_root: Path, *, override_risk: bool = False) -> InstalledArche
 
 def clear(project_root: Path) -> None:
     """Clear the selected archetype, reverting AGENTS.md to the built-in template."""
-    declarations.clear_instruction_archetype(project_root)
+    declarations.clear_archetype(project_root)
     try:
         m = manifest.load(project_root)
     except manifest.ManifestNotFoundError:
         return
-    m.instruction_archetype = None
+    m.archetype = None
     _render(project_root, m)

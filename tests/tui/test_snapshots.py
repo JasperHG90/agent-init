@@ -128,9 +128,13 @@ skip_in_ci = pytest.mark.skipif(
 
 
 @skip_in_ci
-def test_snapshot_main_layout(home: Path, snap_compare) -> None:  # type: ignore[no-untyped-def]
+def test_snapshot_main_layout(home: Path, snap_compare, monkeypatch) -> None:  # type: ignore[no-untyped-def]
     """One bitmap test per area — catches gross layout regressions. Update
     via `pytest tests/tui --snapshot-update` after intentional UI changes."""
+    # Pin the rendered version so this bitmap does not drift on every release.
+    import aim.tui.screens.main_screen as main_screen
+
+    monkeypatch.setattr(main_screen, "__version__", "0.0.0-snapshot")
     assert snap_compare(AimApp())
 
 

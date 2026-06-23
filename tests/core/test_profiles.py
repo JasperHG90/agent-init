@@ -277,6 +277,42 @@ def test_toml_round_trip_with_repos_and_description(home: Path) -> None:
     assert loaded.repos == [profiles.ProfileRepo(alias="acme", url="https://example.com/acme.git")]
 
 
+def test_toml_round_trip_with_archetype(home: Path) -> None:
+    p = profiles.Profile(
+        name="with-arch",
+        archetype=profiles.ProfileArchetype(qualified_name="acme/lean", sha="deadbeef"),
+        repos=[profiles.ProfileRepo(alias="acme", url="https://example.com/acme.git")],
+    )
+    text = profiles.render_toml(p)
+    assert "version = 1" in text
+    assert "[archetype]" in text
+    assert 'qualified_name = "acme/lean"' in text
+    loaded = profiles.parse_toml(text)
+    assert loaded == p
+    assert loaded.archetype.qualified_name == "acme/lean"
+    assert loaded.archetype.sha == "deadbeef"
+
+
+def test_template_default_archetype_is_explicit(home: Path) -> None:
+    # The built-in base is stated explicitly, never omitted.
+    text = profiles.render_toml(profiles.Profile(name="plain"))
+    assert "[archetype]" in text
+    assert 'qualified_name = "default"' in text
+    assert profiles.parse_toml(text).archetype.is_builtin
+
+
+def test_template_version_migration(home: Path) -> None:
+    # A legacy template with no version parses as the current schema version.
+    legacy = profiles.parse_toml('name = "legacy"\n')
+    assert legacy.version == profiles.CURRENT_TEMPLATE_VERSION
+    # A version newer than supported is rejected.
+    with pytest.raises(profiles.ProfileTomlError):
+        profiles.parse_toml(f'version = {profiles.CURRENT_TEMPLATE_VERSION + 1}\nname = "future"\n')
+    # A non-int version is rejected.
+    with pytest.raises(profiles.ProfileTomlError):
+        profiles.parse_toml('version = "x"\nname = "bad"\n')
+
+
 def test_render_toml_drops_null_overrides(home: Path) -> None:
     p = profiles.Profile(
         name="x",

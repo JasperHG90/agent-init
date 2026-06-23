@@ -134,16 +134,46 @@ class ProfileRepo(BaseModel):
     url: str
 
 
+# Template schema version. Bump when the TOML format changes and add a step to
+# `_migrate_template` so older shared templates upgrade forward, like aim.toml's
+# manifest_version.
+CURRENT_TEMPLATE_VERSION = 1
+
+# Sentinel qualified_name for aim's built-in AGENTS.md scaffold (no source repo).
+BUILTIN_ARCHETYPE = "default"
+
+
+class ProfileArchetype(BaseModel):
+    """The project's AGENTS.md base archetype in a template.
+
+    ``qualified_name = "default"`` is aim's built-in scaffold (no repo, no sha). Any
+    other value is a repo-sourced archetype ``<alias>/<name>`` frozen to a commit sha,
+    whose repo is recorded in the template's ``[[repo]]`` block.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    qualified_name: str = BUILTIN_ARCHETYPE
+    sha: str | None = None
+
+    @property
+    def is_builtin(self) -> bool:
+        """True when this is aim's built-in default scaffold (no source repo)."""
+        return self.qualified_name == BUILTIN_ARCHETYPE
+
+
 class Profile(BaseModel):
     """A named bundle of init settings and artifact references for stamping projects."""
 
     model_config = ConfigDict(extra="forbid")
 
     name: str
+    version: int = CURRENT_TEMPLATE_VERSION
     description: str | None = None
     layout_profile: str | None = None
     symlinks: list[str] = Field(default_factory=list)
     repos: list[ProfileRepo] = Field(default_factory=list)
+    archetype: ProfileArchetype = Field(default_factory=ProfileArchetype)
     rules: list[ProfileRule] = Field(default_factory=list)
     skills: list[ProfileSkill] = Field(default_factory=list)
     agents: list[ProfileAgent] = Field(default_factory=list)
@@ -290,21 +320,56 @@ def parse_toml(text: str, *, source: str | None = None) -> Profile:
         if singular in raw:
             raw[plural] = raw.pop(singular)
     raw.pop("instruction_template", None)  # back-compat: dropped field, ignore if present
+    raw = _migrate_template(raw, source=source)
     try:
         return Profile.model_validate(raw)
     except (ProfileNameError, ValueError) as exc:
         raise ProfileTomlError(str(exc)) from exc
 
 
+def _migrate_template(raw: dict[str, object], *, source: str | None = None) -> dict[str, object]:
+    """Forward-migrate a parsed template mapping to CURRENT_TEMPLATE_VERSION.
+
+    Templates predating versioning have no ``version`` key; they are treated as v1
+    (the initial versioned schema — additive, so the archetype defaults to built-in).
+    Add a migration step here whenever the format changes, mirroring aim.toml's
+    ``manifest_version`` chain.
+
+    Raises:
+        ProfileTomlError: If the version is not an int or is newer than supported.
+    """
+    version = raw.get("version", 1)
+    if not isinstance(version, int):
+        raise ProfileTomlError(
+            f"template version in {source or 'profile'} must be an int, "
+            f"got {type(version).__name__}"
+        )
+    if version > CURRENT_TEMPLATE_VERSION:
+        raise ProfileTomlError(
+            f"template {source or 'profile'} is version {version}, newer than supported "
+            f"({CURRENT_TEMPLATE_VERSION}); upgrade aim"
+        )
+    raw["version"] = CURRENT_TEMPLATE_VERSION
+    return raw
+
+
 def render_toml(profile: Profile) -> str:
     """Serialize a project profile to TOML."""
     lines: list[str] = []
+    lines.append(f"version = {profile.version}")
     lines.append(f'name = "{_escape_toml_string(profile.name)}"')
     if profile.description:
         lines.append(f'description = "{_escape_toml_string(profile.description)}"')
     if profile.layout_profile:
         lines.append(f'layout_profile = "{_escape_toml_string(profile.layout_profile)}"')
     lines.append(f"symlinks = {_render_string_list(profile.symlinks)}")
+    lines.append("")
+    # The AGENTS.md base archetype is always recorded, even the built-in "default",
+    # so a shared template states its base explicitly.
+    lines.append("[archetype]")
+    lines.append(f'qualified_name = "{_escape_toml_string(profile.archetype.qualified_name)}"')
+    if profile.archetype.sha:
+        lines.append(f'sha = "{_escape_toml_string(profile.archetype.sha)}"')
     lines.append("")
     for repo in profile.repos:
         lines.append("[[repo]]")
@@ -404,6 +469,7 @@ def enrich_from_index(profile: Profile) -> Profile:
             refresh), so its repo url and SHA cannot be resolved.
     """
     from aim.core import agents as agents_mod
+    from aim.core import archetypes as archetypes_mod
     from aim.core import repo_rules as repo_rules_mod
     from aim.core import repos as repos_mod
     from aim.core import skills as skills_mod
@@ -447,6 +513,18 @@ def enrich_from_index(profile: Profile) -> Profile:
         )
         for r in profile.rules
     ]
+    if profile.archetype.is_builtin:
+        archetype_out = profile.archetype
+    else:
+        archetype_out = ProfileArchetype(
+            qualified_name=profile.archetype.qualified_name,
+            sha=_freeze_sha(
+                "archetype",
+                profile.archetype.qualified_name,
+                profile.archetype.sha,
+                archetypes_mod.index_row,
+            ),
+        )
 
     def _repo_url(alias: str) -> str:
         """Resolve a registered repo's url by alias, or raise a template error."""
@@ -462,6 +540,7 @@ def enrich_from_index(profile: Profile) -> Profile:
     return profile.model_copy(
         update={
             "repos": repos_out,
+            "archetype": archetype_out,
             "skills": skills_out,
             "agents": agents_out,
             "rules": rules_out,
@@ -511,6 +590,14 @@ def from_project(name: str, project_root: Path) -> Profile:
         repo_urls[a.repo_alias] = a.repo_url
     for r in m.rules:
         repo_urls[r.repo_alias] = r.repo_url
+    # The AGENTS.md base archetype, frozen to its locked sha. None = built-in default.
+    if m.archetype is not None:
+        archetype = ProfileArchetype(
+            qualified_name=m.archetype.qualified_name, sha=m.archetype.current.sha
+        )
+        repo_urls[m.archetype.repo_alias] = m.archetype.repo_url
+    else:
+        archetype = ProfileArchetype()
     repos = [ProfileRepo(alias=alias, url=url) for alias, url in sorted(repo_urls.items())]
 
     return Profile(
@@ -518,6 +605,7 @@ def from_project(name: str, project_root: Path) -> Profile:
         layout_profile=decl.layout_profile,
         symlinks=list(decl.symlinks),
         repos=repos,
+        archetype=archetype,
         rules=[ProfileRule(qualified_name=r.qualified_name, sha=r.current.sha) for r in m.rules],
         skills=[ProfileSkill(qualified_name=s.qualified_name, sha=s.current.sha) for s in m.skills],
         agents=[ProfileAgent(qualified_name=a.qualified_name, sha=a.current.sha) for a in m.agents],
@@ -605,8 +693,16 @@ def resolve_for_apply(
         alias, sep, rest = qn.partition("/")
         return f"{alias_rewrite[alias]}/{rest}" if sep and alias in alias_rewrite else qn
 
+    archetype = (
+        profile.archetype
+        if profile.archetype.is_builtin
+        else profile.archetype.model_copy(
+            update={"qualified_name": _rewrite(profile.archetype.qualified_name)}
+        )
+    )
     return profile.model_copy(
         update={
+            "archetype": archetype,
             "skills": [
                 s.model_copy(update={"qualified_name": _rewrite(s.qualified_name)})
                 for s in profile.skills
@@ -699,17 +795,29 @@ def apply_profile(
         A ProfileApplyResult recording installed and skipped artifacts.
     """
     profile = resolve_for_apply(profile, project_root, allow_insecure=allow_insecure)
+    archetype_choice = (
+        init_mod.BUILTIN_INSTRUCTIONS
+        if profile.archetype.is_builtin
+        else profile.archetype.qualified_name
+    )
     init_result = init_mod.run(
         init_mod.InitOptions(
             project_root=project_root,
             layout_profile=profile.layout_profile,
             symlinks=tuple(profile.symlinks),
+            archetype=archetype_choice,
         )
     )
 
     # Record template provenance after init (which would otherwise not know about
     # it) and before lock, so the lock mirrors the template pin into the manifest.
     from aim.core import declarations as declarations_mod
+
+    # Pin the archetype to the template's frozen sha so apply reproduces the exact base.
+    if not profile.archetype.is_builtin and profile.archetype.sha:
+        decl_with_archetype = declarations_mod.load(project_root)
+        decl_with_archetype.archetype.pin = profile.archetype.sha
+        declarations_mod.save(project_root, decl_with_archetype)
 
     if template_source is not None:
         declarations_mod.set_template_provenance(project_root, template_source)

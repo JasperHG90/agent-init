@@ -108,6 +108,46 @@ def test_select_lock_sync_renders_archetype(home: Path, project_root: Path, tmp_
     assert "Lean Base" in agents and "Be terse." in agents
 
 
+def test_from_project_captures_archetype(home: Path, project_root: Path, tmp_path: Path) -> None:
+    from aim.core import profiles
+
+    url = _repo_with_archetypes(tmp_path, {"instructions/lean/AGENTS.md": "# Lean Base\n"})
+    repos.add("co", url, allow_empty=True)
+    init_mod.run(init_mod.InitOptions(project_root=project_root))
+    archetype_install.select(project_root, "co/lean")
+    asyncio.run(lock.run(lock.LockOptions(project_root=project_root)))
+
+    snap = profiles.from_project("svc", project_root)
+
+    assert snap.archetype.qualified_name == "co/lean"
+    assert snap.archetype.sha  # frozen to the locked commit
+    assert profiles.ProfileRepo(alias="co", url=url) in snap.repos
+    # The exported TOML states the archetype explicitly.
+    assert "[archetype]" in profiles.render_toml(snap)
+
+
+def test_apply_profile_reconstructs_archetype(
+    home: Path, project_root: Path, tmp_path: Path
+) -> None:
+    from aim.core import profiles
+
+    url = _repo_with_archetypes(tmp_path, {"instructions/lean/AGENTS.md": "# Lean Base\n"})
+    repos.add("co", url, allow_empty=True)
+    sha = archetypes.index_row("co/lean").indexed_at_sha
+    template = profiles.Profile(
+        name="t",
+        repos=[profiles.ProfileRepo(alias="co", url=url)],
+        archetype=profiles.ProfileArchetype(qualified_name="co/lean", sha=sha),
+    )
+
+    profiles.apply_profile(template, project_root, strict_resolution=True)
+
+    decl = declarations.load(project_root)
+    assert decl.archetype.qualified_name == "co/lean"
+    assert decl.archetype.pin == sha  # pinned to the template's frozen sha
+    assert "Lean Base" in (project_root / "AGENTS.md").read_text()
+
+
 def test_clear_reverts_to_builtin_template(home: Path, project_root: Path, tmp_path: Path) -> None:
     url = _repo_with_archetypes(tmp_path, {"instructions/lean/AGENTS.md": "# Lean Base\n"})
     repos.add("co", url, allow_empty=True)

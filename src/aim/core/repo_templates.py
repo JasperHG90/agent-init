@@ -12,6 +12,7 @@ If the same template name appears at multiple locations, the shallower path wins
 from __future__ import annotations
 
 import re
+import threading
 from dataclasses import dataclass
 from typing import NamedTuple
 
@@ -24,6 +25,26 @@ from aim.core.models import TemplateIndex
 _TEMPLATE_PREFIXES = ("templates/", ".aim/templates/")
 _TEMPLATE_RE = re.compile(r"^(?:(?P<path>.*)/)?(?P<name>[^/]+)\.toml$")
 _NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
+
+# Templates that look like templates but fail to parse are dropped from the index;
+# the reason is collected here so `aim repo add`/`refresh` can warn instead of
+# silently showing nothing. Thread-safe for parallel `refresh_many`.
+_skip_warnings: list[str] = []
+_skip_lock = threading.Lock()
+
+
+def _warn_skip(message: str) -> None:
+    """Record a warning about a template skipped during discovery."""
+    with _skip_lock:
+        _skip_warnings.append(message)
+
+
+def take_skipped_warnings() -> list[str]:
+    """Return and clear warnings about templates skipped during discovery."""
+    with _skip_lock:
+        out = list(_skip_warnings)
+        _skip_warnings.clear()
+    return out
 
 
 class TemplateNotIndexedError(KeyError):
@@ -86,7 +107,8 @@ def discover(repo_alias: str) -> IndexResult:
         try:
             body = git.get_backend().cat_file(repo_dir, sha, p)
             profile = profiles.parse_toml(body, source=p)
-        except (git.GitError, profiles.ProfileTomlError):
+        except (git.GitError, profiles.ProfileTomlError) as exc:
+            _warn_skip(f"{repo_alias}: skipped malformed template {p}: {exc}")
             continue
         depth = p.count("/")
         by_name.setdefault(name, []).append(

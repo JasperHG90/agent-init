@@ -48,6 +48,32 @@ def test_discover_and_list(home: Path, tmp_path: Path) -> None:
     assert "template" in repos.artifact_kinds("src")
 
 
+def test_malformed_template_is_skipped_with_warning(home: Path, tmp_path: Path) -> None:
+    repo_templates.take_skipped_warnings()  # clear residue from earlier adds
+    # A file under templates/ that fails to parse must not vanish silently.
+    repos.add(
+        "src",
+        _repo_with_template(tmp_path, extra={"templates/broken.toml": 'name = "Bad Name"\n'}),
+    )
+
+    # The valid template is still indexed; the broken one is reported, not silent.
+    assert [r.qualified_name for r in repo_templates.list_templates("src")] == ["src/svc"]
+    warnings = repo_templates.take_skipped_warnings()
+    assert any("broken.toml" in w for w in warnings), warnings
+
+
+def test_repo_add_cli_prints_skipped_template_warning(home: Path, tmp_path: Path) -> None:
+    from typer.testing import CliRunner
+
+    from aim import cli
+
+    url = _repo_with_template(tmp_path, extra={"templates/broken.toml": 'name = "Bad Name"\n'})
+    res = CliRunner().invoke(cli.app, ["repo", "add", "src", url])
+    assert res.exit_code == 0, res.output
+    assert "warning:" in res.output
+    assert "broken.toml" in res.output
+
+
 def test_load_template_parses_profile(home: Path, tmp_path: Path) -> None:
     repos.add("src", _repo_with_template(tmp_path))
     profile = repo_templates.load_template("src/svc")

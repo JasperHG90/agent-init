@@ -39,6 +39,7 @@ def repo_add(
     typer.echo(f"added repo {repo.alias} -> {repo.url}")
     if repo.last_sha:
         typer.echo(f"  HEAD: {repo.last_sha[:12]}")
+    _warn_skipped_templates()
 
 
 @app.command("list")
@@ -109,6 +110,7 @@ def repo_refresh(
         repo = repos_mod.refresh(alias, allow_insecure=allow_insecure)
         sha = repo.last_sha[:12] if repo.last_sha else "?"
         typer.echo(f"refreshed {alias}: HEAD={sha}")
+        _warn_skipped_templates()
         return
     aliases = [r.alias for r in repos_mod.list_repos()]
     if not aliases:
@@ -122,5 +124,14 @@ def repo_refresh(
             continue
         sha = refreshed.last_sha[:12] if refreshed and refreshed.last_sha else "?"
         typer.echo(f"refreshed {a}: HEAD={sha}")
+    _warn_skipped_templates()
     if failures:
         raise typer.Exit(code=1)
+
+
+def _warn_skipped_templates() -> None:
+    """Print a stderr warning for any template skipped (unparseable) during indexing."""
+    from aim.core import repo_templates as repo_templates_mod
+
+    for warning in repo_templates_mod.take_skipped_warnings():
+        typer.echo(f"warning: {warning}", err=True)

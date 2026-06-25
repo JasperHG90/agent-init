@@ -1,4 +1,4 @@
-manifest_version = 13
+manifest_version = 14
 mcp_servers = []
 managed_files = [
     "AGENTS.md",
@@ -11,22 +11,6 @@ symlinks = [
 policy_repo = "https://github.com/JasperHG90/aim-policy"
 policy_ref = "c2b87682202bee3e972d4c113cc4da99d44dfe2e"
 policy_hash = "82ae6774d570f747a69baf224f9930245fa5562012bc37cfe408e020f4a7dc95"
-
-[[skill]]
-qualified_name = "anthropic/skill-creator"
-repo_alias = "anthropic"
-repo_url = "https://github.com/anthropics/skills"
-source_path = "skills/skill-creator"
-target_dir = ".claude/skills/skill-creator"
-content_hash = "4557d54c524c67984e4bab23fa436e90196292ae8df4d2093f0ce0e6951bfc1c"
-
-[skill.current]
-sha = "b9e19e6f44773509fbdd7001d77ff41a49a486c1"
-installed_at = "2026-06-22T14:24:55.688502Z"
-
-[[skill.history]]
-sha = "57546260929473d4e0d1c1bb75297be2fdfa1949"
-installed_at = "2026-06-21T06:32:00.381097Z"
 
 [[skill]]
 qualified_name = "anthropic/theme-factory"
@@ -103,8 +87,8 @@ history = []
 content_hash = "2bd803b32799dd81fdae0b92776ca4a91340ce096b81ac36ae45a77f20704007"
 
 [skill.current]
-sha = "516c105a9d8260c80a9d1fd8cb4004fe22a74225"
-installed_at = "2026-06-21T06:32:00.397565Z"
+sha = "7f71a9a9d5093a3c62b259f3d7896db1ff8b57bf"
+installed_at = "2026-06-25T13:32:35.416999Z"
 
 [[skill]]
 qualified_name = "jasperhg90/doc-write"
@@ -116,8 +100,8 @@ history = []
 content_hash = "3a0386265d011ddf80b85ebeaf323eb8722a76fe9bae1bae80473e1c4a736c31"
 
 [skill.current]
-sha = "516c105a9d8260c80a9d1fd8cb4004fe22a74225"
-installed_at = "2026-06-21T06:32:00.466733Z"
+sha = "7f71a9a9d5093a3c62b259f3d7896db1ff8b57bf"
+installed_at = "2026-06-25T13:32:35.371757Z"
 
 [[skill]]
 qualified_name = "jasperhg90/manifesto"
@@ -129,8 +113,8 @@ history = []
 content_hash = "5906935b4b3fb44b2d113018526590b3337969fb20a0710c414b7824bf7b4bcb"
 
 [skill.current]
-sha = "516c105a9d8260c80a9d1fd8cb4004fe22a74225"
-installed_at = "2026-06-21T06:32:00.458475Z"
+sha = "7f71a9a9d5093a3c62b259f3d7896db1ff8b57bf"
+installed_at = "2026-06-25T13:32:35.410098Z"
 
 [[skill]]
 qualified_name = "jasperhg90/release"
@@ -142,8 +126,8 @@ history = []
 content_hash = "27551a57c8a8a9fe0af1187309890b747231c3f1bde802d984ce8e5c7ad145a5"
 
 [skill.current]
-sha = "516c105a9d8260c80a9d1fd8cb4004fe22a74225"
-installed_at = "2026-06-21T06:32:00.403298Z"
+sha = "7f71a9a9d5093a3c62b259f3d7896db1ff8b57bf"
+installed_at = "2026-06-25T13:32:35.486633Z"
 
 [[skill]]
 qualified_name = "jasperhg90/terminal-gif"
@@ -155,8 +139,21 @@ history = []
 content_hash = "599a57b4fa4629c81fd9d53b3f7c6617b230fab04cd9dde33d318bb0c1756711"
 
 [skill.current]
-sha = "516c105a9d8260c80a9d1fd8cb4004fe22a74225"
-installed_at = "2026-06-21T06:32:00.614387Z"
+sha = "7f71a9a9d5093a3c62b259f3d7896db1ff8b57bf"
+installed_at = "2026-06-25T13:32:35.454037Z"
+
+[[skill]]
+qualified_name = "anthropic/skill-creator"
+repo_alias = "anthropic"
+repo_url = "https://github.com/anthropics/skills"
+source_path = "skills/skill-creator"
+target_dir = ".claude/skills/skill-creator"
+history = []
+content_hash = "4557d54c524c67984e4bab23fa436e90196292ae8df4d2093f0ce0e6951bfc1c"
+
+[skill.current]
+sha = "57546260929473d4e0d1c1bb75297be2fdfa1949"
+installed_at = "2026-06-25T13:32:35.391648Z"
 
 [[subagent]]
 qualified_name = "0xfurai/github-actions-expert"
@@ -185,17 +182,30 @@ sha = "9236d10702cdbba37eaa34515f1e1dbff8452506"
 installed_at = "2026-06-21T06:32:00.513756Z"
 
 [[subagent]]
+qualified_name = "jasperhg90/adversarial-reviewer"
+repo_alias = "jasperhg90"
+repo_url = "https://github.com/JasperHG90/skills"
+source_path = "agents/adversarial-reviewer.md"
+target_path = ".claude/agents/adversarial-reviewer.md"
+history = []
+content_hash = "4312d303fbdb1621c1e43d2e085df7b0f5242f8761c65c10147e179c4f677481"
+
+[subagent.current]
+sha = "7f71a9a9d5093a3c62b259f3d7896db1ff8b57bf"
+installed_at = "2026-06-25T13:32:35.372212Z"
+
+[[subagent]]
 qualified_name = "jasperhg90/feature-planner"
 repo_alias = "jasperhg90"
 repo_url = "https://github.com/JasperHG90/skills"
 source_path = "agents/feature-planner.md"
 target_path = ".claude/agents/feature-planner.md"
 history = []
-content_hash = "90ff4c27e96b2d47262dd5d1849f225d49d9bd31f4c3e8fcbb3c3e33585ae244"
+content_hash = "98f2d6f4736830f5a7d1d57a6298b8e5ab9b66b1b22000bf3c5f07eb30276576"
 
 [subagent.current]
-sha = "d40da1aacdf41a5e634d9180b456f5088e4775ee"
-installed_at = "2026-06-21T11:16:15.743220Z"
+sha = "7f71a9a9d5093a3c62b259f3d7896db1ff8b57bf"
+installed_at = "2026-06-25T13:32:35.373456Z"
 
 [[rule]]
 qualified_name = "athola/slop-scan-for-docs"
@@ -210,6 +220,30 @@ sha = "b226e39776d69a4b16faebd78d5d2973679df198"
 installed_at = "2026-06-21T06:32:00.579977Z"
 
 [[rule]]
+qualified_name = "jasperhg90/adversarial-reviews"
+repo_alias = "jasperhg90"
+repo_url = "https://github.com/JasperHG90/skills"
+source_path = "rules/adversarial-reviews.md"
+history = []
+content_hash = "85cf17902b6d323f69208d06a4a0a9d370db4412d5e603f98092c92b9da2f16a"
+
+[rule.current]
+sha = "7f71a9a9d5093a3c62b259f3d7896db1ff8b57bf"
+installed_at = "2026-06-25T13:33:33.935418Z"
+
+[[rule]]
+qualified_name = "jasperhg90/uv-installer"
+repo_alias = "jasperhg90"
+repo_url = "https://github.com/JasperHG90/skills"
+source_path = "rules/uv-installer.md"
+history = []
+content_hash = "939459455231671d1206da8875d143ff418893f51bef73e3add42668d220972c"
+
+[rule.current]
+sha = "7f71a9a9d5093a3c62b259f3d7896db1ff8b57bf"
+installed_at = "2026-06-25T13:33:33.893078Z"
+
+[[rule]]
 qualified_name = "jasperhg90/pre-existing-issues"
 repo_alias = "jasperhg90"
 repo_url = "https://github.com/JasperHG90/skills"
@@ -218,8 +252,8 @@ history = []
 content_hash = "dcc55c18052e0fa373567766756108db80508e86d97c2599ef36d44f646fa846"
 
 [rule.current]
-sha = "516c105a9d8260c80a9d1fd8cb4004fe22a74225"
-installed_at = "2026-06-21T06:32:00.479452Z"
+sha = "7f71a9a9d5093a3c62b259f3d7896db1ff8b57bf"
+installed_at = "2026-06-25T13:33:33.910599Z"
 
 [managed_region_hashes]
 header = "8209ab5f5a7c8f642c374946c62b4af4bc0abcf6b44bc22fc745ebc94105a7bc"

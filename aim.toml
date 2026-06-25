@@ -14,6 +14,16 @@ repo_alias = "athola"
 source_path = ".claude/rules/slop-scan-for-docs.md"
 
 [[rule]]
+qualified_name = "jasperhg90/adversarial-reviews"
+repo_alias = "jasperhg90"
+source_path = "rules/adversarial-reviews.md"
+
+[[rule]]
+qualified_name = "jasperhg90/uv-installer"
+repo_alias = "jasperhg90"
+source_path = "rules/uv-installer.md"
+
+[[rule]]
 qualified_name = "jasperhg90/pre-existing-issues"
 repo_alias = "jasperhg90"
 source_path = "rules/pre-existing-issues.md"
@@ -109,6 +119,12 @@ qualified_name = "0xfurai/python-expert"
 repo_alias = "0xfurai"
 source_path = "agents/python-expert.md"
 target_path = ".claude/agents/python-expert.md"
+
+[[subagent]]
+qualified_name = "jasperhg90/adversarial-reviewer"
+repo_alias = "jasperhg90"
+source_path = "agents/adversarial-reviewer.md"
+target_path = ".claude/agents/adversarial-reviewer.md"
 
 [[subagent]]
 qualified_name = "jasperhg90/feature-planner"

@@ -23,11 +23,13 @@ from aim.core import (
     agents_md,
     db,
     hashing,
+    layout_profiles,
     manifest,
     mcp_registry,
     paths,
     repos,
     roots,
+    settings_json,
 )
 from aim.core.install import _SNAPSHOT_SENTINEL
 from aim.core.models import RegisteredRepo
@@ -250,6 +252,82 @@ def _audit_project(root: Path, report: DoctorReport) -> None:
                     "warning",
                     root,
                     f"MCP alias {mcp.alias!r}: .mcp.json entry edited since install",
+                )
+            )
+
+    _audit_plugins(root, m, report)
+
+
+def _audit_plugins(root: Path, m: manifest.Manifest, report: DoctorReport) -> None:
+    """Audit installed plugins for vendored-file drift and (claude) registration.
+
+    Vendored files drift like skills (claude: a directory tree; opencode: a file).
+    Claude plugins additionally must remain enabled in ``.claude/settings.json``
+    with their marketplace registered.
+    """
+    if not m.plugins:
+        return
+    for plugin in m.plugins:
+        target = _safe_project_path(root, plugin.target_dir)
+        if target is None:
+            report.findings.append(
+                Finding(
+                    "error",
+                    root,
+                    f"{plugin.qualified_name}: target {plugin.target_dir} escapes project root",
+                )
+            )
+            continue
+        if not target.exists():
+            report.findings.append(
+                Finding(
+                    "error", root, f"{plugin.qualified_name}: target {plugin.target_dir} missing"
+                )
+            )
+            continue
+        if plugin.content_hash is None:
+            report.findings.append(
+                Finding("info", root, f"{plugin.qualified_name}: no content_hash (legacy install)")
+            )
+            continue
+        if plugin.flavor == "claude":
+            current = hashing.hash_tree(target)
+        else:
+            current = hashing.hash_text(target.read_text(encoding="utf-8"))
+        if current != plugin.content_hash:
+            report.findings.append(
+                Finding(
+                    "warning",
+                    root,
+                    f"{plugin.qualified_name}: {plugin.target_dir} edited since install",
+                )
+            )
+
+    claude_plugins = [p for p in m.plugins if p.flavor == "claude" and p.marketplace_name]
+    if not claude_plugins:
+        return
+    profile = layout_profiles.resolve_active(root)
+    try:
+        settings = settings_json.read_settings(root, profile)
+    except settings_json.SettingsJsonError as exc:
+        report.findings.append(Finding("error", root, f"invalid {profile.claude_settings}: {exc}"))
+        return
+    marketplaces = settings.get("extraKnownMarketplaces") or {}
+    enabled = settings.get("enabledPlugins") or {}
+    for plugin in claude_plugins:
+        name = plugin.qualified_name.split("/", 1)[-1]
+        key = f"{name}@{plugin.marketplace_name}"
+        if not isinstance(enabled, dict) or not enabled.get(key):
+            report.findings.append(
+                Finding("warning", root, f"{plugin.qualified_name}: not enabled in settings.json")
+            )
+        if not isinstance(marketplaces, dict) or plugin.marketplace_name not in marketplaces:
+            report.findings.append(
+                Finding(
+                    "warning",
+                    root,
+                    f"{plugin.qualified_name}: marketplace {plugin.marketplace_name!r} "
+                    "not registered in settings.json",
                 )
             )
 

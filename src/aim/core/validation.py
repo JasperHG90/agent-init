@@ -96,6 +96,36 @@ def is_valid_archetype_name(name: str) -> bool:
     return bool(_ALIAS_RE.fullmatch(name))
 
 
+def is_valid_plugin_name(name: str) -> bool:
+    """Validate a plugin name.
+
+    Mirrors alias rules so a qualified name `<alias>/<plugin>` and the Claude
+    enablement key `<plugin>@<marketplace>` are shell- and path-safe.
+
+    Args:
+        name: Candidate plugin name.
+
+    Returns:
+        True if the name matches the allowed pattern.
+    """
+    return bool(_ALIAS_RE.fullmatch(name))
+
+
+def is_valid_marketplace_name(name: str) -> bool:
+    """Validate a plugin marketplace name.
+
+    Mirrors alias rules so the marketplace key written into
+    `.claude/settings.json` `extraKnownMarketplaces` is safe.
+
+    Args:
+        name: Candidate marketplace name.
+
+    Returns:
+        True if the name matches the allowed pattern.
+    """
+    return bool(_ALIAS_RE.fullmatch(name))
+
+
 def is_safe_repo_path(path: str) -> bool:
     """Check whether a path is safe to pass back to git as a pathspec.
 

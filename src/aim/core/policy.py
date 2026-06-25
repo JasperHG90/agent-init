@@ -97,6 +97,7 @@ class Policy(BaseModel):
     blocked_agents: list[str] = Field(default_factory=list)
     blocked_rules: list[str] = Field(default_factory=list)
     blocked_mcp: list[str] = Field(default_factory=list)  # by alias or registry_name
+    blocked_plugins: list[str] = Field(default_factory=list)  # by qualified_name
     allowed_profiles: list[str] = Field(default_factory=list)  # empty = all allowed
     # Allow-list of selectable instruction archetypes (by qualified name). Empty = all
     # allowed; non-empty constrains `archetype use` to the listed archetypes.
@@ -248,6 +249,7 @@ def from_mapping(data: dict) -> Policy:
         blocked_agents=list(artifacts_t.get("blocked_agents", [])),
         blocked_rules=list(artifacts_t.get("blocked_rules", [])),
         blocked_mcp=list(artifacts_t.get("blocked_mcp", [])),
+        blocked_plugins=list(artifacts_t.get("blocked_plugins", [])),
         allowed_profiles=list(profiles_t.get("allowed", [])),
         allowed_archetypes=list(archetypes_t.get("allowed", [])),
         risk=risk,
@@ -296,6 +298,8 @@ def to_mapping(policy: Policy) -> dict:
         artifacts["blocked_rules"] = policy.blocked_rules
     if policy.blocked_mcp:
         artifacts["blocked_mcp"] = policy.blocked_mcp
+    if policy.blocked_plugins:
+        artifacts["blocked_plugins"] = policy.blocked_plugins
     if artifacts:
         doc["artifacts"] = artifacts
     if policy.allowed_profiles:
@@ -725,11 +729,11 @@ def assert_repo_allowed(policy: Policy, alias: str, url: str) -> None:
 
 
 def assert_artifact_allowed(policy: Policy, kind: str, qualified_name: str) -> None:
-    """Raise if a skill/agent/rule is blocked by policy.
+    """Raise if a skill/agent/rule/plugin is blocked by policy.
 
     Args:
         policy: The active policy.
-        kind: The artifact kind ("skill", "agent", or "rule").
+        kind: The artifact kind ("skill", "agent", "rule", or "plugin").
         qualified_name: The artifact's qualified name.
 
     Raises:
@@ -739,6 +743,7 @@ def assert_artifact_allowed(policy: Policy, kind: str, qualified_name: str) -> N
         "skill": policy.blocked_skills,
         "agent": policy.blocked_agents,
         "rule": policy.blocked_rules,
+        "plugin": policy.blocked_plugins,
     }.get(kind, [])
     if qualified_name in blocked:
         raise PolicyViolationError(

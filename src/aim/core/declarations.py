@@ -92,6 +92,11 @@ def _migrate(raw: dict[str, Any]) -> dict[str, Any]:
         old = raw.pop("instruction_archetype", None)
         raw["archetype"] = old if old is not None else {"qualified_name": "default"}
         raw["manifest_version"] = 8
+        version = 8
+    if version < 9:
+        # v9 adds the optional [[plugin]] surface. Additive.
+        raw.setdefault("plugins", [])
+        raw["manifest_version"] = 9
     return raw
 
 
@@ -101,6 +106,7 @@ _TOML_READ_MAP = {
     "subagent": "agents",
     "mcp_server": "mcp_servers",
     "rule": "rules",
+    "plugin": "plugins",
 }
 _TOML_WRITE_MAP = {v: k for k, v in _TOML_READ_MAP.items()}
 
@@ -261,6 +267,7 @@ def _prune_repo_if_unused(decl: ProjectDeclarations, alias: str) -> None:
         any(s.repo_alias == alias for s in decl.skills)
         or any(a.repo_alias == alias for a in decl.agents)
         or any(r.repo_alias == alias for r in decl.rules)
+        or any(p.repo_alias == alias for p in decl.plugins)
         or decl.archetype.repo_alias == alias
     )
     if not used:
@@ -420,6 +427,45 @@ def _remove_mcp(project_root: Path, alias: str) -> None:
     """
     decl = load_or_default(project_root)
     decl.mcp_servers = [m for m in decl.mcp_servers if m.alias != alias]
+    save(project_root, decl)
+
+
+def _update_plugin(project_root: Path, installed: object) -> None:
+    """Mirror an installed plugin into the declarations file.
+
+    Args:
+        project_root: Directory whose `aim.toml` should be updated.
+        installed: An `InstalledPlugin` describing the plugin to record.
+    """
+    from aim.core.models import DeclaredPlugin, InstalledPlugin
+
+    assert isinstance(installed, InstalledPlugin)
+    decl = load_or_default(project_root)
+    declared = DeclaredPlugin(
+        qualified_name=installed.qualified_name,
+        repo_alias=installed.repo_alias,
+        flavor=installed.flavor,
+        source_path=installed.source_path,
+        marketplace_name=installed.marketplace_name,
+        pin=installed.pin,
+        track=installed.track,
+    )
+    decl.plugins = [p for p in decl.plugins if p.qualified_name != installed.qualified_name]
+    decl.plugins.append(declared)
+    decl.repos[installed.repo_alias] = installed.repo_url
+    save(project_root, decl)
+
+
+def _remove_plugin(project_root: Path, qualified_name: str) -> None:
+    """Drop a declared plugin and prune its repo binding if now unused.
+
+    Args:
+        project_root: Directory whose `aim.toml` should be updated.
+        qualified_name: The `repo_alias/name` of the plugin to remove.
+    """
+    decl = load_or_default(project_root)
+    decl.plugins = [p for p in decl.plugins if p.qualified_name != qualified_name]
+    _prune_repo_if_unused(decl, qualified_name.split("/", 1)[0])
     save(project_root, decl)
 
 

@@ -28,6 +28,9 @@ from aim.core import (
     mcp_install,
     mcp_registry,
     paths,
+    plugin_install,
+    plugin_kinds,
+    plugins,
     policy,
     repos,
     rule_install,
@@ -42,6 +45,7 @@ from aim.core import (
 from aim.core.models import (
     InstalledAgent,
     InstalledMcpServer,
+    InstalledPlugin,
     InstalledRule,
     InstalledSkill,
     Manifest,
@@ -94,6 +98,7 @@ class SyncResult:
     synced_skills: list[str] = field(default_factory=list)
     synced_agents: list[str] = field(default_factory=list)
     synced_mcp: list[str] = field(default_factory=list)
+    synced_plugins: list[str] = field(default_factory=list)
     drift_warnings: list[str] = field(default_factory=list)
     repo_errors: list[str] = field(default_factory=list)
     rules_applied: list[str] = field(default_factory=list)
@@ -173,6 +178,8 @@ def _locked_repo_pairs(m: Manifest) -> dict[str, str]:
         pairs[a.repo_alias] = a.repo_url
     for r in m.rules:
         pairs[r.repo_alias] = r.repo_url
+    for p in m.plugins:
+        pairs[p.repo_alias] = p.repo_url
     if m.archetype is not None:
         pairs[m.archetype.repo_alias] = m.archetype.repo_url
     return pairs
@@ -201,6 +208,7 @@ def _register_repo(alias: str, url: str, allow_insecure: bool) -> str | None:
             agents.index_repo(alias)
             repo_rules_mod.index_repo(alias)
             archetypes.index_repo(alias)
+            plugins.index_repo(alias)
         return None
     except repos.RepoNotFoundError:
         pass
@@ -669,6 +677,103 @@ async def _sync_mcps(
     return synced, errors
 
 
+def _sync_plugin(
+    project_root: Path,
+    installed: InstalledPlugin,
+    profile: layout_profiles.LayoutProfile,
+    *,
+    force: bool,
+) -> tuple[str | None, str | None]:
+    """Reconcile a single vendored plugin against its locked snapshot.
+
+    Re-vendors the plugin bytes from the locked SHA (the claude marketplace +
+    settings registration is reconciled once afterward, in `run`). Returns
+    (synced qualified name or None, error or None); the name is None when the
+    vendored files already match.
+
+    Raises:
+        SyncDriftError: The vendored files were edited since install and not force.
+    """
+    target = paths.safe_project_path(project_root, installed.target_dir)
+    if target is None:
+        return None, f"{installed.qualified_name}: target escapes project: {installed.target_dir!r}"
+
+    kind = plugin_kinds.get_kind(installed.flavor, project_root)
+    if kind is None:
+        return None, (
+            f"{installed.qualified_name}: no plugin kind {installed.flavor!r} loaded; "
+            "install its kind spec"
+        )
+
+    if target.exists() and installed.content_hash is not None:
+        current = (
+            hashing.hash_tree(target)
+            if target.is_dir()
+            else hashing.hash_text(target.read_text(encoding="utf-8"))
+        )
+        if current == installed.content_hash:
+            return None, None
+        if not force:
+            raise SyncDriftError(
+                f"{installed.qualified_name}: {installed.target_dir} edited since install; "
+                "pass --force to overwrite"
+            )
+
+    try:
+        plugin_name = installed.qualified_name.split("/", 1)[1]
+        content_hash, _ = plugin_install._deploy(
+            project_root,
+            profile,
+            kind,
+            repo_alias=installed.repo_alias,
+            plugin_name=plugin_name,
+            source_path=installed.source_path,
+            version=installed.current,
+            qualified_name=installed.qualified_name,
+            override_risk=False,
+        )
+    except Exception as exc:
+        return None, f"{installed.qualified_name}: {exc}"
+
+    installed.content_hash = content_hash
+    return installed.qualified_name, None
+
+
+async def _sync_plugins(
+    project_root: Path,
+    plugins_list: list[InstalledPlugin],
+    profile: layout_profiles.LayoutProfile,
+    *,
+    force: bool,
+    callback: Callable[[str, str, str], object] | None,
+) -> tuple[list[str], list[str]]:
+    """Reconcile all locked plugins concurrently (vendoring only)."""
+    if not plugins_list:
+        return [], []
+
+    async def _one(
+        plugin: InstalledPlugin, cb: Callable[[str, str, str], object] | None
+    ) -> tuple[str | None, str | None]:
+        """Reconcile one plugin off-thread and emit its progress notifications."""
+        _notify(cb, "plugin", plugin.qualified_name, "syncing")
+        try:
+            synced, error = await asyncio.to_thread(
+                _sync_plugin, project_root, plugin, profile, force=force
+            )
+        except SyncDriftError as exc:
+            return None, str(exc)
+        if error:
+            _notify(cb, "plugin", plugin.qualified_name, "error")
+        else:
+            _notify(cb, "plugin", plugin.qualified_name, "ok")
+        return synced, error
+
+    results = await asyncio.gather(*(_one(p, callback) for p in plugins_list))
+    synced = [r[0] for r in results if r[0] is not None]
+    errors = [r[1] for r in results if r[1] is not None]
+    return synced, errors
+
+
 def _render_agent_files(
     project_root: Path,
     m: Manifest,
@@ -739,6 +844,15 @@ async def run(options: SyncOptions) -> SyncResult:
     )
     result.synced_mcp = mcps_synced
 
+    plugins_synced, plugin_errors = await _sync_plugins(
+        project_root, m.plugins, profile, force=options.force, callback=options.progress_callback
+    )
+    result.synced_plugins = plugins_synced
+    # Reconcile each kind's client config (claude settings.json/marketplace, etc.)
+    # once, after vendoring, to avoid races between concurrently-synced plugins.
+    if m.plugins:
+        await asyncio.to_thread(plugin_install.reconcile_registration, project_root, profile, m)
+
     if options.sync_agents:
         result.drift_warnings = await asyncio.to_thread(
             _render_agent_files, project_root, m, profile, force=options.force
@@ -748,7 +862,9 @@ async def run(options: SyncOptions) -> SyncResult:
     # to avoid concurrent manifest writes from the worker threads.
     manifest.save(project_root, m)
 
-    all_errors = result.repo_errors + rule_errors + skill_errors + agent_errors + mcp_errors
+    all_errors = (
+        result.repo_errors + rule_errors + skill_errors + agent_errors + mcp_errors + plugin_errors
+    )
     if all_errors:
         # Partial state was already saved above, so a re-run resumes progress.
         raise SyncError("; ".join(all_errors), errors=all_errors)

@@ -33,6 +33,7 @@ from aim.core import (
     manifest,
     mcp_install,
     mcp_registry,
+    plugin_kinds,
     policy,
     repo_rules,
     repos,
@@ -43,11 +44,13 @@ from aim.core.models import (
     DeclaredAgent,
     DeclaredArchetype,
     DeclaredMcpServer,
+    DeclaredPlugin,
     DeclaredRule,
     DeclaredSkill,
     InstalledAgent,
     InstalledArchetype,
     InstalledMcpServer,
+    InstalledPlugin,
     InstalledRule,
     InstalledSkill,
     Manifest,
@@ -81,6 +84,7 @@ class LockResult:
     locked_agents: list[str] = field(default_factory=list)
     locked_mcp: list[str] = field(default_factory=list)
     locked_rules: list[str] = field(default_factory=list)
+    locked_plugins: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
     unchanged: bool = False
@@ -605,6 +609,134 @@ async def _lock_rules(
     return locked, errors
 
 
+def _resolve_plugin_version(plugin: DeclaredPlugin) -> SkillVersion:
+    """Resolve a declared plugin's pin/track to a concrete SkillVersion.
+
+    Uses the same resolver as ``plugin add`` (install.resolve_install_version) so
+    the SHA `add` records and the SHA `lock` records agree.
+    """
+    return install.resolve_install_version(
+        plugin.repo_alias,
+        plugin.source_path,
+        track=plugin.track,
+        pin=plugin.pin,
+        artifact_name="plugin.json",
+    )
+
+
+def _hash_plugin_at_sha(plugin: DeclaredPlugin, sha: str, source_unit: str) -> str:
+    """Compute a stable content hash of a plugin's source at a given SHA.
+
+    ``dir`` kinds hash the source subtree (paths + blobs); ``file`` kinds hash the
+    single file's text (which matches the install-time hash exactly).
+    """
+    repo_dir = repos.clone_dir(plugin.repo_alias)
+    if source_unit == "file":
+        return hashing.hash_text(git.get_backend().cat_file(repo_dir, sha, plugin.source_path))
+    paths_in_tree = sorted(git.get_backend().ls_tree(repo_dir, sha, plugin.source_path))
+    blobs = git.get_backend().cat_file_batch(repo_dir, sha, paths_in_tree)
+    h = hashlib.sha256()
+    for rel_path in paths_in_tree:
+        content = blobs[rel_path]
+        rel_under_source = (
+            rel_path[len(plugin.source_path) + 1 :] if plugin.source_path else rel_path
+        )
+        h.update(rel_under_source.encode("utf-8"))
+        h.update(b"\0")
+        h.update(content)
+        h.update(b"\0")
+    return h.hexdigest()
+
+
+def _lock_plugin(
+    plugin: DeclaredPlugin,
+    profile: layout_profiles.LayoutProfile,
+    cached: InstalledPlugin | None = None,
+) -> tuple[InstalledPlugin | None, str | None]:
+    """Lock a single declared plugin to a concrete InstalledPlugin.
+
+    Reuses the cached hash/target when the resolved SHA and source path are
+    unchanged (so an unchanged plugin doesn't even need its kind spec loaded).
+    Otherwise the vendored ``target_dir`` and hash mode come from the plugin's
+    kind, so `lock` and `add`/`sync` agree on placement.
+    """
+    try:
+        version = _resolve_plugin_version(plugin)
+    except Exception as exc:
+        return None, f"{plugin.qualified_name}: {exc}"
+    plugin_name = plugin.qualified_name.split("/", 1)[1]
+    if (
+        cached is not None
+        and cached.current.sha == version.sha
+        and cached.source_path == plugin.source_path
+    ):
+        content_hash = cached.content_hash
+        target_rel = cached.target_dir
+        marketplace_name = cached.marketplace_name
+    else:
+        kind = plugin_kinds.get_kind(plugin.flavor)
+        if kind is None:
+            return None, (
+                f"{plugin.qualified_name}: no plugin kind {plugin.flavor!r} loaded; "
+                "install its kind spec"
+            )
+        try:
+            content_hash = _hash_plugin_at_sha(plugin, version.sha, kind.source_unit)
+        except Exception as exc:
+            return None, f"{plugin.qualified_name}: {exc}"
+        target_rel = kind.vendor_target(
+            profile,
+            repo_alias=plugin.repo_alias,
+            plugin_name=plugin_name,
+            source_path=plugin.source_path,
+        )
+        marketplace_name = plugin.repo_alias if kind.uses_marketplace else None
+    installed = InstalledPlugin(
+        qualified_name=plugin.qualified_name,
+        repo_alias=plugin.repo_alias,
+        repo_url=repos.get(plugin.repo_alias).url,
+        flavor=plugin.flavor,
+        source_path=plugin.source_path,
+        target_dir=target_rel,
+        marketplace_name=marketplace_name,
+        current=version,
+        content_hash=content_hash,
+        pin=plugin.pin,
+        track=plugin.track,
+    )
+    return installed, None
+
+
+async def _lock_plugins(
+    plugins: list[DeclaredPlugin],
+    profile: layout_profiles.LayoutProfile,
+    callback: Callable[[str, str, str], object] | None,
+    cached_by_name: dict[str, InstalledPlugin] | None = None,
+) -> tuple[list[InstalledPlugin], list[str]]:
+    """Lock all declared plugins concurrently, reporting progress per plugin."""
+    if not plugins:
+        return [], []
+
+    lookup = cached_by_name or {}
+
+    async def _one(plugin: DeclaredPlugin) -> tuple[InstalledPlugin | None, str | None]:
+        """Lock one plugin off-thread and emit progress notifications."""
+        _notify(callback, "plugin", plugin.qualified_name, "locking")
+        installed, error = await asyncio.to_thread(
+            _lock_plugin, plugin, profile, lookup.get(plugin.qualified_name)
+        )
+        if error:
+            _notify(callback, "plugin", plugin.qualified_name, "error")
+        else:
+            _notify(callback, "plugin", plugin.qualified_name, "ok")
+        return installed, error
+
+    results = await asyncio.gather(*(_one(p) for p in plugins))
+    locked = [r[0] for r in results if r[0] is not None]
+    errors = [r[1] for r in results if r[1] is not None]
+    return locked, errors
+
+
 def _lock_mcp(mcp: DeclaredMcpServer) -> tuple[InstalledMcpServer | None, str | None]:
     """Lock a single declared MCP server from its registry entry.
 
@@ -767,6 +899,24 @@ def _mcp_key(m: InstalledMcpServer) -> tuple:
     )
 
 
+def _plugin_key(p: InstalledPlugin) -> tuple:
+    """Build the identity tuple used to detect whether a locked plugin changed."""
+    return (
+        p.qualified_name,
+        p.repo_alias,
+        p.repo_url,
+        p.flavor,
+        p.source_path,
+        p.target_dir,
+        p.marketplace_name,
+        p.content_hash,
+        p.current.sha,
+        p.current.tag,
+        p.pin,
+        p.track,
+    )
+
+
 def _archetype_key(a: InstalledArchetype) -> tuple:
     """Build the identity tuple used to detect whether the locked archetype changed."""
     return (
@@ -816,6 +966,8 @@ def _lockfile_unchanged(existing: Manifest, new: Manifest) -> bool:
         return False
     if [_rule_key(r) for r in existing.rules] != [_rule_key(r) for r in new.rules]:
         return False
+    if [_plugin_key(p) for p in existing.plugins] != [_plugin_key(p) for p in new.plugins]:
+        return False
     return True
 
 
@@ -861,6 +1013,13 @@ def _preserve_unchanged_metadata(existing: Manifest | None, new: Manifest) -> No
             r.current = prev_rule.current
             r.history = list(prev_rule.history)
 
+    plugin_by_key = {_plugin_key(p): p for p in existing.plugins}
+    for p in new.plugins:
+        prev_plugin = plugin_by_key.get(_plugin_key(p))
+        if prev_plugin is not None:
+            p.current = prev_plugin.current
+            p.history = list(prev_plugin.history)
+
     if (
         existing.archetype is not None
         and new.archetype is not None
@@ -894,6 +1053,8 @@ def _enforce_policy(
         policy.assert_artifact_allowed(pol, "rule", r.qualified_name)
     for mcp in decl.mcp_servers:
         policy.assert_mcp_allowed(pol, mcp.alias, mcp.registry_name)
+    for p in decl.plugins:
+        policy.assert_artifact_allowed(pol, "plugin", p.qualified_name)
     if not decl.archetype.is_builtin:
         policy.assert_archetype_allowed(pol, decl.archetype.qualified_name)
     # Check the EFFECTIVE profile (the one the lockfile records), never the raw
@@ -944,6 +1105,11 @@ async def run(options: LockOptions) -> LockResult:
     cached_rules: dict[str, InstalledRule] = (
         {} if options.force else {r.qualified_name: r for r in (existing.rules if existing else [])}
     )
+    cached_plugins: dict[str, InstalledPlugin] = (
+        {}
+        if options.force
+        else {p.qualified_name: p for p in (existing.plugins if existing else [])}
+    )
 
     _notify(options.progress_callback, "repos", "all", "locking")
     result.errors = await _ensure_repos(decl, options.allow_insecure, options.no_index)
@@ -955,18 +1121,21 @@ async def run(options: LockOptions) -> LockResult:
     agents_task = _lock_agents(decl.agents, options.progress_callback, cached_agents)
     mcps_task = _lock_mcps(decl.mcp_servers, options.progress_callback)
     rules_task = _lock_rules(decl.rules, options.progress_callback, cached_rules)
+    plugins_task = _lock_plugins(decl.plugins, profile, options.progress_callback, cached_plugins)
 
     (
         (skills_locked, skill_errors),
         (agents_locked, agent_errors),
         (mcps_locked, mcp_errors),
         (rules_locked, rule_errors),
-    ) = await asyncio.gather(skills_task, agents_task, mcps_task, rules_task)
+        (plugins_locked, plugin_errors),
+    ) = await asyncio.gather(skills_task, agents_task, mcps_task, rules_task, plugins_task)
 
     result.locked_skills = [s.qualified_name for s in skills_locked]
     result.locked_agents = [a.qualified_name for a in agents_locked]
     result.locked_mcp = [m.alias for m in mcps_locked]
     result.locked_rules = [r.qualified_name for r in rules_locked]
+    result.locked_plugins = [p.qualified_name for p in plugins_locked]
 
     archetype_locked: InstalledArchetype | None = None
     archetype_errors: list[str] = []
@@ -996,6 +1165,7 @@ async def run(options: LockOptions) -> LockResult:
         skills=skills_locked,
         agents=agents_locked,
         mcp_servers=mcps_locked,
+        plugins=plugins_locked,
         policy_repo=resolved_policy.repo,
         policy_ref=(
             policy.org_snapshot_sha(resolved_policy.repo)
@@ -1013,7 +1183,13 @@ async def run(options: LockOptions) -> LockResult:
         _preserve_unchanged_metadata(existing, lock)
 
     all_errors = (
-        result.errors + skill_errors + agent_errors + mcp_errors + rule_errors + archetype_errors
+        result.errors
+        + skill_errors
+        + agent_errors
+        + mcp_errors
+        + rule_errors
+        + plugin_errors
+        + archetype_errors
     )
     if (
         existing is not None

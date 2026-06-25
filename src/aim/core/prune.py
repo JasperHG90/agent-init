@@ -31,7 +31,13 @@ import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from aim.core import declarations, layout_profiles, manifest, mcp_registry
+from aim.core import (
+    declarations,
+    layout_profiles,
+    manifest,
+    mcp_registry,
+    plugin_kinds,
+)
 
 
 class PruneError(RuntimeError):
@@ -53,7 +59,7 @@ class PruneOptions:
 class PruneItem:
     """Describe one prune candidate and the action taken or planned for it."""
 
-    kind: str  # "skill" | "agent" | "rule" | "mcp" | "symlink"
+    kind: str  # "skill" | "agent" | "rule" | "mcp" | "symlink" | "plugin"
     path: str  # relative path, MCP alias, or "<inline>/<name>" for inline rules
     action: str  # "removed" | "would-remove" | "removed-stale-entry" | "skipped" | "kept" | "skipped-unsafe" | "error: ..."
 
@@ -220,6 +226,7 @@ def _drift(
     declared_agent_qnames = {a.qualified_name for a in decl.agents}
     declared_mcp_aliases = {mc.alias for mc in decl.mcp_servers}
     declared_rule_qnames = {r.qualified_name for r in decl.rules}
+    declared_plugin_qnames = {p.qualified_name for p in decl.plugins}
     declared_symlinks = set(decl.symlinks)
 
     # Patterns that matched at least one drift candidate OR kept item.
@@ -257,6 +264,8 @@ def _drift(
         _maybe("symlink", sym, sym in declared_symlinks)
     for mc in m.mcp_servers:
         _maybe("mcp", mc.alias, mc.alias in declared_mcp_aliases)
+    for plug in m.plugins:
+        _maybe("plugin", plug.target_dir, plug.qualified_name in declared_plugin_qnames)
 
     warnings = _obsolete_pattern_warnings(exclude_patterns, matched_patterns)
     return candidates, kept, warnings
@@ -416,6 +425,7 @@ def apply(options: PruneOptions, plan_result: PruneResult) -> PruneResult:
     rule_rels = {p for k, p in to_apply_keys if k == "rule"}
     symlink_paths = {p for k, p in to_apply_keys if k == "symlink"}
     mcp_aliases = {p for k, p in to_apply_keys if k == "mcp"}
+    plugin_paths = {p for k, p in to_apply_keys if k == "plugin"}
 
     # --- Phase 1: read .mcp.json BEFORE any deletion (fail fast, no partial state). ---
     mcp_data: dict | None = None
@@ -472,6 +482,27 @@ def apply(options: PruneOptions, plan_result: PruneResult) -> PruneResult:
             for alias in mcp_aliases:
                 result.removed.append(PruneItem("mcp", alias, "removed-stale-entry"))
 
+    # --- Phase 3b: plugin registration cleanup (claude settings.json + marketplace.json). ---
+    # The vendored plugin dir/file was already removed by the generic phase-2 loop;
+    # claude plugins additionally need their settings.json enablement + marketplace
+    # manifest reconciled. m.plugins is filtered here (before regeneration) so the
+    # rewritten marketplace lists only survivors.
+    if plugin_paths:
+        pruned_plugins = [p for p in m.plugins if p.target_dir in plugin_paths]
+        m.plugins = [p for p in m.plugins if p.target_dir not in plugin_paths]
+        for p in pruned_plugins:
+            pkind = plugin_kinds.get_kind(p.flavor, project_root)
+            if pkind is None:
+                continue  # kind spec gone; vendored files already removed in phase 2
+            try:
+                # m already excludes the pruned plugins, so refcount/regeneration
+                # in the kind sees only survivors.
+                pkind.unregister(project_root, profile, p, m)
+            except Exception as exc:
+                raise PruneError(
+                    f"failed to update client config for {p.qualified_name}: {exc}"
+                ) from exc
+
     # --- Phase 4: mutate + save the lockfile. ---
     rule_names_to_remove = {_rule_name_from_rel(rel) for rel in rule_rels}
     m.skills = [s for s in m.skills if s.target_dir not in skill_paths]
@@ -510,13 +541,14 @@ def run(options: PruneOptions) -> PruneResult:
     return apply(options, plan_result)
 
 
-_KIND_ORDER = ("skill", "agent", "rule", "symlink", "mcp")
+_KIND_ORDER = ("skill", "agent", "rule", "symlink", "mcp", "plugin")
 _KIND_LABEL = {
     "skill": "Skills",
     "agent": "Agents",
     "rule": "Rules",
     "symlink": "Symlinks",
     "mcp": "MCP servers",
+    "plugin": "Plugins",
 }
 
 

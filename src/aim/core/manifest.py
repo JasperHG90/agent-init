@@ -24,6 +24,7 @@ _TOML_READ_MAP = {
     "subagent": "agents",
     "mcp_server": "mcp_servers",
     "rule": "rules",
+    "plugin": "plugins",
 }
 _TOML_WRITE_MAP = {v: k for k, v in _TOML_READ_MAP.items()}
 

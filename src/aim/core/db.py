@@ -24,7 +24,9 @@ from aim.core.models import (  # noqa: F401
     ArchetypeIndex,
     GlobalSetting,
     LayoutProfile,
+    MarketplaceIndex,
     McpServerCache,
+    PluginIndex,
     RegisteredRepo,
     RuleIndex,
     SkillIndex,
@@ -41,7 +43,7 @@ _MIGRATIONS_DIR = Path(__file__).resolve().parent / "migrations"
 # The cheap at-head check below compares the DB's recorded revision against this to
 # avoid importing Alembic on every launch. Bump it when adding an Alembic revision;
 # the `test_head_revision_matches_script_head` drift guard enforces the match.
-HEAD_REVISION = "b7e1c0a4d2f3"
+HEAD_REVISION = "c3a1b2d4e5f6"
 
 
 def get_engine(db_path: Path | None = None) -> Engine:

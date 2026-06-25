@@ -47,6 +47,7 @@ LAZY_SUBCOMMANDS.update(
         "template": "aim.cli.commands.profile:app",
         "policy": "aim.cli.commands.policy:app",
         "mcp": "aim.cli.commands.mcp:app",
+        "plugin": "aim.cli.commands.plugin:app",
         # Back-compat aliases; dispatch but hidden from --help.
         "profile": "aim.cli.commands.profile:app",
         "instructions": "aim.cli.commands.instructions:app",
@@ -235,6 +236,20 @@ def check_cmd(
             if current_hash != mcp.entry_hash:
                 typer.echo(
                     f"{proj}/.mcp.json: MCP alias {mcp.alias!r} drifted",
+                    err=True,
+                )
+                bad += 1
+        for plugin in m.plugins:
+            target = proj / plugin.target_dir
+            if plugin.content_hash is None or not target.exists():
+                continue
+            if plugin.flavor == "claude":
+                current = hashing.hash_tree(target)
+            else:
+                current = hashing.hash_text(target.read_text(encoding="utf-8"))
+            if current != plugin.content_hash:
+                typer.echo(
+                    f"{proj}/{plugin.target_dir}: plugin {plugin.qualified_name} drifted",
                     err=True,
                 )
                 bad += 1
@@ -448,6 +463,8 @@ def lock_cmd(
         typer.echo(f"locked agent {qn}")
     for alias in result.locked_mcp:
         typer.echo(f"locked mcp {alias}")
+    for qn in result.locked_plugins:
+        typer.echo(f"locked plugin {qn}")
     for warn in result.warnings:
         typer.echo(f"warning: {warn}", err=True)
 
@@ -495,6 +512,8 @@ def sync_cmd(
         typer.echo(f"synced agent {qn}")
     for alias in result.synced_mcp:
         typer.echo(f"synced mcp {alias}")
+    for qn in result.synced_plugins:
+        typer.echo(f"synced plugin {qn}")
     for warn in result.drift_warnings:
         typer.echo(f"warning: {warn}", err=True)
 

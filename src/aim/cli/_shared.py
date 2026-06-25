@@ -217,6 +217,8 @@ def friendly_error_types() -> tuple[type[Exception], ...]:
     from aim.core import manifest as manifest_mod
     from aim.core import mcp_install as mcp_install_mod
     from aim.core import mcp_registry as mcp_registry_mod
+    from aim.core import plugin_install as plugin_install_mod
+    from aim.core import plugins as plugins_mod
     from aim.core import policy as policy_mod
     from aim.core import profiles as profiles_mod
     from aim.core import prune as prune_mod
@@ -224,6 +226,7 @@ def friendly_error_types() -> tuple[type[Exception], ...]:
     from aim.core import repos as repos_mod
     from aim.core import risk as risk_mod
     from aim.core import rule_install as rule_install_mod
+    from aim.core import settings_json as settings_json_mod
     from aim.core import skills as skills_mod
     from aim.core import sync as sync_mod
     from aim.core import templates as templates_mod
@@ -269,6 +272,11 @@ def friendly_error_types() -> tuple[type[Exception], ...]:
         mcp_install_mod.McpOverrideError,
         mcp_registry_mod.McpRegistryError,
         mcp_registry_mod.McpMappingError,
+        plugins_mod.PluginNotIndexedError,
+        plugin_install_mod.PluginNotInstalledError,
+        plugin_install_mod.PluginFlavorUnsupportedError,
+        plugin_install_mod.PluginSourcePathChangedError,
+        settings_json_mod.SettingsJsonError,
         templates_mod.TemplateNotFoundError,
         manifest_mod.ManifestNotFoundError,
         profiles_mod.ProfileNameError,
@@ -380,12 +388,15 @@ def _friendly(fn: Callable[..., Any]) -> Callable[..., Any]:
             # so commands that already drained inline print nothing twice.
             from aim.core import agent_install as agent_install_mod
             from aim.core import install as install_mod
+            from aim.core import plugin_install as plugin_install_mod
             from aim.core import risk as risk_mod
 
             for warn in install_mod.take_install_warnings():
                 typer.echo(f"  warning: {warn}", err=True)
             for warn in agent_install_mod.take_install_warnings():
                 typer.echo(f"  warning: {warn}", err=True)
+            for warn in plugin_install_mod.take_install_warnings():
+                typer.echo(f"  review: {warn}", err=True)
             for warn in risk_mod.take_risk_warnings():
                 typer.echo(f"  risk: {warn}", err=True)
 

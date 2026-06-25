@@ -1,0 +1,20 @@
+# opencode plugin kind — a *pluggable* kind, NOT shipped in aim's default library.
+# Drop this into your global kinds dir (`<config>/kinds/`) or a project's
+# `.aim/kinds/` and aim learns to discover + install opencode plugins. No aim
+# source change. This is the showcase for extending aim with a new client.
+
+name = "opencode"
+
+[discover]
+# Loose .ts/.js plugin files opencode auto-loads from these locations.
+manifest = [
+    "plugins/*.ts", "plugins/*.js",
+    ".opencode/plugins/*.ts", ".opencode/plugins/*.js",
+    "opencode/plugin/*.ts", "opencode/plugin/*.js",
+]
+name_from = "stem"
+
+[register]
+# opencode auto-loads files dropped here — registration is just the file copy.
+vendor_into = "{opencode_plugins}/{name}.{ext}"
+vendor_as = "file"

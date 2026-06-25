@@ -74,6 +74,12 @@ class LayoutProfile(BaseModel):
     agents_dir: str = ".claude/agents"
     agents_md: str = "AGENTS.md"
     mcp_json: str = ".mcp.json"
+    # Plugins (vendored, SHA-locked). Claude plugins are vendored under
+    # plugins_dir/<repo_alias>/ (a local-directory marketplace) and enabled in
+    # claude_settings; opencode plugins are vendored under opencode_plugins_dir.
+    plugins_dir: str = ".claude/plugins"
+    opencode_plugins_dir: str = ".opencode/plugins"
+    claude_settings: str = ".claude/settings.json"
     symlinks: list[str] = Field(default_factory=list)
 
     @field_validator("name")
@@ -96,7 +102,16 @@ class LayoutProfile(BaseModel):
             )
         return value
 
-    @field_validator("rules_dir", "skills_dir", "agents_dir", "agents_md", "mcp_json")
+    @field_validator(
+        "rules_dir",
+        "skills_dir",
+        "agents_dir",
+        "agents_md",
+        "mcp_json",
+        "plugins_dir",
+        "opencode_plugins_dir",
+        "claude_settings",
+    )
     @classmethod
     def _validate_relative_path(cls, value: str) -> str:
         """Validate that a path field is relative, descending-only, and safe.
@@ -299,6 +314,9 @@ def render_toml(profile: LayoutProfile, *, read_only_copy: bool = False) -> str:
     lines.append(f'agents_dir = "{profile.agents_dir}"')
     lines.append(f'agents_md = "{profile.agents_md}"')
     lines.append(f'mcp_json = "{profile.mcp_json}"')
+    lines.append(f'plugins_dir = "{profile.plugins_dir}"')
+    lines.append(f'opencode_plugins_dir = "{profile.opencode_plugins_dir}"')
+    lines.append(f'claude_settings = "{profile.claude_settings}"')
     if profile.symlinks:
         lines.append(f"symlinks = {_render_string_list(profile.symlinks)}")
     lines.append("")

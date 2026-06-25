@@ -265,6 +265,22 @@ def _v13_to_v14(raw: dict[str, Any]) -> dict[str, Any]:
     return raw
 
 
+def _v14_to_v15(raw: dict[str, Any]) -> dict[str, Any]:
+    """Migrate a v14 manifest forward to v15.
+
+    v15 adds the optional `plugins` list (the plugins surface). Additive only.
+
+    Args:
+        raw: The decoded manifest mapping at version 14.
+
+    Returns:
+        The same mapping, mutated in place, stamped at version 15.
+    """
+    raw.setdefault("plugins", [])
+    raw["manifest_version"] = 15
+    return raw
+
+
 MIGRATIONS: dict[int, Callable[[dict[str, Any]], dict[str, Any]]] = {
     0: _v0_to_v1,
     1: _v1_to_v2,
@@ -280,6 +296,7 @@ MIGRATIONS: dict[int, Callable[[dict[str, Any]], dict[str, Any]]] = {
     11: _v11_to_v12,
     12: _v12_to_v13,
     13: _v13_to_v14,
+    14: _v14_to_v15,
 }
 
 

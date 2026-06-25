@@ -26,6 +26,7 @@ from aim.core import content_guard, db, git, paths
 from aim.core.models import (
     AgentIndex,
     ArchetypeIndex,
+    PluginIndex,
     RegisteredRepo,
     RuleIndex,
     SkillIndex,
@@ -220,6 +221,7 @@ def add(
     _repo_rules = importlib.import_module("aim.core.repo_rules")
     _archetypes = importlib.import_module("aim.core.archetypes")
     _repo_templates = importlib.import_module("aim.core.repo_templates")
+    _plugins = importlib.import_module("aim.core.plugins")
 
     try:
         skill_result = _skills.index_repo(alias)
@@ -227,6 +229,7 @@ def add(
         rule_result = _repo_rules.index_repo(alias)
         archetype_result = _archetypes.index_repo(alias)
         template_result = _repo_templates.index_repo(alias)
+        plugin_result = _plugins.index_repo(alias)
     except Exception:
         # Roll back the registration so the next attempt isn't blocked.
         remove(alias)
@@ -237,12 +240,14 @@ def add(
         and not rule_result.indexed
         and not archetype_result.indexed
         and not template_result.indexed
+        and not plugin_result.plugins
+        and not plugin_result.marketplaces
         and not allow_empty
     ):
         remove(alias)
         raise RepoHasNoArtifactsError(
-            f"{alias}: no SKILL.md, AGENT.md, rule .md, instruction archetype, or "
-            f"project template found anywhere in the repository"
+            f"{alias}: no SKILL.md, AGENT.md, rule .md, instruction archetype, "
+            f"project template, or plugin marketplace found anywhere in the repository"
         )
     return repo
 
@@ -273,6 +278,10 @@ def artifact_kinds(alias: str) -> set[str]:
             select(TemplateIndex).where(TemplateIndex.repo_alias == alias).limit(1)
         ).first():  # type: ignore[arg-type]
             kinds.add("template")
+        if session.exec(
+            select(PluginIndex).where(PluginIndex.repo_alias == alias).limit(1)
+        ).first():  # type: ignore[arg-type]
+            kinds.add("plugin")
     return kinds
 
 
@@ -304,6 +313,8 @@ def remove(alias: str) -> None:
         session.exec(_delete_rule_index(alias))
         session.exec(_delete_archetype_index(alias))
         session.exec(_delete_template_index(alias))
+        session.exec(_delete_plugin_index(alias))
+        session.exec(_delete_marketplace_index(alias))
         session.delete(row)
         session.commit()
     git.remove_clone(clone_dir(alias))
@@ -335,6 +346,7 @@ def project_artifacts_for_repo(project_root: Path, alias: str) -> list[str]:
         [s.qualified_name for s in decl.skills if s.repo_alias == alias]
         + [a.qualified_name for a in decl.agents if a.repo_alias == alias]
         + [r.qualified_name for r in decl.rules if r.repo_alias == alias]
+        + [p.qualified_name for p in decl.plugins if p.repo_alias == alias]
     )
 
 
@@ -379,6 +391,24 @@ def _delete_template_index(alias: str):  # type: ignore[no-untyped-def]
     from aim.core.models import TemplateIndex as _TemplateIndex
 
     return _delete(_TemplateIndex).where(_TemplateIndex.repo_alias == alias)  # type: ignore[arg-type]
+
+
+def _delete_plugin_index(alias: str):  # type: ignore[no-untyped-def]
+    """Build a delete statement for a repo's plugin index rows."""
+    from sqlmodel import delete as _delete
+
+    from aim.core.models import PluginIndex as _PluginIndex
+
+    return _delete(_PluginIndex).where(_PluginIndex.repo_alias == alias)  # type: ignore[arg-type]
+
+
+def _delete_marketplace_index(alias: str):  # type: ignore[no-untyped-def]
+    """Build a delete statement for a repo's marketplace index rows."""
+    from sqlmodel import delete as _delete
+
+    from aim.core.models import MarketplaceIndex as _MarketplaceIndex
+
+    return _delete(_MarketplaceIndex).where(_MarketplaceIndex.repo_alias == alias)  # type: ignore[arg-type]
 
 
 def rename(old: str, new: str) -> RegisteredRepo:
@@ -608,6 +638,19 @@ def rename(old: str, new: str) -> RegisteredRepo:
                         session.delete(row)
                     session.commit()
             raise
+
+    # Plugin/marketplace index rows are keyed by alias; rebuild them under the
+    # new alias from the (now-moved) clone rather than hand-migrating each row.
+    with db.session() as session:
+        session.exec(_delete_plugin_index(old))
+        session.exec(_delete_marketplace_index(old))
+        session.commit()
+    try:
+        importlib.import_module("aim.core.plugins").index_repo(new)
+    except Exception:
+        # Best-effort: a failed reindex leaves the plugin index empty until the
+        # next `aim repo refresh`; the rename itself already succeeded.
+        pass
     return get(new)
 
 
@@ -672,11 +715,14 @@ def _resolve_and_reindex(alias: str, *, previous_sha: str | None) -> RegisteredR
         _archetypes = importlib.import_module("aim.core.archetypes")
         _repo_templates = importlib.import_module("aim.core.repo_templates")
 
+        _plugins = importlib.import_module("aim.core.plugins")
+
         _skills.index_repo(alias)
         _agents.index_repo(alias)
         _repo_rules.index_repo(alias)
         _archetypes.index_repo(alias)
         _repo_templates.index_repo(alias)
+        _plugins.index_repo(alias)
     return fresh
 
 

@@ -136,7 +136,47 @@ class ArchetypeIndex(SQLModel, table=True):  # type: ignore[call-arg]
     indexed_at_sha: str
 
 
-CURRENT_DECLARATIONS_VERSION = 8  # v8 renames instruction_archetype -> archetype (always present)
+class MarketplaceIndex(SQLModel, table=True):  # type: ignore[call-arg]
+    """A discovered plugin marketplace within a registered repo.
+
+    A marketplace is a `.claude-plugin/marketplace.json` catalog listing one or
+    more plugins. Used to group/filter plugins in `plugin list` and as install
+    provenance. A repo may contain zero or more marketplaces.
+    """
+
+    qualified_name: str = SQLField(primary_key=True)  # "<alias>/<marketplace_name>"
+    repo_alias: str = SQLField(index=True)
+    marketplace_name: str = SQLField(index=True)
+    manifest_path: str  # path of marketplace.json relative to repo root
+    owner_name: str | None = None
+    owner_url: str | None = None
+    title: str | None = None
+    description: str | None = None
+    indexed_at_sha: str
+
+
+class PluginIndex(SQLModel, table=True):  # type: ignore[call-arg]
+    """A discovered plugin within a registered repo, used for `plugin list/search`.
+
+    Claude plugins are listed in a marketplace's `marketplace.json` (``flavor ==
+    "claude"``, ``marketplace_name`` set). opencode plugins are loose local
+    files discovered by convention (``flavor == "opencode"``, no marketplace).
+    """
+
+    qualified_name: str = SQLField(primary_key=True)  # "<alias>/<plugin_name>"
+    repo_alias: str = SQLField(index=True)
+    plugin_name: str = SQLField(index=True)
+    flavor: str  # "claude" | "opencode"
+    source_path: str  # path of the plugin DIRECTORY (or file) relative to repo root
+    marketplace_name: str | None = None  # upstream marketplace name (claude only)
+    version: str | None = None
+    description: str | None = None
+    category: str | None = None
+    keywords: str = ""  # CSV for search only
+    indexed_at_sha: str
+
+
+CURRENT_DECLARATIONS_VERSION = 9  # v9 adds the plugins surface
 
 
 class DeclaredRepo(BaseModel):
@@ -196,6 +236,23 @@ class DeclaredMcpServer(BaseModel):
     registry_name: str
     preferred_transport: str | None = None
     overrides: dict[str, object] = Field(default_factory=dict)
+
+
+PLUGIN_FLAVORS = ("claude", "opencode")
+
+
+class DeclaredPlugin(BaseModel):
+    """Declare a plugin to install in `aim.toml`."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    qualified_name: str  # "<repo_alias>/<plugin_name>"
+    repo_alias: str
+    flavor: str  # "claude" | "opencode"
+    source_path: str  # path of the plugin dir/file relative to repo root
+    marketplace_name: str | None = None  # upstream marketplace name (claude only)
+    track: str | None = None
+    pin: str | None = None
 
 
 BUILTIN_ARCHETYPE = "default"
@@ -267,9 +324,10 @@ class ProjectDeclarations(BaseModel):
     skills: list[DeclaredSkill] = Field(default_factory=list)
     agents: list[DeclaredAgent] = Field(default_factory=list)
     mcp_servers: list[DeclaredMcpServer] = Field(default_factory=list)
+    plugins: list[DeclaredPlugin] = Field(default_factory=list)
 
 
-CURRENT_MANIFEST_VERSION = 14  # v14 renames instruction_archetype -> archetype
+CURRENT_MANIFEST_VERSION = 15  # v15 adds the plugins surface
 HISTORY_CAP = 10
 
 
@@ -412,6 +470,39 @@ class InstalledRule(BaseModel):
             del self.history[HISTORY_CAP:]
 
 
+class InstalledPlugin(BaseModel):
+    """An installed plugin recorded in `aim.lock.toml`.
+
+    A plugin is vendored (copied) into the project at the locked SHA, exactly
+    like a skill. For Claude, ``marketplace_name`` is the aim-local marketplace
+    registered in `.claude/settings.json` (namespaced by repo alias); the
+    enablement key is ``<plugin_name>@<marketplace_name>``. For opencode there
+    is no marketplace and the vendored files auto-load.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    qualified_name: str  # "<repo_alias>/<plugin_name>" at install time
+    repo_alias: str  # the local alias at install time
+    repo_url: str
+    flavor: str  # "claude" | "opencode"
+    source_path: str  # path of the plugin dir/file inside the source repo
+    target_dir: str  # vendored path inside the project
+    marketplace_name: str | None = None  # aim-local marketplace name (claude only)
+    current: SkillVersion
+    history: list[SkillVersion] = Field(default_factory=list)
+    content_hash: str | None = None  # sha256 of vendored file tree (drift detection)
+    pin: str | None = None
+    track: str | None = None
+
+    def push_history(self, new_current: SkillVersion) -> None:
+        """Promote new_current to current, pushing the old one onto capped history."""
+        self.history.insert(0, self.current)
+        self.current = new_current
+        if len(self.history) > HISTORY_CAP:
+            del self.history[HISTORY_CAP:]
+
+
 class InstalledArchetype(BaseModel):
     """The locked project-instruction archetype recorded in `aim.lock.toml`.
 
@@ -460,6 +551,7 @@ class Manifest(BaseModel):
     agents: list[InstalledAgent] = Field(default_factory=list)
     mcp_servers: list[InstalledMcpServer] = Field(default_factory=list)
     rules: list[InstalledRule] = Field(default_factory=list)
+    plugins: list[InstalledPlugin] = Field(default_factory=list)
     managed_files: list[str] = Field(default_factory=list)
     # Hash of the last-written body of each managed region inside AGENTS.md (and
     # symlinks). Drift means the user edited inside markers — warn before rewrite.

@@ -1,4 +1,4 @@
-manifest_version = 8
+manifest_version = 10
 layout_profile = "claude"
 symlinks = [
     "CLAUDE.md",
@@ -7,111 +7,138 @@ mcp_servers = []
 
 [archetype]
 qualified_name = "default"
+risk_acknowledged = false
 
 [[rule]]
-qualified_name = "athola/slop-scan-for-docs"
-repo_alias = "athola"
+qualified_name = "1385a5f1be8c889c/slop-scan-for-docs"
+repo_alias = "1385a5f1be8c889c"
 source_path = ".claude/rules/slop-scan-for-docs.md"
+risk_acknowledged = false
 
 [[rule]]
-qualified_name = "jasperhg90/pre-existing-issues"
-repo_alias = "jasperhg90"
+qualified_name = "4290899e4697f267/pre-existing-issues"
+repo_alias = "4290899e4697f267"
 source_path = "rules/pre-existing-issues.md"
+risk_acknowledged = false
 
 [policy]
 scope = "org"
-repo = "https://github.com/JasperHG90/aim-policy"
+repo = "https://github.com/jasperhg90/aim-policy"
 ref = "HEAD"
 
 [repos]
-anthropic = "https://github.com/anthropics/skills"
-balukosuri = "https://github.com/balukosuri/Andrej-Karpathy-s-Autoresearch-As-a-Universal-Skill"
-bencium-marketplace = "https://github.com/bencium/bencium-marketplace"
-0xfurai = "https://github.com/0xfurai/claude-code-subagents"
-wshobson = "https://github.com/wshobson/agents/"
-jasperhg90 = "https://github.com/JasperHG90/skills"
-athola = "https://github.com/athola/claude-night-market"
+1385a5f1be8c889c = "https://github.com/athola/claude-night-market"
+31661aae5fd34dec = "https://github.com/wshobson/agents"
+4290899e4697f267 = "https://github.com/jasperhg90/skills"
+6d0a32a7aaf3e19b = "https://github.com/balukosuri/andrej-karpathy-s-autoresearch-as-a-universal-skill"
+82a901da1b9bedec = "https://github.com/anthropics/skills"
+8b8de8ec329cb5d5 = "https://github.com/jasperhg90/memex"
+e96f16c2bd4b1042 = "https://github.com/0xfurai/claude-code-subagents"
+f2002c53d5747ac5 = "https://github.com/bencium/bencium-marketplace"
 
 [[skill]]
-qualified_name = "anthropic/theme-factory"
-repo_alias = "anthropic"
+qualified_name = "82a901da1b9bedec/theme-factory"
+repo_alias = "82a901da1b9bedec"
 source_path = "skills/theme-factory"
 target_dir = ".claude/skills/theme-factory"
+risk_acknowledged = false
 
 [[skill]]
-qualified_name = "balukosuri/balukosuri"
-repo_alias = "balukosuri"
+qualified_name = "6d0a32a7aaf3e19b/balukosuri"
+repo_alias = "6d0a32a7aaf3e19b"
 source_path = ""
 target_dir = ".claude/skills/balukosuri"
+risk_acknowledged = false
 
 [[skill]]
-qualified_name = "bencium-marketplace/design-audit"
-repo_alias = "bencium-marketplace"
+qualified_name = "f2002c53d5747ac5/design-audit"
+repo_alias = "f2002c53d5747ac5"
 source_path = "design-audit/skills/design-audit"
 target_dir = ".claude/skills/design-audit"
+risk_acknowledged = false
 
 [[skill]]
-qualified_name = "bencium-marketplace/typography"
-repo_alias = "bencium-marketplace"
+qualified_name = "f2002c53d5747ac5/typography"
+repo_alias = "f2002c53d5747ac5"
 source_path = "typography/skills/typography"
 target_dir = ".claude/skills/typography"
+risk_acknowledged = false
 
 [[skill]]
-qualified_name = "wshobson/workflow-patterns"
-repo_alias = "wshobson"
+qualified_name = "31661aae5fd34dec/workflow-patterns"
+repo_alias = "31661aae5fd34dec"
 source_path = "plugins/conductor/skills/workflow-patterns"
 target_dir = ".claude/skills/workflow-patterns"
+risk_acknowledged = false
 
 [[skill]]
-qualified_name = "jasperhg90/pageindex"
-repo_alias = "jasperhg90"
+qualified_name = "4290899e4697f267/pageindex"
+repo_alias = "4290899e4697f267"
 source_path = "skills/tools/pageindex"
 target_dir = ".claude/skills/pageindex"
+risk_acknowledged = false
 
 [[skill]]
-qualified_name = "jasperhg90/doc-write"
-repo_alias = "jasperhg90"
+qualified_name = "4290899e4697f267/doc-write"
+repo_alias = "4290899e4697f267"
 source_path = "skills/documentation/doc-write"
 target_dir = ".claude/skills/doc-write"
+risk_acknowledged = false
 
 [[skill]]
-qualified_name = "jasperhg90/manifesto"
-repo_alias = "jasperhg90"
+qualified_name = "4290899e4697f267/manifesto"
+repo_alias = "4290899e4697f267"
 source_path = "skills/architecture/manifesto"
 target_dir = ".claude/skills/manifesto"
+risk_acknowledged = false
 
 [[skill]]
-qualified_name = "jasperhg90/release"
-repo_alias = "jasperhg90"
+qualified_name = "4290899e4697f267/release"
+repo_alias = "4290899e4697f267"
 source_path = "skills/ops/release"
 target_dir = ".claude/skills/release"
+risk_acknowledged = false
 
 [[skill]]
-qualified_name = "jasperhg90/terminal-gif"
-repo_alias = "jasperhg90"
+qualified_name = "4290899e4697f267/terminal-gif"
+repo_alias = "4290899e4697f267"
 source_path = "skills/documentation/terminal-gif"
 target_dir = ".claude/skills/terminal-gif"
+risk_acknowledged = false
 
 [[skill]]
-qualified_name = "anthropic/skill-creator"
-repo_alias = "anthropic"
+qualified_name = "82a901da1b9bedec/skill-creator"
+repo_alias = "82a901da1b9bedec"
 source_path = "skills/skill-creator"
 target_dir = ".claude/skills/skill-creator"
+risk_acknowledged = false
 
 [[subagent]]
-qualified_name = "0xfurai/github-actions-expert"
-repo_alias = "0xfurai"
+qualified_name = "e96f16c2bd4b1042/github-actions-expert"
+repo_alias = "e96f16c2bd4b1042"
 source_path = "agents/github-actions-expert.md"
 target_path = ".claude/agents/github-actions-expert.md"
+risk_acknowledged = false
 
 [[subagent]]
-qualified_name = "0xfurai/python-expert"
-repo_alias = "0xfurai"
+qualified_name = "e96f16c2bd4b1042/python-expert"
+repo_alias = "e96f16c2bd4b1042"
 source_path = "agents/python-expert.md"
 target_path = ".claude/agents/python-expert.md"
+risk_acknowledged = false
 
 [[subagent]]
-qualified_name = "jasperhg90/feature-planner"
-repo_alias = "jasperhg90"
+qualified_name = "4290899e4697f267/feature-planner"
+repo_alias = "4290899e4697f267"
 source_path = "agents/feature-planner.md"
 target_path = ".claude/agents/feature-planner.md"
+risk_acknowledged = false
+
+[[plugin]]
+qualified_name = "8b8de8ec329cb5d5/memex"
+repo_alias = "8b8de8ec329cb5d5"
+flavor = "claude"
+source_path = "packages/claude-code-plugin"
+marketplace_name = "memex"
+pin = "2a053a7"
+risk_acknowledged = true

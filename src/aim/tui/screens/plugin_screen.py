@@ -139,7 +139,7 @@ class PluginsScreen(Screen[None]):
         return str(row_key.value) if row_key and row_key.value is not None else None
 
     def action_view_current(self) -> None:
-        """Open the selected plugin's manifest in a read-only view modal."""
+        """Open the selected plugin's full description + manifest in a scrollable modal."""
         qn = self._selected()
         if qn is None:
             if self.query_one(DataTable).row_count == 0:
@@ -148,11 +148,23 @@ class PluginsScreen(Screen[None]):
                 self._status("no row selected")
             return
         try:
+            row = plugins.index_row(qn)
             content = plugins.read_plugin_content(qn)
         except plugins.PluginNotIndexedError as exc:
             self.app.notify(f"view failed: {exc}", severity="error")
             return
-        self.app.push_screen(PluginViewModal(qn, content))
+        # The table truncates the description; show it in full here (the modal's
+        # text area scrolls), above the raw manifest.
+        meta = [f"{row.qualified_name}  [{row.flavor}]"]
+        if row.marketplace_name:
+            meta.append(f"marketplace: {row.marketplace_name}")
+        if row.version:
+            meta.append(f"version: {row.version}")
+        meta.append(f"sha: {row.short_sha}")
+        if row.description:
+            meta += ["", row.description]
+        body = "\n".join(meta) + "\n\n---\n\n" + content
+        self.app.push_screen(PluginViewModal(qn, body))
 
     def action_install_current(self) -> None:
         """Prompt for install config for the selected plugin, then install it."""

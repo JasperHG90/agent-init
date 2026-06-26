@@ -20,6 +20,7 @@ from aim.tui.app import AimApp
 from aim.tui.modals.agent_install import AgentInstallModal
 from aim.tui.modals.confirm import ConfirmModal
 from aim.tui.modals.init_modal import InitModal
+from aim.tui.modals.plugin_install import PluginInstallModal
 from aim.tui.modals.project_picker import ProjectPickerModal
 from aim.tui.modals.repo_add import RepoAddModal
 from aim.tui.modals.rule_install import RuleInstallModal
@@ -45,6 +46,42 @@ def _bare_with_skills(tmp_path: Path) -> Path:
         },
     )
     return git_fixtures.make_bare_remote(working, tmp_path / "bare.git")
+
+
+def _register_plugin_repo(tmp_path: Path) -> None:
+    import json
+
+    files = {
+        ".claude-plugin/marketplace.json": json.dumps(
+            {"name": "m", "plugins": [{"name": "p1", "source": "./p1", "version": "1.0.0"}]}
+        ),
+        "p1/.claude-plugin/plugin.json": json.dumps({"name": "p1"}),
+        "p1/skills/s/SKILL.md": "# s\n",
+    }
+    working = git_fixtures.make_source_repo(tmp_path / "psrc", files=files)
+    bare = git_fixtures.make_bare_remote(working, tmp_path / "pbare.git")
+    repos.add("pp", f"file://{bare}")
+
+
+@pytest.mark.asyncio
+async def test_plugin_install_modal_override_toggle(home: Path, tmp_path: Path) -> None:
+    # The override-risk control must actually toggle: the native Textual Checkbox
+    # didn't deliver events reliably, so the modal uses the custom ToggleRow.
+    _register_plugin_repo(tmp_path)
+    app = AimApp()
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("g")  # plugins screen
+        await pilot.pause()
+        await pilot.press("i")  # open the install modal for the selected plugin
+        await pilot.pause()
+        assert isinstance(app.screen, PluginInstallModal)
+        toggle = app.screen.query_one("#override-risk", ToggleRow)
+        assert toggle.value is False
+        toggle.focus()
+        await pilot.press("space")  # Enter submits (priority binding); Space toggles
+        await pilot.pause()
+        assert toggle.value is True
 
 
 @pytest.mark.asyncio

@@ -9,7 +9,9 @@ from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import ModalScreen
-from textual.widgets import Button, Checkbox, Input, Static
+from textual.widgets import Button, Input, Static
+
+from aim.tui.widgets import ToggleRow
 
 
 @dataclass(frozen=True)
@@ -52,7 +54,7 @@ class PluginInstallModal(ModalScreen[PluginInstallConfig | None]):
                 Input(value="", id="pin", placeholder="e.g. v1.2.3 or a short sha from the list"),
                 Static("Track ref (branch or 'latest-tag') — optional:", markup=False),
                 Input(value="", id="track", placeholder="e.g. main or latest-tag"),
-                Checkbox("Override risk gate (--override-risk)", id="override-risk"),
+                ToggleRow("Override risk gate (--override-risk)", id="override-risk"),
                 Static("", id="error", markup=False, classes="modal-error"),
                 classes="modal-scroll",
             ),
@@ -94,7 +96,7 @@ class PluginInstallModal(ModalScreen[PluginInstallConfig | None]):
             return
         pin = self.query_one("#pin", Input).value.strip() or None
         track = self.query_one("#track", Input).value.strip() or None
-        override_risk = self.query_one("#override-risk", Checkbox).value
+        override_risk = self.query_one("#override-risk", ToggleRow).value
         self.dismiss(
             PluginInstallConfig(
                 project_root=Path(value).expanduser(),

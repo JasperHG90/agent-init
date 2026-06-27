@@ -21,6 +21,18 @@ repo_alias = "4290899e4697f267"
 source_path = "rules/pre-existing-issues.md"
 risk_acknowledged = false
 
+[[rule]]
+qualified_name = "4290899e4697f267/adversarial-reviews"
+repo_alias = "4290899e4697f267"
+source_path = "rules/adversarial-reviews.md"
+risk_acknowledged = false
+
+[[rule]]
+qualified_name = "4290899e4697f267/uv-installer"
+repo_alias = "4290899e4697f267"
+source_path = "rules/uv-installer.md"
+risk_acknowledged = false
+
 [policy]
 scope = "org"
 repo = "https://github.com/jasperhg90/aim-policy"
@@ -132,6 +144,13 @@ qualified_name = "4290899e4697f267/feature-planner"
 repo_alias = "4290899e4697f267"
 source_path = "agents/feature-planner.md"
 target_path = ".claude/agents/feature-planner.md"
+risk_acknowledged = false
+
+[[subagent]]
+qualified_name = "4290899e4697f267/adversarial-reviewer"
+repo_alias = "4290899e4697f267"
+source_path = "agents/adversarial-reviewer.md"
+target_path = ".claude/agents/adversarial-reviewer.md"
 risk_acknowledged = false
 
 [[plugin]]

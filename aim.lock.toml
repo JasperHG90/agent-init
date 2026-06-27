@@ -194,6 +194,19 @@ risk_acknowledged = false
 sha = "7f71a9a9d5093a3c62b259f3d7896db1ff8b57bf"
 installed_at = "2026-06-26T21:35:09.590572Z"
 
+[[subagent]]
+qualified_name = "4290899e4697f267/adversarial-reviewer"
+repo_alias = "4290899e4697f267"
+source_path = "agents/adversarial-reviewer.md"
+target_path = ".claude/agents/adversarial-reviewer.md"
+history = []
+content_hash = "4312d303fbdb1621c1e43d2e085df7b0f5242f8761c65c10147e179c4f677481"
+risk_acknowledged = false
+
+[subagent.current]
+sha = "5ff872624d18f224aef87f4655e0ae5f78a4d034"
+installed_at = "2026-06-27T05:23:44.248411Z"
+
 [[rule]]
 qualified_name = "1385a5f1be8c889c/slop-scan-for-docs"
 repo_alias = "1385a5f1be8c889c"
@@ -217,6 +230,30 @@ risk_acknowledged = false
 [rule.current]
 sha = "7f71a9a9d5093a3c62b259f3d7896db1ff8b57bf"
 installed_at = "2026-06-26T21:35:09.538794Z"
+
+[[rule]]
+qualified_name = "4290899e4697f267/adversarial-reviews"
+repo_alias = "4290899e4697f267"
+source_path = "rules/adversarial-reviews.md"
+history = []
+content_hash = "85cf17902b6d323f69208d06a4a0a9d370db4412d5e603f98092c92b9da2f16a"
+risk_acknowledged = false
+
+[rule.current]
+sha = "801250ade7cf35f7d39764e3d4528ada7f6db6db"
+installed_at = "2026-06-27T05:23:42.954298Z"
+
+[[rule]]
+qualified_name = "4290899e4697f267/uv-installer"
+repo_alias = "4290899e4697f267"
+source_path = "rules/uv-installer.md"
+history = []
+content_hash = "939459455231671d1206da8875d143ff418893f51bef73e3add42668d220972c"
+risk_acknowledged = false
+
+[rule.current]
+sha = "801250ade7cf35f7d39764e3d4528ada7f6db6db"
+installed_at = "2026-06-27T05:23:43.599326Z"
 
 [[plugin]]
 qualified_name = "8b8de8ec329cb5d5/memex"

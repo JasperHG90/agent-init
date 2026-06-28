@@ -45,12 +45,14 @@ class ReposScreen(Screen[None]):
         ("b", "app.pop_screen", "Back"),
         ("a", "add_repo", "Add"),
         ("r", "refresh_current", "Refresh"),
+        ("i", "reindex_current", "Reindex"),
         ("x", "remove_current", "Remove"),
         ("q", "app.quit", "Quit"),
     ]
 
     _adding: RepoAddResult | None = None
     _refreshing: str | None = None
+    _reindexing: str | None = None
 
     def compose(self) -> ComposeResult:
         """Build the title, repos table, status line, and key hint."""
@@ -58,7 +60,7 @@ class ReposScreen(Screen[None]):
         yield DataTable(id="repos-table", cursor_type="row")
         yield Static("", id="status", markup=False)
         yield Static(
-            "[a] Add  [r] Refresh  [x] Remove  [b] Back  [q] Quit",
+            "[a] Add  [r] Refresh  [i] Reindex  [x] Remove  [b] Back  [q] Quit",
             id="hint",
             markup=False,
         )
@@ -169,6 +171,15 @@ class ReposScreen(Screen[None]):
                 self._populate()
             elif event.state in (WorkerState.CANCELLED, WorkerState.ERROR):
                 self._refreshing = None
+        reindexing = getattr(self, "_reindexing", None)
+        if reindexing is not None:
+            if event.state == WorkerState.RUNNING:
+                self._status(f"reindexing {reindexing}…")
+            elif event.state == WorkerState.SUCCESS:
+                self._reindexing = None
+                self._populate()
+            elif event.state in (WorkerState.CANCELLED, WorkerState.ERROR):
+                self._reindexing = None
 
     def action_refresh_current(self) -> None:
         """Start a background refresh of the selected repo."""
@@ -194,6 +205,33 @@ class ReposScreen(Screen[None]):
         self.app.call_from_thread(self.app.notify, f"refreshed {alias}", title="Repo refreshed")
         self.app.call_from_thread(
             self._status, f"refreshed {alias}: HEAD={(repo.last_sha or '?')[:12]}"
+        )
+        self.app.call_from_thread(self._populate)
+
+    def action_reindex_current(self) -> None:
+        """Start a background reindex of the selected repo (force re-discovery)."""
+        alias = self._selected_alias()
+        if alias is None:
+            self._notify_or_status("no row selected")
+            return
+        self._status(f"reindexing {alias}…")
+        self._reindexing = alias
+        self.run_worker(self._do_reindex_thread, exclusive=True, thread=True)
+
+    def _do_reindex_thread(self) -> None:
+        """Reindex the pending repo on a worker thread, reporting status to the UI."""
+        alias = getattr(self, "_reindexing", None)
+        if alias is None:
+            return
+        try:
+            repo = repos.reindex(alias)
+        except (repos.RepoNotFoundError, repos.RefDisappearedError, git.GitError) as exc:
+            self.app.call_from_thread(self.app.notify, f"reindex failed: {exc}", severity="error")
+            self.app.call_from_thread(self._status, f"reindex failed: {exc}")
+            return
+        self.app.call_from_thread(self.app.notify, f"reindexed {alias}", title="Repo reindexed")
+        self.app.call_from_thread(
+            self._status, f"reindexed {alias}: HEAD={(repo.last_sha or '?')[:12]}"
         )
         self.app.call_from_thread(self._populate)
 

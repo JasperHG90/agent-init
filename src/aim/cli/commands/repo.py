@@ -129,6 +129,25 @@ def repo_refresh(
         raise typer.Exit(code=1)
 
 
+@app.command("reindex")
+@_friendly
+def repo_reindex(
+    ctx: typer.Context,
+    alias: str = typer.Argument(..., help="Repo alias to reindex."),
+) -> None:
+    """Fetch a registered repo and re-run artifact discovery unconditionally.
+
+    Like `refresh`, but reindexes even when the tracked commit is unchanged — use it
+    to pick up artifacts (e.g. plugins newly discoverable under a custom kind) that a
+    plain `refresh` would skip because the SHA did not move.
+    """
+    allow_insecure = _get_allow_insecure(ctx)
+    repo = repos_mod.reindex(alias, allow_insecure=allow_insecure)
+    sha = repo.last_sha[:12] if repo.last_sha else "?"
+    typer.echo(f"reindexed {alias}: HEAD={sha}")
+    _warn_skipped_templates()
+
+
 def _warn_skipped_templates() -> None:
     """Print a stderr warning for any template skipped (unparseable) during indexing."""
     from aim.core import repo_templates as repo_templates_mod

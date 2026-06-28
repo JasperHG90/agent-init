@@ -125,6 +125,43 @@ def test_opencode_is_a_pluggable_kind(home: Path, tmp_path: Path) -> None:
     assert rows[0].marketplace_name is None
 
 
+_OPENCODE_KIND_WITH_DESCRIPTION = """
+name = "opencode"
+[manifest]
+file = "package.json"
+name = "name"
+description = "description"
+[register]
+vendor_into = ".opencode/plugins/{name}"
+"""
+
+
+def test_kind_description_keypath_populates_index(home: Path, tmp_path: Path) -> None:
+    d = paths.user_config_dir() / "targets"
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "opencode.toml").write_text(_OPENCODE_KIND_WITH_DESCRIPTION)
+    bare = _build(
+        tmp_path,
+        {"logger/package.json": json.dumps({"name": "logger", "description": "logs things"})},
+    )
+    repos.add("a", f"file://{bare}")
+    rows = plugins.list_plugins(flavor="opencode")
+    assert [(r.plugin_name, r.description) for r in rows] == [("logger", "logs things")]
+
+
+def test_kind_without_description_keypath_leaves_it_unset(home: Path, tmp_path: Path) -> None:
+    # The default opencode kind declares no description keypath, so even a manifest
+    # that has a description field must not populate it (opt-in behavior).
+    _install_opencode_kind()
+    bare = _build(
+        tmp_path,
+        {"logger/package.json": json.dumps({"name": "logger", "description": "ignored"})},
+    )
+    repos.add("a", f"file://{bare}")
+    rows = plugins.list_plugins(flavor="opencode")
+    assert rows[0].description is None
+
+
 def test_remote_and_unsafe_sources_skipped(home: Path, tmp_path: Path) -> None:
     marketplace = {
         "name": "demo",

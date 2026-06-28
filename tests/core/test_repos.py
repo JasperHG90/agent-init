@@ -266,6 +266,37 @@ def test_refresh_reindexes_rules(home: Path, tmp_path: Path) -> None:
     assert {row.rule_name for row in repo_rules.list_rules("r")} == {"a", "b"}
 
 
+def test_reindex_rediscovers_without_sha_change(home: Path, tmp_path: Path) -> None:
+    from aim.core import db
+
+    _, bare = _build_repo_with(
+        tmp_path,
+        {"rules/a.md": "a\n", "README.md": "x\n"},
+    )
+    repos.add("r", f"file://{bare}")
+    assert {row.rule_name for row in repo_rules.list_rules("r")} == {"a"}
+
+    # Wipe the rule index while leaving the repo registered and the SHA unchanged,
+    # simulating an index that has gone stale relative to the clone.
+    with db.session() as session:
+        session.exec(repos._delete_rule_index("r"))
+        session.commit()
+    assert repo_rules.list_rules("r") == []
+
+    # refresh is a no-op for discovery when the SHA hasn't moved...
+    repos.refresh("r")
+    assert repo_rules.list_rules("r") == []
+
+    # ...but reindex re-runs discovery unconditionally and restores the index.
+    repos.reindex("r")
+    assert {row.rule_name for row in repo_rules.list_rules("r")} == {"a"}
+
+
+def test_reindex_unknown_alias_raises(home: Path) -> None:
+    with pytest.raises(repos.RepoNotFoundError):
+        repos.reindex("nope")
+
+
 def test_remove_deletes_rule_index(home: Path, tmp_path: Path) -> None:
     _, bare = _build_repo_with(
         tmp_path,

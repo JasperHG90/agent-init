@@ -11,6 +11,7 @@ from textual.worker import WorkerState, get_current_worker
 
 from aim.core import default_mcp_servers, manifest, mcp_registry, validation
 from aim.core import mcp_install as install_mod
+from aim.tui.modals.busy import BusyModal
 from aim.tui.modals.mcp_install import McpInstallConfig, McpInstallModal
 
 
@@ -41,6 +42,7 @@ class McpScreen(Screen[None]):
         self._cached_results: list[mcp_registry.McpSearchResult] | None = None
         self._installed_results: list[mcp_registry.McpSearchResult] | None = None
         self._installing: tuple[mcp_registry.McpServer, McpInstallConfig] | None = None
+        self._busy: BusyModal | None = None
 
     def compose(self) -> ComposeResult:
         """Build the title, search bar, results table, status and hint widgets."""
@@ -385,6 +387,9 @@ class McpScreen(Screen[None]):
             return
         self._status(f"installing {server.name} as {cfg.alias}…")
         self._installing = (server, cfg)
+        busy = BusyModal(f"Installing {server.name} as {cfg.alias}…")
+        self._busy = busy
+        self.app.push_screen(busy)
         self.run_worker(self._do_install_thread, exclusive=True, thread=True)
 
     def _do_install_thread(self) -> None:
@@ -413,6 +418,8 @@ class McpScreen(Screen[None]):
             self.app.call_from_thread(self.app.notify, f"install failed: {exc}", severity="error")
             self.app.call_from_thread(self._status, f"install failed: {exc}")
             return
+        finally:
+            self.app.call_from_thread(self._dismiss_busy)
         self.app.call_from_thread(
             self.app.notify,
             f"installed MCP server {server.name} as {cfg.alias}",
@@ -429,6 +436,13 @@ class McpScreen(Screen[None]):
                 self._status(f"installing {server.name} as {cfg.alias}…")
             elif event.state in (WorkerState.SUCCESS, WorkerState.CANCELLED, WorkerState.ERROR):
                 self._installing = None
+                self._dismiss_busy()
+
+    def _dismiss_busy(self) -> None:
+        """Close the loading overlay if one is showing. Runs on the UI thread."""
+        if self._busy is not None:
+            self._busy.dismiss()
+            self._busy = None
 
     def _status(self, msg: str) -> None:
         """Update the status line with the given message."""

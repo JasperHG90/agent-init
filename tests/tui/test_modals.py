@@ -439,3 +439,99 @@ async def test_agent_install_modal_passes_pin_and_track(home: Path, project_root
     assert result.project_root == project_root
     assert result.pin == "sha:abc123"
     assert result.track is None
+
+
+@pytest.mark.asyncio
+async def test_skill_install_modal_override_risk_flows_into_config(
+    home: Path, project_root: Path
+) -> None:
+    from aim.tui.modals.skill_install import SkillInstallConfig
+
+    app = AimApp()
+    result: SkillInstallConfig | None = None
+
+    def capture(cfg: SkillInstallConfig | None) -> None:
+        nonlocal result
+        result = cfg
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app.push_screen(SkillInstallModal("anth/foo"), capture)
+        await pilot.pause()
+        modal = app.screen
+        assert isinstance(modal, SkillInstallModal)
+        modal.query_one("#project-root", Input).value = str(project_root)
+        toggle = modal.query_one("#override-risk", ToggleRow)
+        assert toggle.value is False
+        toggle.focus()
+        await pilot.press("space")
+        await pilot.pause()
+        modal.action_submit()
+        await pilot.pause()
+
+    assert result is not None
+    assert result.override_risk is True
+
+
+@pytest.mark.asyncio
+async def test_agent_install_modal_override_risk_flows_into_config(
+    home: Path, project_root: Path
+) -> None:
+    from aim.tui.modals.agent_install import AgentInstallConfig
+
+    app = AimApp()
+    result: AgentInstallConfig | None = None
+
+    def capture(cfg: AgentInstallConfig | None) -> None:
+        nonlocal result
+        result = cfg
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app.push_screen(AgentInstallModal("anth/bar"), capture)
+        await pilot.pause()
+        modal = app.screen
+        assert isinstance(modal, AgentInstallModal)
+        modal.query_one("#project-root", Input).value = str(project_root)
+        toggle = modal.query_one("#override-risk", ToggleRow)
+        assert toggle.value is False
+        toggle.focus()
+        await pilot.press("space")
+        await pilot.pause()
+        modal.action_submit()
+        await pilot.pause()
+
+    assert result is not None
+    assert result.override_risk is True
+
+
+@pytest.mark.asyncio
+async def test_rule_install_modal_override_risk_flows_into_config(
+    home: Path, project_root: Path
+) -> None:
+    from aim.tui.modals.rule_install import RuleInstallConfig
+
+    app = AimApp()
+    result: RuleInstallConfig | None = None
+
+    def capture(cfg: RuleInstallConfig | None) -> None:
+        nonlocal result
+        result = cfg
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app.push_screen(RuleInstallModal("rr/be-concise"), capture)
+        await pilot.pause()
+        modal = app.screen
+        assert isinstance(modal, RuleInstallModal)
+        modal.query_one("#project-root", Input).value = str(project_root)
+        toggle = modal.query_one("#override-risk", ToggleRow)
+        assert toggle.value is False
+        toggle.focus()
+        await pilot.press("space")
+        await pilot.pause()
+        modal.action_submit()
+        await pilot.pause()
+
+    assert result is not None
+    assert result.override_risk is True

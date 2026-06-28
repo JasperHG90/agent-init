@@ -8,6 +8,7 @@ from textual.widgets import DataTable, Input, Static
 
 from aim.core import git, install, manifest, repos, risk, skills
 from aim.tui import errors as tui_errors
+from aim.tui.modals.busy import BusyModal
 from aim.tui.modals.repo_filter import RepoFilterModal, RepoFilterPick
 from aim.tui.modals.skill_install import SkillInstallConfig, SkillInstallModal
 from aim.tui.modals.skill_view import SkillViewModal
@@ -39,6 +40,7 @@ class SkillsScreen(Screen[None]):
         super().__init__()
         self._repo_filter: str | None = None
         self._installing: tuple[str, SkillInstallConfig] | None = None
+        self._busy: BusyModal | None = None
 
     def compose(self) -> ComposeResult:
         """Yield the title, search bar, skills table, status line, and hint."""
@@ -177,6 +179,9 @@ class SkillsScreen(Screen[None]):
         # TUI doesn't freeze. Errors/warnings are surfaced from the worker.
         self._installing = (qualified_name, cfg)
         self._status(f"scanning {qualified_name}…")
+        busy = BusyModal(f"Scanning and installing {qualified_name}…")
+        self._busy = busy
+        self.app.push_screen(busy)
         self.run_worker(self._do_install_thread, exclusive=True, thread=True)
 
     def _do_install_thread(self) -> None:
@@ -185,11 +190,19 @@ class SkillsScreen(Screen[None]):
             return
         qualified_name, cfg = self._installing
         try:
-            result = install.install(cfg.project_root, qualified_name, pin=cfg.pin, track=cfg.track)
+            result = install.install(
+                cfg.project_root,
+                qualified_name,
+                pin=cfg.pin,
+                track=cfg.track,
+                override_risk=cfg.override_risk,
+            )
         except _SKILL_DEPLOY_ERRORS as exc:
             self.app.call_from_thread(self.app.notify, f"install failed: {exc}", severity="error")
             self.app.call_from_thread(self._status, f"install failed: {exc}")
             return
+        finally:
+            self.app.call_from_thread(self._dismiss_busy)
         self.app.call_from_thread(
             self.app.notify,
             f"installed {qualified_name} {result.current.identifier()} -> {result.target_dir}",
@@ -198,6 +211,12 @@ class SkillsScreen(Screen[None]):
         self.app.call_from_thread(self._status, f"installed {qualified_name}")
         for warn in risk.take_risk_warnings():
             self.app.call_from_thread(self.app.notify, warn, severity="warning", title="risk")
+
+    def _dismiss_busy(self) -> None:
+        """Close the loading overlay if one is showing. Runs on the UI thread."""
+        if self._busy is not None:
+            self._busy.dismiss()
+            self._busy = None
 
     def _status(self, msg: str) -> None:
         """Update the status line with the given message."""

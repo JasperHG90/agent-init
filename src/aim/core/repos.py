@@ -755,11 +755,19 @@ def _fetch(alias: str, *, allow_insecure: bool = False) -> None:
         raise _wrap_git_error(alias, row.url, exc) from exc
 
 
-def _resolve_and_reindex(alias: str, *, previous_sha: str | None) -> RegisteredRepo:
+def _resolve_and_reindex(
+    alias: str, *, previous_sha: str | None, force: bool = False
+) -> RegisteredRepo:
     """Resolve the post-fetch SHA, persist it, and reindex when it changed.
 
     Does the DB writes for a refresh, so callers run this serially to avoid SQLite
     write contention.
+
+    Args:
+        alias: The repo alias to resolve and reindex.
+        previous_sha: The tracked SHA before the fetch; reindexing is skipped when
+            the resolved SHA matches it (unless `force`).
+        force: Reindex unconditionally, even when the SHA is unchanged.
 
     Raises:
         RefDisappearedError: If `default_ref` no longer resolves upstream.
@@ -788,7 +796,7 @@ def _resolve_and_reindex(alias: str, *, previous_sha: str | None) -> RegisteredR
             f"{alias}: default ref {default_ref!r} no longer resolves upstream"
         )
 
-    if new_sha != previous_sha:
+    if force or new_sha != previous_sha:
         _skills = importlib.import_module("aim.core.skills")
         _agents = importlib.import_module("aim.core.agents")
         _repo_rules = importlib.import_module("aim.core.repo_rules")
@@ -822,6 +830,30 @@ def refresh(alias: str, *, allow_insecure: bool = False) -> RegisteredRepo:
     previous_sha = get(alias).last_sha
     _fetch(alias, allow_insecure=allow_insecure)
     return _resolve_and_reindex(alias, previous_sha=previous_sha)
+
+
+def reindex(alias: str, *, allow_insecure: bool = False) -> RegisteredRepo:
+    """Fetch a repo and re-run artifact discovery unconditionally.
+
+    Unlike `refresh`, which only reindexes when the tracked SHA moved, this always
+    re-runs discovery. Use it to pick up artifacts that became discoverable without
+    an upstream commit — e.g. after adding a custom plugin kind, or to recover from
+    a previously incomplete index.
+
+    Args:
+        alias: The repo alias to reindex.
+        allow_insecure: Permit insecure (non-https) URLs.
+
+    Returns:
+        The updated repo record.
+
+    Raises:
+        RepoNotFoundError: If the alias is not registered.
+        RefDisappearedError: If `default_ref` no longer resolves upstream.
+    """
+    get(alias)  # raise RepoNotFoundError early if the alias is unknown
+    _fetch(alias, allow_insecure=allow_insecure)
+    return _resolve_and_reindex(alias, previous_sha=None, force=True)
 
 
 def refresh_many(

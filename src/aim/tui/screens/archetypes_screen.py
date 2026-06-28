@@ -11,6 +11,7 @@ from textual.widgets import DataTable, Input, Static
 
 from aim.core import archetype_install, archetypes, git, risk
 from aim.tui import errors as tui_errors
+from aim.tui.modals.busy import BusyModal
 from aim.tui.modals.repo_filter import RepoFilterModal, RepoFilterPick
 from aim.tui.modals.skill_view import SkillViewModal
 
@@ -45,6 +46,7 @@ class ArchetypesScreen(Screen[None]):
         self._project_root = (project_root or Path.cwd()).resolve()
         self._repo_filter: str | None = None
         self._using: str | None = None
+        self._busy: BusyModal | None = None
 
     def compose(self) -> ComposeResult:
         """Yield the title, search bar, table, status line, and hint."""
@@ -172,6 +174,9 @@ class ArchetypesScreen(Screen[None]):
             return
         self._using = qn
         self._status(f"selecting {qn}…")
+        busy = BusyModal(f"Selecting {qn}…")
+        self._busy = busy
+        self.app.push_screen(busy)
         self.run_worker(self._do_use_thread, exclusive=True, thread=True)
 
     def _do_use_thread(self) -> None:
@@ -188,6 +193,8 @@ class ArchetypesScreen(Screen[None]):
             self.app.call_from_thread(self.app.notify, f"select failed: {exc}", severity="error")
             self.app.call_from_thread(self._status, f"select failed: {exc}")
             return
+        finally:
+            self.app.call_from_thread(self._dismiss_busy)
         base = "the built-in template" if qn == _BUILTIN else qn
         self.app.call_from_thread(
             self.app.notify,
@@ -207,6 +214,12 @@ class ArchetypesScreen(Screen[None]):
             return
         self.app.notify("archetype cleared — run Lock then Sync", title="Archetype cleared")
         self._status("archetype cleared")
+
+    def _dismiss_busy(self) -> None:
+        """Close the loading overlay if one is showing. Runs on the UI thread."""
+        if self._busy is not None:
+            self._busy.dismiss()
+            self._busy = None
 
     def _status(self, msg: str) -> None:
         """Update the status line with the given message."""

@@ -330,6 +330,21 @@ ModalScreen {
     min-height: 1;
 }
 
+.busy-modal {
+    width: auto;
+    min-width: 50;
+    max-width: 80%;
+    height: auto;
+    background: $surface;
+    border: thick $primary;
+    padding: 1 2;
+}
+
+.busy-modal LoadingIndicator {
+    height: 3;
+    background: $surface;
+}
+
 ToggleRow {
     height: auto;
     min-height: 1;

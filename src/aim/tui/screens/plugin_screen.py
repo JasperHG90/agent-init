@@ -10,6 +10,7 @@ from textual.widgets import DataTable, Input, Static
 
 from aim.core import git, install, manifest, plugin_install, plugins, repos, risk
 from aim.tui import errors as tui_errors
+from aim.tui.modals.busy import BusyModal
 from aim.tui.modals.plugin_install import PluginInstallConfig, PluginInstallModal
 from aim.tui.modals.plugin_view import PluginViewModal
 from aim.tui.modals.repo_filter import RepoFilterModal, RepoFilterPick
@@ -66,6 +67,7 @@ class PluginsScreen(Screen[None]):
         self._project_root = (project_root or Path.cwd()).resolve()
         self._repo_filter: str | None = None
         self._installing: tuple[str, str, PluginInstallConfig] | None = None
+        self._busy: BusyModal | None = None
 
     def compose(self) -> ComposeResult:
         """Yield the title, search bar, plugins table, status line, and hint."""
@@ -227,6 +229,9 @@ class PluginsScreen(Screen[None]):
         # TUI doesn't freeze. Errors/warnings are surfaced from the worker.
         self._installing = (qualified_name, flavor, cfg)
         self._status(f"scanning {qualified_name}…")
+        busy = BusyModal(f"Scanning and installing {qualified_name}…")
+        self._busy = busy
+        self.app.push_screen(busy)
         self.run_worker(self._do_install_thread, exclusive=True, thread=True)
 
     def _do_install_thread(self) -> None:
@@ -247,6 +252,8 @@ class PluginsScreen(Screen[None]):
             self.app.call_from_thread(self.app.notify, f"install failed: {exc}", severity="error")
             self.app.call_from_thread(self._status, f"install failed: {exc}")
             return
+        finally:
+            self.app.call_from_thread(self._dismiss_busy)
         self.app.call_from_thread(
             self.app.notify,
             f"installed {qualified_name} {result.current.identifier()} -> {result.target_dir}",
@@ -258,6 +265,12 @@ class PluginsScreen(Screen[None]):
             self.app.call_from_thread(self.app.notify, warn, severity="warning", title="review")
         for warn in risk.take_risk_warnings():
             self.app.call_from_thread(self.app.notify, warn, severity="warning", title="risk")
+
+    def _dismiss_busy(self) -> None:
+        """Close the loading overlay if one is showing. Runs on the UI thread."""
+        if self._busy is not None:
+            self._busy.dismiss()
+            self._busy = None
 
     def _status(self, msg: str) -> None:
         """Update the status line with the given message."""

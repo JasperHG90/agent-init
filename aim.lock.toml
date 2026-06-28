@@ -304,6 +304,35 @@ tag = "v1.0.0rc6"
 sha = "2a053a7b14bbdee282c15b2a75645d0a2ee37efe"
 installed_at = "2026-06-28T13:26:39.104879Z"
 
+[[plugin]]
+qualified_name = "71f157ee09e4fef6/persona"
+repo_alias = "71f157ee09e4fef6"
+flavor = "gemini"
+source_path = ""
+target_dir = ".gemini/extensions/persona"
+history = []
+content_hash = "de16c8e386442a06dff1e74c73f76b4508064e35b863576bd5bf456caba5b615"
+risk_acknowledged = true
+
+[plugin.current]
+sha = "9f2cf88d545fd87ab9fe591de3d32d4187a27905"
+installed_at = "2026-06-28T13:30:47.762171Z"
+
+[[plugin]]
+qualified_name = "8c6014a36ca90e3f/superpowers"
+repo_alias = "8c6014a36ca90e3f"
+flavor = "gemini"
+source_path = ""
+target_dir = ".gemini/extensions/superpowers"
+history = []
+content_hash = "b19d829923141916c97293995059037103c8e49d7b2b2c573a435dadc4b24187"
+risk_acknowledged = true
+
+[plugin.current]
+tag = "v6.0.3"
+sha = "896224c4b1879920ab573417e68fd51d2ccc9072"
+installed_at = "2026-06-28T13:46:39.111015Z"
+
 [managed_region_hashes]
 header = "8209ab5f5a7c8f642c374946c62b4af4bc0abcf6b44bc22fc745ebc94105a7bc"
 guidelines = "9f2811d5c944f66b8dd93552c313b774b0bb2ecc1796783b476131e17e808f69"
@@ -316,5 +345,6 @@ guidelines = "9f2811d5c944f66b8dd93552c313b774b0bb2ecc1796783b476131e17e808f69"
 71f157ee09e4fef6 = "https://github.com/jasperhg90/persona"
 82a901da1b9bedec = "https://github.com/anthropics/skills"
 8b8de8ec329cb5d5 = "https://github.com/jasperhg90/memex"
+8c6014a36ca90e3f = "https://github.com/obra/superpowers"
 e96f16c2bd4b1042 = "https://github.com/0xfurai/claude-code-subagents"
 f2002c53d5747ac5 = "https://github.com/bencium/bencium-marketplace"

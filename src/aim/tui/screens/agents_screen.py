@@ -11,6 +11,7 @@ from aim.core import agents, git, manifest, repos, risk
 from aim.tui import errors as tui_errors
 from aim.tui.modals.agent_install import AgentInstallConfig, AgentInstallModal
 from aim.tui.modals.agent_view import AgentViewModal
+from aim.tui.modals.busy import BusyModal
 from aim.tui.modals.repo_filter import RepoFilterModal, RepoFilterPick
 
 _AGENT_DEPLOY_ERRORS: tuple[type[BaseException], ...] = (  # noqa: RUF005
@@ -39,6 +40,7 @@ class AgentsScreen(Screen[None]):
         super().__init__()
         self._repo_filter: str | None = None
         self._installing: tuple[str, AgentInstallConfig] | None = None
+        self._busy: BusyModal | None = None
 
     def compose(self) -> ComposeResult:
         """Build the title, search bar, agents table, status line, and hint."""
@@ -181,6 +183,9 @@ class AgentsScreen(Screen[None]):
         # Run off the UI thread: the risk scan can pull a model or call a judge.
         self._installing = (qualified_name, cfg)
         self._status(f"scanning {qualified_name}…")
+        busy = BusyModal(f"Scanning and installing {qualified_name}…")
+        self._busy = busy
+        self.app.push_screen(busy)
         self.run_worker(self._do_install_thread, exclusive=True, thread=True)
 
     def _do_install_thread(self) -> None:
@@ -190,12 +195,18 @@ class AgentsScreen(Screen[None]):
         qualified_name, cfg = self._installing
         try:
             result = install_mod.install(
-                cfg.project_root, qualified_name, pin=cfg.pin, track=cfg.track
+                cfg.project_root,
+                qualified_name,
+                pin=cfg.pin,
+                track=cfg.track,
+                override_risk=cfg.override_risk,
             )
         except _AGENT_DEPLOY_ERRORS as exc:
             self.app.call_from_thread(self.app.notify, f"install failed: {exc}", severity="error")
             self.app.call_from_thread(self._status, f"install failed: {exc}")
             return
+        finally:
+            self.app.call_from_thread(self._dismiss_busy)
         self.app.call_from_thread(
             self.app.notify,
             f"installed {qualified_name} {result.current.identifier()} -> {result.target_path}",
@@ -206,6 +217,12 @@ class AgentsScreen(Screen[None]):
             self.app.call_from_thread(self.app.notify, warn, severity="warning")
         for warn in risk.take_risk_warnings():
             self.app.call_from_thread(self.app.notify, warn, severity="warning", title="risk")
+
+    def _dismiss_busy(self) -> None:
+        """Close the loading overlay if one is showing. Runs on the UI thread."""
+        if self._busy is not None:
+            self._busy.dismiss()
+            self._busy = None
 
     def _status(self, msg: str) -> None:
         """Update the status line with the given message."""

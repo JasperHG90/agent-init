@@ -66,7 +66,7 @@ The TUI is the default interface — just run `aim`. The skills and agents shown
 
 ### Touring the TUI
 
-Launch with no arguments and navigate the whole tool from the keyboard: the main menu, the registered repos, the skills browser, and the per-project view with live drift status.
+Launch with no arguments and navigate the whole tool from the keyboard: the main menu, the registered repos, the skills browser, and the per-project view with live drift status. Installs run off the UI thread behind a loading overlay, so a slow risk scan never looks like a frozen screen.
 
 <p align="center">
   <img src="assets/aim-tui.gif" alt="Navigating the aim TUI: main menu with keyboard shortcuts, the registered repos table, the searchable skills browser, and the project view showing installed skills with drift status" width="820">
@@ -167,6 +167,8 @@ A registered repo can expose skills, agents, and rules in **any** location. `aim
 
 If the same name appears in multiple places, the shallower path wins. At the same depth, canonical `skills/`, `agents/`, and `rules/` prefixes win over `.claude/` and arbitrary paths, so existing convention-based repos keep working. Ties otherwise break by lexicographic path. Artifacts are referenced everywhere as `<repo_alias>/<name>`. Repos with no discoverable artifacts are rejected on `repo add` unless you pass `--allow-empty`.
 
+A registered repo is re-scanned by `aim repo refresh <alias>`, which fetches new commits and reindexes when the tracked commit moved. To force discovery to re-run even when the commit is unchanged — for example after you add a custom plugin kind and want its newly matching plugins to show up — use `aim repo reindex <alias>` (or press `i` on the Repos screen in the TUI).
+
 ### Plugins and custom plugin formats
 
 A registered repo can also expose **plugins**. aim ships one built-in *kind*, `claude`, which reads a `.claude-plugin/marketplace.json` catalog; `aim plugin add` vendors the plugin's files into the project (SHA-pinned, like a skill) and enables it in `.claude/settings.json`. `aim plugin list` aggregates plugins across every marketplace and repo, with `--repo`/`--marketplace`/`--target` filters and a `sha` column you can pass to `--pin` (the upstream `version` is a label, not a git ref).
@@ -181,6 +183,7 @@ name = "opencode"            # the flavor this kind discovers
 [manifest]
 file = "package.json"        # the metadata file (JSON) that marks a plugin directory
 name = "name"                # keypath to the plugin name
+# description = "description" # optional keypath to a description, shown in plugin lists; omit to skip
 
 [register]
 vendor_into = ".opencode/plugins/{name}"  # destination; only {name}/{repo} are interpolated
@@ -335,11 +338,39 @@ uv tool install 'aim[risk] @ git+https://github.com/JasperHG90/agent-integration
 uv tool install 'aim[risk-judge] @ git+https://github.com/JasperHG90/agent-integrations-manager.git'  # DSPy rule judge
 ```
 
+#### Per-category overrides
+
+The two toggles can be set per artifact category, so you can scan some kinds more strictly than
+others. For example, screen every skill but also run the judge on plugins, while leaving rules
+unscanned. Add a sub-table named for the category under `[policy.risk]` (in an org `policy.toml`
+the prefix is `[risk.<kind>]`). Only `classifier` and `llm_judge` are per-category; an omitted
+field inherits the global value, and each resolves independently:
+
+```toml
+[policy.risk]
+classifier = true          # global default: local screen on, judge off
+llm_judge  = false
+
+[policy.risk.plugin]       # plugins: keep the screen and also run the judge
+llm_judge  = true
+
+[policy.risk.rule]         # rules: skip scanning entirely
+classifier = false
+llm_judge  = false
+```
+
+Gated categories are `skill`, `agent`, `rule`, `plugin`, and `archetype`. The remaining global
+settings (`mode`, `block_threshold`, the `judge` model, `allow_override`, custom `[[policy.rule]]`
+entries) stay global. A category override can turn scanning on or off for a kind but can't give it
+its own threshold or judge. MCP registry entries are not content-scanned, so a `risk.mcp` override
+is accepted but has no effect.
+
 Verdicts are cached by content hash (so re-scans are deterministic and `sync` doesn't re-judge
 unchanged artifacts). The default mode is `block`: a high-risk verdict stops the install, listing
 each fired rule. `--override-risk` overrides a block on `skill/agent/rule add`/`update` — unless
-the policy sets `allow_override = false`. Set `mode = "warn"` to surface findings as advisories
-without blocking.
+the policy sets `allow_override = false`. The TUI install dialogs expose the same override as an
+"Override risk gate" checkbox. Set `mode = "warn"` to surface findings as advisories without
+blocking.
 
 > Risk scanning is **off by default** — it runs only once `classifier` or `llm_judge` is enabled.
 

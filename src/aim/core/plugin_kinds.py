@@ -512,6 +512,7 @@ class ManifestSpec(BaseModel):
     model_config = ConfigDict(extra="forbid")
     file: str  # the manifest filename, e.g. "gemini-extension.json" or "package.json" (JSON)
     name: str = "name"  # dotted keypath in the manifest to the plugin name
+    description: str | None = None  # optional dotted keypath to a description string
 
 
 class ConfigSpec(BaseModel):
@@ -616,8 +617,11 @@ class DeclarativeKind:
                 continue
             if source_path in seen:
                 continue
-            name = self._read_name(repo_dir, sha, p, repo_alias, out)
-            if name is None:
+            data = self._read_manifest(repo_dir, sha, p, repo_alias, out)
+            if data is None:
+                continue
+            name = _get_keypath(data, self.spec.manifest.name)
+            if not isinstance(name, str):
                 continue
             if not validation.is_valid_plugin_name(name):
                 out.warnings.append(f"{repo_alias}: {p}: invalid plugin name {name!r}")
@@ -625,24 +629,33 @@ class DeclarativeKind:
             seen.add(source_path)
             out.plugins.append(
                 DiscoveredPlugin(
-                    name=name, kind=self.name, source_path=source_path, source_unit=self.source_unit
+                    name=name,
+                    kind=self.name,
+                    source_path=source_path,
+                    source_unit=self.source_unit,
+                    description=self._read_description(data),
                 )
             )
         return out
 
-    def _read_name(
+    def _read_manifest(
         self, repo_dir: Path, sha: str, manifest_path: str, repo_alias: str, out: KindDiscovery
-    ) -> str | None:
-        """Read the plugin name from the manifest's ``name`` keypath, or None if unreadable."""
+    ) -> dict | None:
+        """Parse a plugin's JSON manifest, or None when it is unreadable or not an object."""
         try:
             data = json.loads(git.get_backend().cat_file(repo_dir, sha, manifest_path))
         except (git.GitError, json.JSONDecodeError) as exc:
             out.warnings.append(f"{repo_alias}: skipped manifest {manifest_path}: {exc}")
             return None
-        if not isinstance(data, dict):
+        return data if isinstance(data, dict) else None
+
+    def _read_description(self, data: dict) -> str | None:
+        """Read the description keypath when the kind declares one; else None."""
+        keypath = self.spec.manifest.description
+        if not keypath:
             return None
-        name = _get_keypath(data, self.spec.manifest.name)
-        return name if isinstance(name, str) else None
+        value = _get_keypath(data, keypath)
+        return value if isinstance(value, str) else None
 
     def executable_surface(self, snap: Path) -> list[str]:
         """Surface every shell launcher (``{command, args}``) declared anywhere in the

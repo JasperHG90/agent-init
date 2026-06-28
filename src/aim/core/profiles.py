@@ -1,11 +1,12 @@
 """Project templates (profiles) — named bundles of init settings.
 
-A template snapshots a project's `(symlinks, rules, skills, agents, mcp_servers,
-layout_profile)` so you can stamp out new projects from it.
+A template snapshots a project's `(symlinks, rules, skills, agents, plugins,
+mcp_servers, layout_profile)` so you can stamp out new projects from it.
 Stored as JSON under `user_config_dir/profiles/<name>.json`.
 
-Skills, agents and rules are frozen to the exact commit `sha` they resolved to in
-the source project's lock, so applying a template reproduces identical versions.
+Skills, agents, rules and plugins are frozen to the exact commit `sha` they
+resolved to in the source project's lock, so applying a template reproduces
+identical versions.
 The template's content hash is therefore a complete fingerprint of the resolved
 bundle. Templates can be imported/exported as TOML and shared via a git repo.
 """
@@ -28,6 +29,8 @@ from aim.core import lock as lock_mod
 from aim.core import mcp_install as mcp_install_mod
 from aim.core import mcp_registry as mcp_registry_mod
 from aim.core import paths
+from aim.core import plugin_install as plugin_install_mod
+from aim.core import plugins as plugins_mod
 from aim.core import rule_install as rule_install_mod
 from aim.core import sync as sync_mod
 from aim.core.validation import is_valid_mirror_name, is_valid_rule_name
@@ -86,6 +89,21 @@ class ProfileAgent(BaseModel):
 
     qualified_name: str
     sha: str | None = None
+
+
+class ProfilePlugin(BaseModel):
+    """A plugin reference in a template, frozen to an exact commit `sha`.
+
+    ``flavor`` (e.g. "claude", "opencode") is carried explicitly because a plugin
+    name can resolve to more than one kind; apply re-runs the kind's registration
+    (marketplace + settings.json for claude) from the vendored files.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    qualified_name: str
+    sha: str | None = None
+    flavor: str | None = None
 
 
 class ProfileRule(BaseModel):
@@ -177,6 +195,7 @@ class Profile(BaseModel):
     rules: list[ProfileRule] = Field(default_factory=list)
     skills: list[ProfileSkill] = Field(default_factory=list)
     agents: list[ProfileAgent] = Field(default_factory=list)
+    plugins: list[ProfilePlugin] = Field(default_factory=list)
     mcp_servers: list[ProfileMcpServer] = Field(default_factory=list)
 
     @field_validator("name")
@@ -291,6 +310,7 @@ _TOML_KEY_MAP = {
     "rule": "rules",
     "skill": "skills",
     "subagent": "agents",
+    "plugin": "plugins",
     "mcp_server": "mcp_servers",
 }
 
@@ -299,8 +319,8 @@ def parse_toml(text: str, *, source: str | None = None) -> Profile:
     """Parse a project profile from a TOML string.
 
     TOML uses singular array-of-table headers per item (``[[skill]]``,
-    ``[[subagent]]``, ``[[mcp_server]]``); these are mapped to the plural
-    field names on the Profile model.
+    ``[[subagent]]``, ``[[plugin]]``, ``[[mcp_server]]``); these are mapped to the
+    plural field names on the Profile model.
 
     Args:
         text: The raw TOML content.
@@ -393,6 +413,14 @@ def render_toml(profile: Profile) -> str:
         if agent.sha:
             lines.append(f'sha = "{_escape_toml_string(agent.sha)}"')
         lines.append("")
+    for plugin in profile.plugins:
+        lines.append("[[plugin]]")
+        lines.append(f'qualified_name = "{_escape_toml_string(plugin.qualified_name)}"')
+        if plugin.flavor:
+            lines.append(f'flavor = "{_escape_toml_string(plugin.flavor)}"')
+        if plugin.sha:
+            lines.append(f'sha = "{_escape_toml_string(plugin.sha)}"')
+        lines.append("")
     for rule in profile.rules:
         lines.append("[[rule]]")
         lines.append(f'qualified_name = "{_escape_toml_string(rule.qualified_name)}"')
@@ -461,17 +489,18 @@ def _render_toml_value(value: object) -> str:
 def enrich_from_index(profile: Profile) -> Profile:
     """Resolve a builder-created template's source repos and freeze artifact SHAs.
 
-    The TUI template builder references skills, agents, and rules by qualified_name
-    only. Fill in the two things a template needs to reconstruct elsewhere: the
-    ``[[repo]]`` block (each artifact's source-repo url, so apply can auto-register
-    the repos) and a frozen ``sha`` per artifact (the commit its repo was indexed
-    at). MCP servers are registry-sourced and need no repo entry. An artifact that
-    already carries a ``sha`` keeps it. Returns a new Profile; input is unchanged.
+    The TUI template builder references skills, agents, rules, and plugins by
+    qualified_name only. Fill in the two things a template needs to reconstruct
+    elsewhere: the ``[[repo]]`` block (each artifact's source-repo url, so apply can
+    auto-register the repos) and a frozen ``sha`` per artifact (the commit its repo
+    was indexed at). MCP servers are registry-sourced and need no repo entry. An
+    artifact that already carries a ``sha`` keeps it. Returns a new Profile; input is
+    unchanged.
 
     Raises:
-        TemplateArtifactUnresolvedError: If a referenced skill, agent, or rule is
-            not present in the local index (its repo was never added or needs a
-            refresh), so its repo url and SHA cannot be resolved.
+        TemplateArtifactUnresolvedError: If a referenced skill, agent, rule, or
+            plugin is not present in the local index (its repo was never added or
+            needs a refresh), so its repo url and SHA cannot be resolved.
     """
     from aim.core import agents as agents_mod
     from aim.core import archetypes as archetypes_mod
@@ -518,6 +547,20 @@ def enrich_from_index(profile: Profile) -> Profile:
         )
         for r in profile.rules
     ]
+    plugins_out: list[ProfilePlugin] = []
+    for p in profile.plugins:
+        # A plugin name can resolve to multiple kinds, so disambiguate by flavor.
+        repo_aliases.add(p.qualified_name.partition("/")[0])
+        sha = p.sha
+        if not sha:
+            try:
+                sha = plugins_mod.index_row(p.qualified_name, p.flavor).indexed_at_sha
+            except KeyError as exc:
+                raise TemplateArtifactUnresolvedError(
+                    f"plugin {p.qualified_name!r} is not in the local index; add or refresh "
+                    f"its repo (`aim repo refresh`) before saving or exporting the template"
+                ) from exc
+        plugins_out.append(ProfilePlugin(qualified_name=p.qualified_name, sha=sha, flavor=p.flavor))
     if profile.archetype.is_builtin:
         archetype_out = profile.archetype
     else:
@@ -549,6 +592,7 @@ def enrich_from_index(profile: Profile) -> Profile:
             "skills": skills_out,
             "agents": agents_out,
             "rules": rules_out,
+            "plugins": plugins_out,
         }
     )
 
@@ -595,6 +639,8 @@ def from_project(name: str, project_root: Path) -> Profile:
         repo_urls[a.repo_alias] = a.repo_url
     for r in m.rules:
         repo_urls[r.repo_alias] = r.repo_url
+    for p in m.plugins:
+        repo_urls[p.repo_alias] = p.repo_url
     # The AGENTS.md base archetype, frozen to its locked sha. None = built-in default.
     if m.archetype is not None:
         archetype = ProfileArchetype(
@@ -614,6 +660,10 @@ def from_project(name: str, project_root: Path) -> Profile:
         rules=[ProfileRule(qualified_name=r.qualified_name, sha=r.current.sha) for r in m.rules],
         skills=[ProfileSkill(qualified_name=s.qualified_name, sha=s.current.sha) for s in m.skills],
         agents=[ProfileAgent(qualified_name=a.qualified_name, sha=a.current.sha) for a in m.agents],
+        plugins=[
+            ProfilePlugin(qualified_name=p.qualified_name, sha=p.current.sha, flavor=p.flavor)
+            for p in m.plugins
+        ],
         mcp_servers=[
             ProfileMcpServer(
                 registry_name=ms.registry_name,
@@ -640,6 +690,8 @@ class ProfileApplyResult:
     skipped_mcp: list[str] = field(default_factory=list)
     installed_rules: list[str] = field(default_factory=list)
     skipped_rules: list[str] = field(default_factory=list)
+    installed_plugins: list[str] = field(default_factory=list)
+    skipped_plugins: list[str] = field(default_factory=list)
 
 
 def resolve_for_apply(
@@ -720,6 +772,10 @@ def resolve_for_apply(
                 r.model_copy(update={"qualified_name": _rewrite(r.qualified_name)})
                 for r in profile.rules
             ],
+            "plugins": [
+                p.model_copy(update={"qualified_name": _rewrite(p.qualified_name)})
+                for p in profile.plugins
+            ],
         }
     )
 
@@ -782,8 +838,8 @@ def apply_profile(
     """Apply a profile to a project, then install its artifacts and sync.
 
     Runs init from the profile, locks declarations, installs skills, agents,
-    MCP servers and rules, and syncs agent instruction files. Source repos are
-    auto-registered from the template's ``[[repo]]`` block.
+    rules, plugins and MCP servers, and syncs agent instruction files. Source repos
+    are auto-registered from the template's ``[[repo]]`` block.
 
     Args:
         profile: The profile to apply.
@@ -886,6 +942,22 @@ def apply_profile(
                 raise
             skipped_rules.append(pr.qualified_name)
 
+    installed_plugins: list[str] = []
+    skipped_plugins: list[str] = []
+    installed_plugin_members: list[str] = []
+    for pp in profile.plugins:
+        try:
+            plugin_install_mod.install_plugin(
+                project_root, pp.qualified_name, flavor=pp.flavor, pin=pp.sha
+            )
+            installed_plugins.append(pp.qualified_name)
+            installed_plugin_members.append(_plugin_member_key(pp.qualified_name, pp.flavor))
+        except (plugins_mod.PluginNotIndexedError, plugins_mod.PluginAmbiguousFlavorError):
+            # Not indexed, or a flavor-less reference that resolves to >1 kind.
+            if strict_resolution:
+                raise
+            skipped_plugins.append(pp.qualified_name)
+
     # Record which artifacts the template owns, so a later `profile update` can
     # add new members and remove dropped ones without touching user additions.
     if template_source is not None:
@@ -893,6 +965,7 @@ def apply_profile(
             *installed_skills,
             *installed_agents,
             *installed_rules,
+            *installed_plugin_members,
             *(f"mcp:{alias}" for alias in installed_mcp),
         ]
         declarations_mod.set_template_members(project_root, members)
@@ -921,6 +994,8 @@ def apply_profile(
         skipped_mcp=skipped_mcp,
         installed_rules=installed_rules,
         skipped_rules=skipped_rules,
+        installed_plugins=installed_plugins,
+        skipped_plugins=skipped_plugins,
     )
 
 
@@ -959,12 +1034,23 @@ class TemplateCheckResult:
         return not self.drift
 
 
+def _plugin_member_key(qualified_name: str, flavor: str | None) -> str:
+    """Member key for a template-owned plugin.
+
+    Prefixed (``plugin:``) so it can't collide with a skill/agent/rule sharing the
+    same qualified name, and flavor-qualified so two kinds of the same plugin are
+    distinct members that delete independently.
+    """
+    return f"plugin:{flavor or ''}:{qualified_name}"
+
+
 def _member_keys(profile: Profile) -> list[str]:
     """Return the template-owned member keys for a resolved profile."""
     return [
         *(s.qualified_name for s in profile.skills),
         *(a.qualified_name for a in profile.agents),
         *(r.qualified_name for r in profile.rules),
+        *(_plugin_member_key(p.qualified_name, p.flavor) for p in profile.plugins),
         *(f"mcp:{m.alias}" for m in profile.mcp_servers),
     ]
 
@@ -1113,6 +1199,13 @@ def _delete_member(project_root: Path, member: str) -> None:
         except mcp_install_mod.McpServerNotInstalledError:
             pass
         return
+    if member.startswith("plugin:"):
+        flavor, _, qn = member[len("plugin:") :].partition(":")
+        try:
+            plugin_install_mod.delete(project_root, qn, flavor or None)
+        except (plugin_install_mod.PluginNotInstalledError, plugins_mod.PluginAmbiguousFlavorError):
+            pass
+        return
     try:
         m = manifest_mod.load(project_root)
     except manifest_mod.ManifestNotFoundError:
@@ -1141,10 +1234,10 @@ class TemplateArtifactNotFoundError(KeyError):
 def bump(name: str, *, only: str | None = None, allow_insecure: bool = False) -> list[BumpChange]:
     """Advance a saved template's pinned artifact SHAs to the latest from their repos.
 
-    This edits the *template* (not any project): each skill/agent/rule reference is
-    re-resolved to the newest commit on its source repo and its ``sha`` is rewritten.
-    Source repos the template names are auto-registered from its ``[[repo]]`` block.
-    MCP servers carry no SHA and are left untouched.
+    This edits the *template* (not any project): each skill/agent/rule/plugin
+    reference is re-resolved to the newest commit on its source repo and its ``sha``
+    is rewritten. Source repos the template names are auto-registered from its
+    ``[[repo]]`` block. MCP servers carry no SHA and are left untouched.
 
     Args:
         name: The saved template to update.
@@ -1157,9 +1250,9 @@ def bump(name: str, *, only: str | None = None, allow_insecure: bool = False) ->
     Raises:
         TemplateArtifactNotFoundError: ``only`` names an artifact not in the template.
     """
-    from aim.core import db
+    from aim.core import db, plugin_kinds
     from aim.core import repos as repos_mod
-    from aim.core.models import AgentIndex, RuleIndex, SkillIndex
+    from aim.core.models import AgentIndex, PluginIndex, RuleIndex, SkillIndex
 
     profile = load(name)
 
@@ -1230,6 +1323,23 @@ def bump(name: str, *, only: str | None = None, allow_insecure: bool = False) ->
             if new_sha != r.sha:
                 changes.append(BumpChange(r.qualified_name, r.sha, new_sha))
                 r.sha = new_sha
+        for p in profile.plugins:
+            if only and p.qualified_name != only:
+                continue
+            found = found or only is not None
+            mapped = _local_alias(p.qualified_name)
+            # A plugin without a frozen flavor can't be disambiguated in the index;
+            # leave it untouched (same as an artifact whose repo isn't registered).
+            if mapped is None or p.flavor is None:
+                continue
+            row_p = session.get(PluginIndex, (f"{mapped[0]}/{mapped[1]}", p.flavor))
+            kind = plugin_kinds.get_kind(p.flavor)
+            if row_p is None or kind is None:
+                continue
+            new_sha = _latest(mapped[0], row_p.source_path, kind.manifest_filename)
+            if new_sha != p.sha:
+                changes.append(BumpChange(p.qualified_name, p.sha, new_sha))
+                p.sha = new_sha
 
     if only and not found:
         raise TemplateArtifactNotFoundError(only)

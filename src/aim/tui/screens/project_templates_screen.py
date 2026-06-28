@@ -1,8 +1,8 @@
 """Project templates screen — save, list, apply, and delete reusable project bundles.
 
-A project template captures a project's rules, skills, subagents, MCP servers,
-symlinks, instruction template, and layout profile. It is stored as a `Profile`
-JSON under `user_config_dir/profiles/`.
+A project template captures a project's rules, skills, subagents, plugins, MCP
+servers, symlinks, instruction template, and layout profile. It is stored as a
+`Profile` JSON under `user_config_dir/profiles/`.
 """
 
 from __future__ import annotations
@@ -68,7 +68,7 @@ class ProjectTemplatesScreen(Screen[None]):
     def on_mount(self) -> None:
         """Set up the table columns, populate rows, and focus the table."""
         table = self.query_one("#templates-table", DataTable)
-        table.add_columns("name", "profile", "skills", "subagents", "mcp", "rules")
+        table.add_columns("name", "profile", "skills", "subagents", "plugins", "mcp", "rules")
         self._populate()
         table.focus()
 
@@ -103,6 +103,7 @@ class ProjectTemplatesScreen(Screen[None]):
                 p.layout_profile or "—",
                 str(len(p.skills)),
                 str(len(p.agents)),
+                str(len(p.plugins)),
                 str(len(p.mcp_servers)),
                 str(len(p.rules)),
                 key=p.name,
@@ -264,6 +265,12 @@ class ProjectTemplatesScreen(Screen[None]):
             for a in profile.agents:
                 sha = f" sha={a.sha[:12]}" if a.sha else ""
                 lines.append(f"  - {a.qualified_name}{sha}")
+        if profile.plugins:
+            lines.append("plugins:")
+            for p in profile.plugins:
+                sha = f" sha={p.sha[:12]}" if p.sha else ""
+                flavor = f" [{p.flavor}]" if p.flavor else ""
+                lines.append(f"  - {p.qualified_name}{flavor}{sha}")
         if profile.mcp_servers:
             lines.append("mcp servers:")
             for m in profile.mcp_servers:
@@ -290,7 +297,11 @@ class ProjectTemplatesScreen(Screen[None]):
         )
 
     def _on_apply_picked(self, result: ProjectPick | None) -> None:
-        """Apply the pending template to the picked project and report counts.
+        """Apply the pending template to the picked project on a worker thread.
+
+        ``profiles.apply`` runs lock+sync via ``asyncio.run``, which cannot be
+        called from the TUI's already-running event loop, so the work is dispatched
+        off-thread (mirroring the lock/sync actions on the main screen).
 
         Args:
             result: Picked target project, or None if the user cancelled.
@@ -299,27 +310,40 @@ class ProjectTemplatesScreen(Screen[None]):
         self._pending_apply = None
         if result is None or name is None:
             return
+        self.run_worker(
+            lambda: self._do_apply_thread(name, result.project_root),
+            exclusive=True,
+            thread=True,
+        )
+
+    def _do_apply_thread(self, name: str, project_root: Path) -> None:
+        """Run the template apply off the event loop and report the outcome."""
         try:
-            apply_result = profiles_mod.apply(name, result.project_root)
+            apply_result = profiles_mod.apply(name, project_root)
         except Exception as exc:
-            self.app.notify(f"apply failed: {exc}", severity="error")
+            self.app.call_from_thread(self.app.notify, f"apply failed: {exc}", severity="error")
             return
         parts: list[str] = []
         if apply_result.installed_skills:
             parts.append(f"{len(apply_result.installed_skills)} skill(s)")
         if apply_result.installed_agents:
             parts.append(f"{len(apply_result.installed_agents)} agent(s)")
+        if apply_result.installed_plugins:
+            parts.append(f"{len(apply_result.installed_plugins)} plugin(s)")
         if apply_result.installed_mcp:
             parts.append(f"{len(apply_result.installed_mcp)} MCP(s)")
         skipped = (
-            apply_result.skipped_skills + apply_result.skipped_agents + apply_result.skipped_mcp
+            apply_result.skipped_skills
+            + apply_result.skipped_agents
+            + apply_result.skipped_plugins
+            + apply_result.skipped_mcp
         )
-        msg = f"applied {name} to {result.project_root}"
+        msg = f"applied {name} to {project_root}"
         if parts:
             msg += f" ({', '.join(parts)})"
         if skipped:
             msg += f" — skipped {len(skipped)} unavailable item(s)"
-        self.app.notify(msg, title="Template applied")
+        self.app.call_from_thread(self.app.notify, msg, title="Template applied")
 
     def action_delete_current(self) -> None:
         """Confirm and delete the selected template."""

@@ -180,6 +180,38 @@ async def test_builder_imports_toml(home: Path, project_root: Path, tmp_path: Pa
 
 
 @pytest.mark.asyncio
+async def test_builder_import_preserves_plugins(
+    home: Path, project_root: Path, tmp_path: Path
+) -> None:
+    # The builder has no plugin picker yet, but importing a plugin-bearing template
+    # must not drop its plugins — they have to survive into the rebuilt profile.
+    toml_path = tmp_path / "with_plugin.toml"
+    toml_path.write_text(
+        'name = "pl"\n'
+        "[[plugin]]\n"
+        'qualified_name = "repo/sp"\n'
+        'flavor = "claude"\n'
+        'sha = "deadbeef"\n',
+        encoding="utf-8",
+    )
+    app = AimApp(project_root=project_root)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app.push_screen(TemplateBuilderScreen())
+        await pilot.pause()
+        _unfocus_input(app)
+        await pilot.press("u")
+        await pilot.pause()
+        assert isinstance(app.screen, ImportTomlModal)
+        app.screen.query_one("#path", Input).value = str(toml_path)
+        await pilot.click("#go")
+        await pilot.pause()
+        assert isinstance(app.screen, TemplateBuilderScreen)
+        rebuilt = app.screen._profile()
+        assert [(p.qualified_name, p.flavor) for p in rebuilt.plugins] == [("repo/sp", "claude")]
+
+
+@pytest.mark.asyncio
 async def test_builder_exports_toml(home: Path, project_root: Path, tmp_path: Path) -> None:
     url = _register_skill_rule_repo(tmp_path)
     profile = profiles.Profile(

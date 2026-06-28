@@ -12,12 +12,33 @@ from aim.core import (
     install,
     mcp_install,
     mcp_registry,
+    plugin_install,
     profiles,
     repos,
     rule_install,
 )
 from aim.core import init as init_mod
 from tests.fixtures import git_fixtures
+
+
+def _claude_plugin_repo(tmp_path: Path, name: str = "bare_plugin") -> Path:
+    """A repo whose root marketplace exposes one whole-repo claude plugin."""
+    import json
+
+    working = git_fixtures.make_source_repo(
+        tmp_path / name,
+        files={
+            ".claude-plugin/marketplace.json": json.dumps(
+                {
+                    "name": "demo-market",
+                    "plugins": [{"name": "superpowers", "source": "./", "version": "1.0.0"}],
+                }
+            ),
+            ".claude-plugin/plugin.json": json.dumps({"name": "superpowers", "version": "1.0.0"}),
+            "skills/tdd/SKILL.md": "# tdd\n",
+        },
+    )
+    return git_fixtures.make_bare_remote(working, tmp_path / f"{name}.git")
 
 
 def test_save_and_load_round_trip(home: Path) -> None:
@@ -149,6 +170,92 @@ def test_apply_reproduces_state(home: Path, project_root: Path, tmp_path: Path) 
 
     m = manifest.load(target)
     assert [r.qualified_name for r in m.rules] == ["anth/be-concise"]
+
+
+def test_from_project_captures_plugins(home: Path, project_root: Path, tmp_path: Path) -> None:
+    bare = _claude_plugin_repo(tmp_path)
+    repos.add("sp", f"file://{bare}")
+    init_mod.run(init_mod.InitOptions(project_root=project_root))
+    plugin_install.install_plugin(project_root, "sp/superpowers")
+
+    snap = profiles.from_project("with-plugin", project_root)
+    assert [(p.qualified_name, p.flavor) for p in snap.plugins] == [("sp/superpowers", "claude")]
+    assert snap.plugins[0].sha is not None  # frozen to the locked SHA
+
+
+def test_plugin_toml_round_trip(home: Path) -> None:
+    p = profiles.Profile(
+        name="with-plugin",
+        plugins=[profiles.ProfilePlugin(qualified_name="repo/sp", sha="a1b2c3d", flavor="claude")],
+    )
+    loaded = profiles.parse_toml(profiles.render_toml(p))
+    assert loaded == p
+
+
+def test_apply_reproduces_plugin(home: Path, project_root: Path, tmp_path: Path) -> None:
+    # Snapshot a project with an installed claude plugin, then apply to a fresh
+    # project: the plugin must be vendored AND registered (marketplace + settings).
+    bare = _claude_plugin_repo(tmp_path)
+    repos.add("sp", f"file://{bare}")
+    init_mod.run(init_mod.InitOptions(project_root=project_root))
+    plugin_install.install_plugin(project_root, "sp/superpowers")
+    profiles.save(profiles.from_project("source", project_root))
+
+    target = tmp_path / "target"
+    result = profiles.apply("source", target)
+    assert result.installed_plugins == ["sp/superpowers"]
+
+    from aim.core import manifest
+
+    m = manifest.load(target)
+    assert [(pp.qualified_name, pp.flavor) for pp in m.plugins] == [("sp/superpowers", "claude")]
+    # Vendored files present and the claude marketplace + settings wiring written.
+    assert (target / ".claude" / "settings.json").exists()
+    assert any(
+        (target / ".claude" / "plugins").glob("aim-*/superpowers/.claude-plugin/plugin.json")
+    )
+
+
+def test_apply_skips_flavorless_ambiguous_plugin(
+    home: Path, project_root: Path, tmp_path: Path
+) -> None:
+    # A flavor-less plugin reference (hand-written/older template) whose name
+    # resolves to BOTH a claude and an opencode plugin must be skipped on a lenient
+    # apply, not crash with an uncaught PluginAmbiguousFlavorError.
+    import json
+
+    from aim.core import paths
+
+    targets = paths.user_config_dir() / "targets"
+    targets.mkdir(parents=True, exist_ok=True)
+    (targets / "opencode.toml").write_text(
+        'name = "opencode"\n[manifest]\nfile = "package.json"\nname = "name"\n'
+        '[register]\nvendor_into = ".opencode/plugins/{name}"\n'
+    )
+    working = git_fixtures.make_source_repo(
+        tmp_path / "src",
+        files={
+            ".claude-plugin/marketplace.json": json.dumps(
+                {"name": "m", "plugins": [{"name": "dup", "source": "./cdir"}]}
+            ),
+            "cdir/.claude-plugin/plugin.json": json.dumps({"name": "dup"}),
+            "odir/package.json": json.dumps({"name": "dup"}),
+        },
+    )
+    bare = git_fixtures.make_bare_remote(working, tmp_path / "bare.git")
+    url = f"file://{bare}"
+    repos.add("r", url)
+    profiles.save(
+        profiles.Profile(
+            name="amb",
+            repos=[profiles.ProfileRepo(alias="r", url=url)],
+            plugins=[profiles.ProfilePlugin(qualified_name="r/dup")],  # no flavor
+        )
+    )
+
+    result = profiles.apply("amb", tmp_path / "target")
+    assert result.skipped_plugins == ["r/dup"]
+    assert result.installed_plugins == []
 
 
 def test_list_and_delete(home: Path) -> None:

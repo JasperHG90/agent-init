@@ -5,8 +5,9 @@ from pathlib import Path
 import pytest
 from textual.widgets import DataTable, Input, Static
 
-from aim.core import init, profiles, repos
+from aim.core import init, manifest, profiles, repos
 from aim.tui.app import AimApp
+from aim.tui.modals.project_picker import ProjectPick
 from aim.tui.modals.template_edit import TemplateEditModal
 from aim.tui.modals.template_save import TemplateSaveModal
 from aim.tui.screens.project_templates_screen import ProjectTemplatesScreen
@@ -51,6 +52,38 @@ async def test_templates_screen_saves_current_project(home: Path, project_root: 
         table = app.screen.query_one("#templates-table", DataTable)
         assert table.row_count == 1
         assert table.get_row_at(0)[0] == "mytpl"
+
+
+@pytest.mark.asyncio
+async def test_templates_screen_apply_runs_off_thread(
+    home: Path, project_root: Path, tmp_path: Path
+) -> None:
+    # Applying from the TUI must not crash with "asyncio.run() cannot be called from
+    # a running event loop": apply runs lock+sync, so it has to go off the UI thread.
+    from aim.core import install
+
+    working = git_fixtures.make_source_repo(
+        tmp_path / "src", files={"skills/foo/SKILL.md": "# foo\n"}
+    )
+    bare = git_fixtures.make_bare_remote(working, tmp_path / "bare.git")
+    repos.add("anth", f"file://{bare}")
+    init.run(init.InitOptions(project_root=project_root))
+    install.install(project_root, "anth/foo")
+    profiles.save(profiles.from_project("src", project_root))
+
+    target = tmp_path / "target"
+    app = AimApp(project_root=project_root)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        screen = ProjectTemplatesScreen(project_root)
+        app.push_screen(screen)
+        await pilot.pause()
+        screen._pending_apply = "src"
+        screen._on_apply_picked(ProjectPick(project_root=target))
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+
+    assert [s.qualified_name for s in manifest.load(target).skills] == ["anth/foo"]
 
 
 @pytest.mark.asyncio

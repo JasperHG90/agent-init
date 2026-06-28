@@ -166,6 +166,10 @@ def profile_apply(
         typer.echo(f"  installed agent: {qn}")
     for qn in result.skipped_agents:
         typer.echo(f"  skipped agent (not indexed locally): {qn}", err=True)
+    for qn in result.installed_plugins:
+        typer.echo(f"  installed plugin: {qn}")
+    for qn in result.skipped_plugins:
+        typer.echo(f"  skipped plugin (not indexed locally): {qn}", err=True)
     for alias in result.installed_mcp:
         typer.echo(f"  installed MCP server: {alias}")
     for alias in result.skipped_mcp:
@@ -267,4 +271,6 @@ def profile_update(
         typer.echo(f"  agent: {qn}")
     for qn in result.apply_result.installed_rules:
         typer.echo(f"  rule: {qn}")
+    for qn in result.apply_result.installed_plugins:
+        typer.echo(f"  plugin: {qn}")
     typer.echo(f"updated to template {result.apply_result.project_root}")

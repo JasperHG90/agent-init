@@ -152,6 +152,71 @@ def test_diff_previews_added_and_removed(home: Path, project_root: Path, tmp_pat
     assert d.removed == ["src/be-concise"]
 
 
+def _plugin_repo_files(version: str, *, template_toml: str | None = None) -> dict[str, str]:
+    """Files for a whole-repo claude plugin, optionally hosting a template toml."""
+    import json
+
+    files = {
+        ".claude-plugin/marketplace.json": json.dumps(
+            {"name": "m", "plugins": [{"name": "sp", "source": "./", "version": version}]}
+        ),
+        ".claude-plugin/plugin.json": json.dumps({"name": "sp", "version": version}),
+    }
+    if template_toml is not None:
+        files["templates/svc.toml"] = template_toml
+    return files
+
+
+def test_bump_advances_plugin_sha(home: Path, project_root: Path, tmp_path: Path) -> None:
+    import json
+
+    from aim.core import init as init_mod
+    from aim.core import plugin_install
+
+    working = git_fixtures.make_source_repo(tmp_path / "src", files=_plugin_repo_files("1.0.0"))
+    git_fixtures.make_bare_remote(working, tmp_path / "bare.git")
+    repos.add("src", f"file://{tmp_path / 'bare.git'}")
+    init_mod.run(init_mod.InitOptions(project_root=project_root))
+    plugin_install.install_plugin(project_root, "src/sp")
+
+    profiles.save(profiles.from_project("svc", project_root))
+    before = profiles.load("svc").plugins[0].sha
+    assert before is not None
+
+    # Advance the tracked manifest (.claude-plugin/plugin.json) so the SHA moves.
+    _advance(
+        working,
+        tmp_path,
+        {".claude-plugin/plugin.json": json.dumps({"name": "sp", "version": "2.0.0"})},
+    )
+    repos.refresh("src")
+
+    changes = profiles.bump("svc")
+    assert [c.qualified_name for c in changes] == ["src/sp"]
+    after = profiles.load("svc").plugins[0].sha
+    assert after == changes[0].new_sha and after != before
+
+
+def test_update_removes_plugin_member(home: Path, project_root: Path, tmp_path: Path) -> None:
+    plugin_v1 = '\nname = "svc"\n\n[[plugin]]\nqualified_name = "src/sp"\nflavor = "claude"\n'
+    plugin_v2 = '\nname = "svc"\ndescription = "v2 drops the plugin"\n'
+    working = git_fixtures.make_source_repo(
+        tmp_path / "src", files=_plugin_repo_files("1.0.0", template_toml=plugin_v1)
+    )
+    git_fixtures.make_bare_remote(working, tmp_path / "bare.git")
+    repos.add("src", f"file://{tmp_path / 'bare.git'}")
+
+    profiles.apply("src/svc", project_root)
+    assert [p.qualified_name for p in manifest.load(project_root).plugins] == ["src/sp"]
+
+    _advance(working, tmp_path, {"templates/svc.toml": plugin_v2})
+    repos.refresh("src")
+
+    result = profiles.update_from_template(project_root)
+    assert "plugin:claude:src/sp" in result.removed
+    assert manifest.load(project_root).plugins == []
+
+
 def test_bump_advances_template_artifact_sha(
     home: Path, project_root: Path, tmp_path: Path
 ) -> None:

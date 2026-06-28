@@ -55,6 +55,9 @@ class TemplateBuilderScreen(Screen[None]):
         self._skills: list[profiles_mod.ProfileSkill]
         self._agents: list[profiles_mod.ProfileAgent]
         self._rules: list[str]
+        # Plugins are preserved as-is (the builder has no picker yet) so editing a
+        # template never silently drops its plugins.
+        self._plugins: list[profiles_mod.ProfilePlugin]
         self._mcp_servers: list[profiles_mod.ProfileMcpServer]
         if profile is not None:
             self._name = profile.name
@@ -65,6 +68,7 @@ class TemplateBuilderScreen(Screen[None]):
             self._skills = list(profile.skills)
             self._agents = list(profile.agents)
             self._rules = [r.qualified_name for r in profile.rules]
+            self._plugins = list(profile.plugins)
             self._mcp_servers = list(profile.mcp_servers)
         else:
             self._name = ""
@@ -75,6 +79,7 @@ class TemplateBuilderScreen(Screen[None]):
             self._skills = []
             self._agents = []
             self._rules = []
+            self._plugins = []
             self._mcp_servers = []
 
     def _profile(self) -> profiles_mod.Profile:
@@ -93,6 +98,7 @@ class TemplateBuilderScreen(Screen[None]):
             skills=self._skills,
             agents=self._agents,
             rules=[profiles_mod.ProfileRule(qualified_name=name) for name in self._rules],
+            plugins=self._plugins,
             mcp_servers=self._mcp_servers,
         )
 
@@ -370,6 +376,7 @@ class TemplateBuilderScreen(Screen[None]):
         self._skills = list(result.profile.skills)
         self._agents = list(result.profile.agents)
         self._rules = [r.qualified_name for r in result.profile.rules]
+        self._plugins = list(result.profile.plugins)
         self._mcp_servers = list(result.profile.mcp_servers)
         self.query_one("#name", Input).value = self._name
         self.query_one("#description", Input).value = self._description or ""

@@ -28,7 +28,7 @@ Every AI coding assistant works better with the right context: project conventio
 - **Share project-instruction archetypes** — base your `AGENTS.md` on a versioned archetype from any repo (`aim archetype use`), so a whole team starts from the same agent instructions while keeping their own rules layered on top.
 - **Install skills, agents, and rules from any repo** — register a git URL, browse the index, and install with per-artifact version pinning.
 - **Install MCP servers from the community registry** — search the public MCP registry and add servers to `.mcp.json` without hand-editing JSON.
-- **Install plugins, project-scoped** — `aim plugin add` vendors and SHA-pins a Claude (marketplace) or opencode plugin into your project, never globally. New clients plug in through a declarative "kind" file, with no `aim` change.
+- **Install plugins, project-scoped** — `aim plugin add` vendors and SHA-pins a Claude (marketplace) plugin into your project, never globally. Only `claude` is baked in; other clients plug in through a declarative "target" file, with no `aim` change.
 - **A manifest that tells you what you installed** — `aim.lock.toml` is committed to your repo and tracks every skill, agent, MCP server, rule, and plugin.
 - **Skills that let your agent manage itself** — bundled `repo-add` and `artifact-installer` skills let your assistant add sources and install skills/agents/rules straight from a project chat.
 - **Hackable profiles** — layout profiles control where skills, rules, and agent files land (e.g. `.claude/`, `.gemini/`, or your own paths).
@@ -168,18 +168,18 @@ A registered repo can expose skills, agents, and rules in **any** location. `aim
 
 If the same name appears in multiple places, the shallower path wins. At the same depth, canonical `skills/`, `agents/`, and `rules/` prefixes win over `.claude/` and arbitrary paths, so existing convention-based repos keep working. Ties otherwise break by lexicographic path. Artifacts are referenced everywhere as `<repo_alias>/<name>`. Repos with no discoverable artifacts are rejected on `repo add` unless you pass `--allow-empty`.
 
-A registered repo is re-scanned by `aim repo refresh <alias>`, which fetches new commits and reindexes when the tracked commit moved. To force discovery to re-run even when the commit is unchanged — for example after you add a custom plugin kind and want its newly matching plugins to show up — use `aim repo reindex <alias>` (or press `i` on the Repos screen in the TUI).
+A registered repo is re-scanned by `aim repo refresh <alias>`, which fetches new commits and reindexes when the tracked commit moved. To force discovery to re-run even when the commit is unchanged — for example after you add a custom plugin target and want its newly matching plugins to show up — use `aim repo reindex <alias>` (or press `i` on the Repos screen in the TUI).
 
 ### Plugins and custom plugin formats
 
-A registered repo can also expose **plugins**. aim ships one built-in *kind*, `claude`, which reads a `.claude-plugin/marketplace.json` catalog; `aim plugin add` vendors the plugin's files into the project (SHA-pinned, like a skill) and enables it in `.claude/settings.json`. `aim plugin list` aggregates plugins across every marketplace and repo, with `--repo`/`--marketplace`/`--target` filters and a `sha` column you can pass to `--pin` (the upstream `version` is a label, not a git ref).
+A registered repo can also expose **plugins**. aim ships one built-in *target*, `claude`, which reads a `.claude-plugin/marketplace.json` catalog; `aim plugin add` vendors the plugin's files into the project (SHA-pinned, like a skill) and enables it in `.claude/settings.json`. `aim plugin list` aggregates plugins across every marketplace and repo, with `--repo`/`--marketplace`/`--target` filters and a `sha` column you can pass to `--pin` (the upstream `version` is a label, not a git ref).
 
-A plugin written for one client can't install as another's, so aim never converts formats. Instead, the discover-and-install rules for each client are a **pluggable kind** you can add yourself, with no aim change. Drop a TOML file in `<config>/targets/` (global) or a project's `.aim/targets/`:
+A plugin written for one client can't install as another's, so aim never converts formats. Instead, the discover-and-install rules for each client are a **pluggable target** you can add yourself, with no aim change. Drop a TOML file in `<config>/targets/` (global) or a project's `.aim/targets/`:
 
 A plugin is a directory that carries a JSON metadata file (opencode's `package.json`, a Gemini extension's `gemini-extension.json`). You supply that file's name, the keypaths to read from it, and where the directory should land:
 
 ```toml
-name = "opencode"            # the flavor this kind discovers
+name = "opencode"            # the flavor this target discovers
 
 [manifest]
 file = "package.json"        # the metadata file (JSON) that marks a plugin directory
@@ -194,7 +194,7 @@ vendor_into = ".opencode/plugins/{name}"  # destination; only {name}/{repo} are 
 # set = { "plugins.{name}" = true }
 ```
 
-aim discovers any directory containing that metadata file, reads the plugin name from it, and vendors the whole directory (context files, hooks, and MCP config included), SHA-pinned in `aim.lock.toml`. A directory without metadata is not a discoverable plugin. A declarative kind is pure data, never executed, so a repo or teammate can ship one safely. Only the built-in kinds are code. See `examples/targets/opencode.toml` for the working showcase. As an added safeguard, `vendor_into` and `register.config.file` are validated when the spec is parsed: an absolute path or one containing `..` is rejected, on top of the install-time clamp to the project root.
+aim discovers any directory containing that metadata file, reads the plugin name from it, and vendors the whole directory (context files, hooks, and MCP config included), SHA-pinned in `aim.lock.toml`. A directory without metadata is not a discoverable plugin. A declarative target is pure data, never executed, so a repo or teammate can ship one safely. Only the built-in targets are code. See `examples/targets/opencode.toml` for the working showcase. As an added safeguard, `vendor_into` and `register.config.file` are validated when the spec is parsed: an absolute path or one containing `..` is rejected, on top of the install-time clamp to the project root.
 
 ### Sharing plugin targets across teams and projects
 
@@ -207,7 +207,7 @@ aim target view myorg/opencode     # print the TOML before installing
 aim target add myorg/opencode      # vendor into .aim/targets/ + pin in aim.lock.toml
 ```
 
-`aim target add` writes the spec to `.aim/targets/<name>.toml` (the directory aim already loads kinds from, so the target is active immediately) and records it in `aim.lock.toml`, so `aim sync` reproduces it on a fresh clone and `aim target update`/`rollback` manage versions like any other artifact. The TUI exposes the same browser under **Targets** (`E`) on the main menu. Targets are configuration, not agent-facing instructions, so they are not risk-scanned. Hand-dropped `.aim/targets/*.toml` keep working alongside vendored ones.
+`aim target add` writes the spec to `.aim/targets/<name>.toml` (the directory aim already loads targets from, so the target is active immediately) and records it in `aim.lock.toml`, so `aim sync` reproduces it on a fresh clone and `aim target update`/`rollback` manage versions like any other artifact. The TUI exposes the same browser under **Targets** (`E`) on the main menu. Targets are configuration, not agent-facing instructions, so they are not risk-scanned. Hand-dropped `.aim/targets/*.toml` keep working alongside vendored ones.
 
 ### Versioning
 
